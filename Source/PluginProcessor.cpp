@@ -146,21 +146,42 @@ void BraidyAudioProcessor::updateBraidyFromAPVTS() {
 }
 
 void BraidyAudioProcessor::processMidiMessage(const juce::MidiMessage& message) {
+    int channel = message.getChannel() - 1;  // Convert to 0-based
+    
     if (message.isNoteOn()) {
         int midiNote = message.getNoteNumber();
         float velocity = message.getFloatVelocity();
-        voice_manager_->NoteOn(midiNote, velocity);
+        voice_manager_->NoteOn(midiNote, velocity, channel);
     }
     else if (message.isNoteOff()) {
         int midiNote = message.getNoteNumber();
-        voice_manager_->NoteOff(midiNote);
+        voice_manager_->NoteOff(midiNote, channel);
     }
     else if (message.isAllNotesOff() || message.isAllSoundOff()) {
         voice_manager_->AllNotesOff();
     }
     else if (message.isPitchWheel()) {
         float pitchBend = (message.getPitchWheelValue() - 8192.0f) / 8192.0f;  // -1 to 1
-        voice_manager_->SetPitchBend(pitchBend);
+        voice_manager_->SetPitchBend(pitchBend, channel);
+    }
+    else if (message.isAftertouch()) {
+        float aftertouch = message.getAfterTouchValue() / 127.0f;  // 0 to 1
+        voice_manager_->SetAftertouch(aftertouch, -1, channel);  // Channel aftertouch
+    }
+    else if (message.isChannelPressure()) {
+        float pressure = message.getChannelPressureValue() / 127.0f;  // 0 to 1
+        voice_manager_->SetAftertouch(pressure, -1, channel);  // Channel pressure
+    }
+    else if (message.isController()) {
+        int ccNumber = message.getControllerNumber();
+        float ccValue = message.getControllerValue() / 127.0f;  // 0 to 1
+        
+        // Handle special controllers
+        if (ccNumber == 1) {  // Mod wheel
+            voice_manager_->SetModWheel(ccValue, channel);
+        } else {
+            voice_manager_->SetCC(ccNumber, ccValue, channel);
+        }
     }
 }
 

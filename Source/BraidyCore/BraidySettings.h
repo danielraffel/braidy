@@ -31,6 +31,23 @@ enum class BraidyParameter {
     QUANTIZER_SCALE,        // Quantizer scale
     QUANTIZER_ROOT,         // Quantizer root note
     
+    // Phase 8: Advanced features
+    ENVELOPE_SUSTAIN,       // Envelope sustain level (ADSR extension)
+    ENVELOPE_RELEASE,       // Envelope release time
+    ENVELOPE_SHAPE,         // Envelope curve shape
+    BIT_CRUSHER_BITS,       // Bit crusher resolution
+    BIT_CRUSHER_RATE,       // Bit crusher sample rate
+    WAVESHAPER_AMOUNT,      // Waveshaper/distortion amount
+    WAVESHAPER_TYPE,        // Waveshaper algorithm type
+    META_ENABLED,           // Enable meta oscillator mode
+    META_SPEED,             // Meta oscillator change speed
+    META_RANGE,             // Meta oscillator algorithm range
+    PARAPHONY_ENABLED,      // Enable paraphonic mode
+    PARAPHONY_DETUNE,       // Paraphonic detune amount
+    VCA_MODE,               // VCA response (linear/exponential)
+    LOW_PASS_GATE_ENABLED,  // Enable low-pass gate mode
+    LOW_PASS_GATE_DECAY,    // Low-pass gate decay time
+    
     PARAMETER_COUNT
 };
 

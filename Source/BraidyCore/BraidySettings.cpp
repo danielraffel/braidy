@@ -75,7 +75,70 @@ const ParameterInfo BraidySettings::parameter_info_[static_cast<int>(BraidyParam
     
     // QUANTIZER_ROOT
     {"Root", "ROT", "Quantizer root note", 
-     0.0f, 11.0f, 0.0f, true, nullptr}
+     0.0f, 11.0f, 0.0f, true, nullptr},
+    
+    // Phase 8: Advanced features
+    
+    // ENVELOPE_SUSTAIN
+    {"Sustain", "SUS", "Envelope sustain level (ADSR)", 
+     0.0f, 1.0f, 0.6f, false, nullptr},
+    
+    // ENVELOPE_RELEASE
+    {"Release", "REL", "Envelope release time", 
+     0.0f, 1.0f, 0.3f, false, nullptr},
+    
+    // ENVELOPE_SHAPE
+    {"Env Shape", "ESP", "Envelope curve shape", 
+     0.0f, 3.0f, 0.0f, true, nullptr},
+    
+    // BIT_CRUSHER_BITS
+    {"Bits", "BIT", "Bit crusher resolution (bits)", 
+     1.0f, 16.0f, 16.0f, true, nullptr},
+    
+    // BIT_CRUSHER_RATE
+    {"Rate", "SRT", "Bit crusher sample rate reduction", 
+     1.0f, 32.0f, 1.0f, false, nullptr},
+    
+    // WAVESHAPER_AMOUNT
+    {"Drive", "DRV", "Waveshaper/distortion amount", 
+     0.0f, 1.0f, 0.0f, false, nullptr},
+    
+    // WAVESHAPER_TYPE
+    {"Wave Type", "WTV", "Waveshaper algorithm type", 
+     0.0f, 4.0f, 0.0f, true, nullptr},
+    
+    // META_ENABLED
+    {"Meta Mode", "MTA", "Enable meta oscillator mode", 
+     0.0f, 1.0f, 0.0f, true, nullptr},
+    
+    // META_SPEED
+    {"Meta Speed", "MTS", "Meta oscillator change speed", 
+     0.01f, 10.0f, 1.0f, false, nullptr},
+    
+    // META_RANGE
+    {"Meta Range", "MTR", "Meta oscillator algorithm range", 
+     1.0f, static_cast<float>(static_cast<int>(MacroOscillatorShape::LAST_ACCESSIBLE_FROM_META)), 
+     static_cast<float>(static_cast<int>(MacroOscillatorShape::LAST_ACCESSIBLE_FROM_META)), false, nullptr},
+    
+    // PARAPHONY_ENABLED
+    {"Paraphony", "PAR", "Enable paraphonic mode", 
+     0.0f, 1.0f, 0.0f, true, nullptr},
+    
+    // PARAPHONY_DETUNE
+    {"Detune", "DET", "Paraphonic detune amount", 
+     0.0f, 1.0f, 0.1f, false, nullptr},
+    
+    // VCA_MODE
+    {"VCA Mode", "VCA", "VCA response (0=linear, 1=exponential)", 
+     0.0f, 1.0f, 1.0f, true, nullptr},
+    
+    // LOW_PASS_GATE_ENABLED
+    {"LPG Mode", "LPG", "Enable low-pass gate mode", 
+     0.0f, 1.0f, 0.0f, true, nullptr},
+    
+    // LOW_PASS_GATE_DECAY
+    {"LPG Decay", "LGD", "Low-pass gate decay time", 
+     0.0f, 1.0f, 0.5f, false, nullptr}
 };
 
 BraidySettings::BraidySettings() 
