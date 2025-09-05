@@ -150,6 +150,28 @@ inline T ScaleParameter(T value, T min_val, T max_val) {
 // Fast square root approximation
 uint16_t Sqrt(uint32_t x);
 
+// Soft limiting/saturation
+inline int16_t SoftLimit(int32_t x) {
+    if (x > 32767) return 32767;
+    if (x < -32767) return -32767;
+    return static_cast<int16_t>(x);
+}
+
+inline int32_t SoftLimit32(int32_t x) {
+    // Cubic soft limiting
+    if (x > 32767) {
+        int32_t excess = x - 32767;
+        excess = excess * excess >> 16;
+        return 32767 + (excess >> 2);
+    }
+    if (x < -32767) {
+        int32_t excess = -x - 32767;
+        excess = excess * excess >> 16;
+        return -32767 - (excess >> 2);
+    }
+    return x;
+}
+
 // One-pole filters for parameter smoothing
 class OnePole {
 public:
