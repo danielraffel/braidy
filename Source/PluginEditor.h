@@ -1,14 +1,20 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "UI/BraidyDisplay.h"
+#include "UI/BraidyEncoder.h"
+#include "UI/BraidyVisualizer.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <memory>
 
 //==============================================================================
 /**
- * Braidy Audio Processor Editor - Basic UI for Phase 1
+ * Braidy Audio Processor Editor - Complete UI matching Mutable Instruments aesthetic
  */
-class BraidyAudioProcessorEditor : public juce::AudioProcessorEditor
+class BraidyAudioProcessorEditor : public juce::AudioProcessorEditor, 
+                                   public braidy::BraidyEncoder::Listener,
+                                   public juce::Timer
 {
 public:
     explicit BraidyAudioProcessorEditor (BraidyAudioProcessor&);
@@ -17,44 +23,70 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
+    // Encoder listener callbacks
+    void encoderValueChanged(braidy::BraidyEncoder* encoder, int delta) override;
+    void encoderClicked(braidy::BraidyEncoder* encoder) override;
+    void encoderLongPressed(braidy::BraidyEncoder* encoder) override;
+    
+    // Timer for display updates
+    void timerCallback() override;
+
 private:
     BraidyAudioProcessor& processorRef;
-
-    // UI Components
-    juce::Label titleLabel;
     
-    // Parameter controls
-    juce::Slider shapeSlider;
-    juce::Label shapeLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> shapeAttachment;
+    // Core UI components
+    std::unique_ptr<braidy::BraidyDisplay> display_;
+    std::unique_ptr<braidy::BraidyEncoder> algorithmEncoder_;
+    std::unique_ptr<braidy::BraidyEncoder> timbreEncoder_;
+    std::unique_ptr<braidy::BraidyEncoder> colorEncoder_;
+    std::unique_ptr<braidy::BraidyVisualizer> visualizer_;
     
-    juce::Slider timbreSlider;
-    juce::Label timbreLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> timbreAttachment;
+    // Labels
+    juce::Label algorithmLabel_;
+    juce::Label timbreLabel_;
+    juce::Label colorLabel_;
+    juce::Label titleLabel_;
     
-    juce::Slider colorSlider;
-    juce::Label colorLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> colorAttachment;
+    // Settings and state
+    enum class DisplayState {
+        Algorithm,      // Show algorithm name
+        Parameter,      // Show parameter values
+        Menu,          // Settings menu
+        Visualizer     // Focus on visualizer
+    };
     
-    juce::Slider volumeSlider;
-    juce::Label volumeLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> volumeAttachment;
+    DisplayState currentDisplayState_;
+    int menuSelection_;
+    bool settingsMode_;
     
-    juce::Slider attackSlider;
-    juce::Label attackLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attackAttachment;
+    // Algorithm names for display
+    static const juce::StringArray algorithmNames_;
     
-    juce::Slider decaySlider;
-    juce::Label decayLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> decayAttachment;
+    // Aesthetic properties
+    juce::Colour panelColour_;
+    juce::Colour highlightColour_;
+    juce::Colour textColour_;
+    juce::Colour accentColour_;
     
-    // Status display
-    juce::Label statusLabel;
+    // Audio monitoring for visualizer
+    juce::AudioBuffer<float> visualizerBuffer_;
+    int visualizerWritePos_;
     
     // Helper methods
-    void setupSlider(juce::Slider& slider, juce::Label& label, const juce::String& labelText);
-    void setupSliderAttachment(std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>& attachment,
-                              juce::Slider& slider, const juce::String& paramId);
+    void setupComponents();
+    void updateDisplay();
+    void updateParameterValues();
+    void handleMenuNavigation(int delta);
+    void handleParameterChange(braidy::BraidyEncoder* encoder, int delta);
+    
+    // Visual helpers
+    void drawModularBackground(juce::Graphics& g, juce::Rectangle<int> bounds);
+    void drawConnections(juce::Graphics& g);
+    void drawLEDs(juce::Graphics& g);
+    
+    // Algorithm name mapping
+    juce::String getAlgorithmName(int algorithmIndex) const;
+    juce::String getParameterDisplayText(const juce::String& paramId) const;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BraidyAudioProcessorEditor)
 };

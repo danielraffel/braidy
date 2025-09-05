@@ -115,6 +115,12 @@ target_sources(${PROJECT_NAME} PRIVATE
     Source/BraidyVoice/BraidyVoice.h
     Source/BraidyVoice/VoiceManager.cpp
     Source/BraidyVoice/VoiceManager.h
+    Source/UI/BraidyDisplay.cpp
+    Source/UI/BraidyDisplay.h
+    Source/UI/BraidyEncoder.cpp
+    Source/UI/BraidyEncoder.h
+    Source/UI/BraidyVisualizer.cpp
+    Source/UI/BraidyVisualizer.h
 )
 
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
