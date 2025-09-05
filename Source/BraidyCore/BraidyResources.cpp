@@ -81,7 +81,7 @@ const int16_t* ws_violent_overdrive = nullptr;
 int16_t ws_fold_temp[513];
 const int16_t* ws_sine_fold = nullptr;
 
-// Wavetables
+// Wavetables - procedurally generated for 64 different wavetables
 int16_t wt_temp[64][129];
 const int16_t wt_waves[64][129] = {};
 
@@ -183,6 +183,93 @@ void InitializeResources() {
     for (int i = 0; i < 8; ++i) {
         wav_bandlimited_saw[i] = wav_sawtooth;
         wav_bandlimited_square[i] = wav_square;
+    }
+    
+    // Generate 64 different wavetables
+    for (int wt = 0; wt < 64; ++wt) {
+        for (int i = 0; i < 129; ++i) {
+            float phase = static_cast<float>(i) * k2Pi / 128.0f;
+            float value = 0.0f;
+            
+            // Different wavetable types based on index
+            switch (wt / 8) {
+                case 0: {
+                    // Basic waveforms with harmonics (0-7)
+                    int harmonics = (wt % 8) + 1;
+                    for (int h = 1; h <= harmonics; ++h) {
+                        value += std::sin(phase * h) / h;
+                    }
+                    break;
+                }
+                case 1: {
+                    // PWM variants (8-15)
+                    float duty = 0.1f + (wt % 8) * 0.1f;  // 10-80% duty cycle
+                    value = (std::fmod(phase, k2Pi) < (k2Pi * duty)) ? 1.0f : -1.0f;
+                    // Anti-alias with sine blend
+                    value = value * 0.7f + std::sin(phase) * 0.3f;
+                    break;
+                }
+                case 2: {
+                    // Filtered sawtooth variants (16-23)
+                    float cutoff = 2.0f + (wt % 8);  // Different filter cutoffs
+                    value = phase / kPi - 1.0f;  // Sawtooth
+                    for (int h = 2; h <= 16; ++h) {
+                        if (h <= cutoff) {
+                            value += std::sin(phase * h) / (h * h);
+                        }
+                    }
+                    break;
+                }
+                case 3: {
+                    // FM-like wavetables (24-31)
+                    float mod_index = (wt % 8) * 0.5f;
+                    value = std::sin(phase + mod_index * std::sin(phase * 2.0f));
+                    break;
+                }
+                case 4: {
+                    // Resonant filter sweeps (32-39)
+                    float q = 0.5f + (wt % 8) * 0.2f;
+                    float freq_mod = 1.0f + (wt % 8) * 0.5f;
+                    value = std::sin(phase) + q * std::sin(phase * freq_mod);
+                    value = std::tanh(value);  // Clip
+                    break;
+                }
+                case 5: {
+                    // Harmonic series with gaps (40-47)
+                    for (int h = 1; h <= 12; ++h) {
+                        if ((h & (1 << (wt % 8))) != 0) {
+                            value += std::sin(phase * h) / h;
+                        }
+                    }
+                    break;
+                }
+                case 6: {
+                    // Formant-like structures (48-55)
+                    float f1 = 200.0f + (wt % 4) * 100.0f;
+                    float f2 = 1000.0f + ((wt % 8) / 4) * 500.0f;
+                    value = std::sin(phase * f1/220.0f) + 0.5f * std::sin(phase * f2/220.0f);
+                    break;
+                }
+                case 7: {
+                    // Noise-like and chaotic (56-63)
+                    uint32_t chaos = static_cast<uint32_t>(i * 13 + wt * 17);
+                    chaos = (chaos * 1664525L + 1013904223L) >> 16;  // Simple PRNG
+                    float noise_factor = (wt % 8) * 0.05f;
+                    value = std::sin(phase) + noise_factor * (static_cast<float>(chaos) / 32768.0f - 1.0f);
+                    break;
+                }
+            }
+            
+            wt_temp[wt][i] = static_cast<int16_t>(std::tanh(value * 0.8f) * 32767.0f);
+        }
+    }
+    
+    // Copy the generated wavetables to the const array (const_cast for initialization)
+    int16_t* wt_mutable = const_cast<int16_t*>(&wt_waves[0][0]);
+    for (int wt = 0; wt < 64; ++wt) {
+        for (int i = 0; i < 129; ++i) {
+            wt_mutable[wt * 129 + i] = wt_temp[wt][i];
+        }
     }
 }
 

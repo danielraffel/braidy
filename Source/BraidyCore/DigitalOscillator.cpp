@@ -1,4 +1,6 @@
 #include "DigitalOscillator.h"
+#include "BraidyResources.h"
+#include "BraidyMath.h"
 #include <cstring>
 #include <algorithm>
 #include <cmath>
@@ -1205,73 +1207,475 @@ void DigitalOscillator::RenderFluted(const uint8_t* sync, int16_t* buffer, size_
 // Wavetable and noise stubs (Phase 5)
 
 void DigitalOscillator::RenderWavetables(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // Standard wavetable synthesis with morphing
+    uint32_t phase = phase_;
+    uint32_t increment = phase_increment_;
+    
+    // Parameter 0 controls wavetable selection (0-63)
+    uint32_t wavetable_index = (parameter_[0] * 63) >> 15;
+    uint32_t next_wavetable = (wavetable_index + 1) & 63;
+    uint32_t morph_amount = (parameter_[0] * 63) & 0x7FFF;  // Fractional part
+    
+    // Parameter 1 controls wavetable scanning position
+    uint32_t scan_position = parameter_[1];
+    
+    while (size--) {
+        if (*sync++) {
+            phase = 0;
+        }
+        
+        phase += increment;
+        
+        // Get sample from current wavetable
+        auto current_wt = GetWavetable(wavetable_index);
+        int16_t sample_a = current_wt.LookupInterpolated(phase + scan_position);
+        
+        // Get sample from next wavetable for morphing
+        auto next_wt = GetWavetable(next_wavetable);
+        int16_t sample_b = next_wt.LookupInterpolated(phase + scan_position);
+        
+        // Morph between wavetables
+        int32_t result = sample_a + (((sample_b - sample_a) * morph_amount) >> 15);
+        
+        *buffer++ = static_cast<int16_t>(result);
     }
+    
+    phase_ = phase;
 }
 
 void DigitalOscillator::RenderWaveMap(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // 2D wavetable morphing - both X and Y axis control
+    uint32_t phase = phase_;
+    uint32_t increment = phase_increment_;
+    
+    // Parameter 0 controls X-axis (wavetable bank)
+    uint32_t bank_x = (parameter_[0] * 7) >> 15;  // 8 banks of 8
+    uint32_t bank_x_frac = (parameter_[0] * 7) & 0x7FFF;
+    
+    // Parameter 1 controls Y-axis (wavetable within bank)
+    uint32_t wave_y = (parameter_[1] * 7) >> 15;  // 8 waves per bank
+    uint32_t wave_y_frac = (parameter_[1] * 7) & 0x7FFF;
+    
+    while (size--) {
+        if (*sync++) {
+            phase = 0;
+        }
+        
+        phase += increment;
+        
+        // Sample from 4 corner wavetables for bilinear interpolation
+        uint32_t wt_00 = (bank_x * 8 + wave_y) & 63;
+        uint32_t wt_01 = (bank_x * 8 + ((wave_y + 1) & 7)) & 63;
+        uint32_t wt_10 = (((bank_x + 1) & 7) * 8 + wave_y) & 63;
+        uint32_t wt_11 = (((bank_x + 1) & 7) * 8 + ((wave_y + 1) & 7)) & 63;
+        
+        // Get samples from all 4 corners
+        int16_t s00 = GetWavetable(wt_00).LookupInterpolated(phase);
+        int16_t s01 = GetWavetable(wt_01).LookupInterpolated(phase);
+        int16_t s10 = GetWavetable(wt_10).LookupInterpolated(phase);
+        int16_t s11 = GetWavetable(wt_11).LookupInterpolated(phase);
+        
+        // Bilinear interpolation
+        int32_t s0 = s00 + (((s01 - s00) * wave_y_frac) >> 15);
+        int32_t s1 = s10 + (((s11 - s10) * wave_y_frac) >> 15);
+        int32_t result = s0 + (((s1 - s0) * bank_x_frac) >> 15);
+        
+        *buffer++ = static_cast<int16_t>(result);
     }
+    
+    phase_ = phase;
 }
 
 void DigitalOscillator::RenderWaveLine(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // 1D wavetable sweep with automatic scanning
+    uint32_t phase = phase_;
+    uint32_t increment = phase_increment_;
+    
+    // Parameter 0 controls sweep speed
+    uint32_t sweep_speed = (parameter_[0] >> 8) + 1;  // 1-128
+    
+    // Parameter 1 controls sweep range
+    uint32_t sweep_range = (parameter_[1] >> 9) + 8;  // 8-72 wavetables
+    
+    while (size--) {
+        if (*sync++) {
+            phase = 0;
+        }
+        
+        phase += increment;
+        
+        // Auto-sweep through wavetables based on time
+        state_.wtbl.phase[0] += sweep_speed << 8;
+        uint32_t sweep_pos = (state_.wtbl.phase[0] >> 16) % sweep_range;
+        uint32_t sweep_frac = (state_.wtbl.phase[0] >> 8) & 0xFF;
+        
+        // Get samples from current and next wavetable
+        int16_t sample_a = GetWavetable(sweep_pos).LookupInterpolated(phase);
+        int16_t sample_b = GetWavetable((sweep_pos + 1) % sweep_range).LookupInterpolated(phase);
+        
+        // Interpolate between wavetables
+        int32_t result = sample_a + (((sample_b - sample_a) * sweep_frac) >> 8);
+        
+        *buffer++ = static_cast<int16_t>(result);
     }
+    
+    phase_ = phase;
 }
 
 void DigitalOscillator::RenderWaveParaphonic(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // Paraphonic wavetable synthesis - 4 oscillators with different wavetables
+    uint32_t increment = phase_increment_;
+    
+    // Parameter 0 controls detuning amount
+    int32_t detune_amount = (parameter_[0] - 16384) >> 6;  // ±256 detune range
+    
+    // Parameter 1 controls wavetable spread
+    uint32_t wt_spread = parameter_[1] >> 10;  // 0-31 wavetable offset
+    
+    while (size--) {
+        if (*sync++) {
+            for (int i = 0; i < 4; ++i) {
+                state_.wtbl.phase[i] = 0;
+            }
+        }
+        
+        int32_t result = 0;
+        
+        // 4 wavetable oscillators with different detune and wavetables
+        for (int i = 0; i < 4; ++i) {
+            // Different detune for each oscillator
+            int32_t detune = detune_amount * (i - 2);  // -2, -1, 1, 2 detune factors
+            uint32_t osc_increment = increment + detune;
+            
+            state_.wtbl.phase[i] += osc_increment;
+            
+            // Different wavetable for each oscillator
+            uint32_t wavetable_idx = (i * wt_spread) & 63;
+            
+            // Get sample from wavetable
+            int16_t sample = GetWavetable(wavetable_idx).LookupInterpolated(state_.wtbl.phase[i]);
+            
+            // Mix with level control
+            result += (sample * state_.wtbl.level[i]) >> 15;
+        }
+        
+        // Scale down to prevent clipping
+        result >>= 2;
+        
+        *buffer++ = static_cast<int16_t>(result);
+    }
+    
+    // Update oscillator levels (simple envelope)
+    for (int i = 0; i < 4; ++i) {
+        if (state_.wtbl.level[i] < 16384) {
+            state_.wtbl.level[i] += 32;  // Slow attack
+        }
     }
 }
 
 void DigitalOscillator::RenderFilteredNoise(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // Filtered noise synthesis with resonant filtering
+    float frequency = static_cast<float>(parameter_[0]) / 32767.0f;  // 0-1 filter frequency
+    float resonance = static_cast<float>(parameter_[1]) / 32767.0f;  // 0-1 resonance
+    
+    // Map frequency to useful range (20Hz - 20kHz)
+    frequency = 20.0f + frequency * frequency * 19980.0f;
+    frequency /= 48000.0f;  // Normalize to sample rate
+    
+    while (size--) {
+        sync++;  // Advance sync pointer
+        
+        // Generate white noise
+        int16_t noise = static_cast<int16_t>(Rng() >> 17) - 16384;
+        
+        // Process through resonant filter
+        int16_t output;
+        ProcessFilter(state_.filt.filter_state, static_cast<float>(noise) / 32768.0f, frequency, resonance, &output);
+        
+        *buffer++ = output;
     }
 }
 
 void DigitalOscillator::RenderTwinPeaksNoise(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // Twin peaks noise - dual resonant filters on noise
+    float freq1 = static_cast<float>(parameter_[0]) / 32767.0f;
+    float freq2 = static_cast<float>(parameter_[1]) / 32767.0f;
+    
+    // Map to different frequency ranges
+    freq1 = 100.0f + freq1 * freq1 * 5000.0f;  // 100Hz - 5.1kHz
+    freq2 = 200.0f + freq2 * freq2 * 8000.0f;  // 200Hz - 8.2kHz
+    
+    freq1 /= 48000.0f;
+    freq2 /= 48000.0f;
+    
+    while (size--) {
+        sync++;  // Advance sync pointer
+        
+        // Generate white noise
+        int16_t noise = static_cast<int16_t>(Rng() >> 17) - 16384;
+        float noise_f = static_cast<float>(noise) / 32768.0f;
+        
+        // Process through two resonant filters
+        int16_t output1, output2;
+        ProcessFilter(&state_.filt.filter_state[0], noise_f, freq1, 0.8f, &output1);
+        ProcessFilter(&state_.filt.filter_state[2], noise_f, freq2, 0.8f, &output2);
+        
+        // Mix the two filtered signals
+        int32_t result = (static_cast<int32_t>(output1) + output2) >> 1;
+        
+        *buffer++ = static_cast<int16_t>(result);
     }
 }
 
 void DigitalOscillator::RenderClockedNoise(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // Clocked noise - sample and hold noise at a specific rate
+    uint32_t phase = phase_;
+    uint32_t increment = phase_increment_;
+    
+    // Parameter 0 controls clock rate (divider)
+    uint32_t clock_divider = (parameter_[0] >> 8) + 1;  // 1-128
+    
+    // Parameter 1 controls noise character
+    uint32_t noise_type = parameter_[1] >> 13;  // 0-3 different noise types
+    
+    while (size--) {
+        if (*sync++) {
+            phase = 0;
+            state_.noise.next_sample = 0;
+        }
+        
+        phase += increment;
+        
+        // Clock generation based on phase
+        uint32_t current_clock = phase / (0xFFFFFFFF / clock_divider);
+        uint32_t previous_clock = (phase - increment) / (0xFFFFFFFF / clock_divider);
+        
+        // Generate new noise sample on clock edge
+        if (current_clock != previous_clock) {
+            switch (noise_type) {
+                case 0:  // White noise
+                    state_.noise.next_sample = Rng() >> 17;
+                    break;
+                case 1:  // Pink-ish noise (simple 1-pole filter)
+                    state_.noise.next_sample = (state_.noise.next_sample * 7 + (Rng() >> 17)) >> 3;
+                    break;
+                case 2:  // Stepped random walk
+                    state_.noise.next_sample += ((Rng() >> 18) - 8192);
+                    if (state_.noise.next_sample > 16384) state_.noise.next_sample = 16384;
+                    if (state_.noise.next_sample < -16384) state_.noise.next_sample = -16384;
+                    break;
+                case 3:  // Quantized noise (bit-crushed)
+                    state_.noise.next_sample = (Rng() >> 19) << 2;  // 4-bit quantized
+                    break;
+            }
+        }
+        
+        *buffer++ = static_cast<int16_t>(state_.noise.next_sample);
     }
+    
+    phase_ = phase;
 }
 
 void DigitalOscillator::RenderGranularCloud(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // Granular cloud synthesis - multiple overlapping grains
+    float grain_density = static_cast<float>(parameter_[0]) / 32767.0f;  // 0-1
+    float grain_size = static_cast<float>(parameter_[1]) / 32767.0f;     // 0-1
+    
+    // Convert to useful ranges
+    uint32_t grain_length = static_cast<uint32_t>(48 + grain_size * 1000);  // 1-21ms grains
+    uint32_t grain_rate = static_cast<uint32_t>(1 + grain_density * 100);   // 1-100 grains per second
+    
+    while (size--) {
+        sync++;  // Advance sync pointer
+        
+        int32_t result = 0;
+        
+        // Update grain triggers
+        for (int g = 0; g < 8; ++g) {  // 8 concurrent grains max
+            // Check if grain should start
+            if (state_.wtbl.phase[g] == 0) {
+                // Random grain triggering based on density
+                if ((Rng() & 0xFFFF) < (grain_rate * 655)) {
+                    state_.wtbl.phase[g] = 1;  // Start grain
+                    state_.wtbl.level[g] = grain_length;  // Grain length counter
+                }
+            }
+            
+            // Process active grains
+            if (state_.wtbl.phase[g] > 0) {
+                // Grain position within length
+                float grain_pos = static_cast<float>(state_.wtbl.phase[g]) / grain_length;
+                
+                // Simple grain envelope (Hann window)
+                float envelope = 0.5f * (1.0f - std::cos(2.0f * M_PI * grain_pos));
+                
+                // Generate grain content (filtered noise)
+                int16_t grain_noise = static_cast<int16_t>(Rng() >> 17) - 16384;
+                
+                // Apply different grain characteristics per grain
+                float grain_freq = 0.1f + (g * 0.1f);  // Different filter freq per grain
+                
+                // Simple one-pole low-pass per grain
+                state_.noise.integrator_state = static_cast<int32_t>(
+                    state_.noise.integrator_state * (1.0f - grain_freq) + grain_noise * grain_freq
+                );
+                
+                // Apply envelope and add to result
+                int32_t grain_out = static_cast<int32_t>(state_.noise.integrator_state * envelope);
+                result += grain_out >> 3;  // Scale down
+                
+                // Advance grain
+                state_.wtbl.phase[g]++;
+                if (state_.wtbl.phase[g] > grain_length) {
+                    state_.wtbl.phase[g] = 0;  // End grain
+                }
+            }
+        }
+        
+        *buffer++ = SoftLimit(result);
     }
 }
 
 void DigitalOscillator::RenderParticleNoise(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // Particle noise - dust/crackle synthesis
+    float particle_rate = static_cast<float>(parameter_[0]) / 32767.0f;    // 0-1 particle density
+    float particle_energy = static_cast<float>(parameter_[1]) / 32767.0f;  // 0-1 particle energy
+    
+    // Convert to useful ranges
+    uint32_t trigger_threshold = static_cast<uint32_t>((1.0f - particle_rate) * 65536);
+    
+    while (size--) {
+        sync++;  // Advance sync pointer
+        
+        int32_t result = 0;
+        
+        // Random particle generation
+        if ((Rng() & 0xFFFF) > trigger_threshold) {
+            // Generate particle burst
+            uint32_t particle_length = 4 + (Rng() & 15);  // 4-19 samples
+            int16_t particle_amplitude = static_cast<int16_t>(particle_energy * 16384);
+            
+            // Particle characteristics
+            uint32_t particle_type = Rng() & 3;
+            
+            switch (particle_type) {
+                case 0:  // Sharp click
+                    result = particle_amplitude * ((Rng() & 1) ? 1 : -1);
+                    break;
+                    
+                case 1:  // Decaying burst
+                    state_.noise.band_limited_impulse = particle_amplitude;
+                    result = state_.noise.band_limited_impulse;
+                    state_.noise.band_limited_impulse = (state_.noise.band_limited_impulse * 28000) >> 15;
+                    break;
+                    
+                case 2:  // Filtered pop
+                    {
+                        int16_t noise_burst = static_cast<int16_t>(Rng() >> 17) - 16384;
+                        state_.noise.integrator_state += ((noise_burst * particle_amplitude - state_.noise.integrator_state) * 8192) >> 15;
+                        result = state_.noise.integrator_state;
+                    }
+                    break;
+                    
+                case 3:  // Resonant ping
+                    {
+                        // Simple resonator
+                        float freq = 0.01f + particle_energy * 0.2f;
+                        int32_t excitation = particle_amplitude * ((Rng() & 1) ? 1 : -1);
+                        
+                        // Add excitation to resonator state
+                        state_.noise.integrator_state += excitation >> 4;
+                        
+                        // Resonator update
+                        state_.noise.integrator_state = (state_.noise.integrator_state * (32768 - static_cast<int32_t>(freq * 1024))) >> 15;
+                        result = state_.noise.integrator_state;
+                    }
+                    break;
+            }
+        }
+        
+        // Add background ambiance (very quiet)
+        if (particle_rate > 0.1f) {
+            int16_t ambient = static_cast<int16_t>(Rng() >> 22);  // Very quiet noise floor
+            result += ambient;
+        }
+        
+        *buffer++ = SoftLimit(result);
     }
 }
 
 void DigitalOscillator::RenderDigitalModulation(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // Digital modulation synthesis - QPSK-like modulation
+    uint32_t phase = phase_;
+    uint32_t increment = phase_increment_;
+    
+    // Parameter 0 controls modulation rate
+    uint32_t mod_rate = (parameter_[0] >> 10) + 1;  // 1-32 symbol rate divider
+    
+    // Parameter 1 controls modulation depth/type
+    uint32_t mod_type = parameter_[1] >> 13;  // 0-3 modulation types
+    
+    while (size--) {
+        if (*sync++) {
+            phase = 0;
+            state_.noise.next_sample = 0;
+        }
+        
+        phase += increment;
+        
+        // Symbol clock generation
+        uint32_t symbol_clock = (phase >> 16) / mod_rate;
+        
+        // Generate new symbol on clock transition
+        if (symbol_clock != ((phase - increment) >> 16) / mod_rate) {
+            // Generate new modulation symbol
+            switch (mod_type) {
+                case 0:  // BPSK (Binary Phase Shift Keying)
+                    state_.noise.next_sample = (Rng() & 0x8000) ? 16384 : -16384;
+                    break;
+                    
+                case 1:  // QPSK (Quadrature Phase Shift Keying)
+                    {
+                        uint32_t symbol = Rng() & 3;
+                        switch (symbol) {
+                            case 0: state_.noise.next_sample = 11585;  break;  // 45 degrees
+                            case 1: state_.noise.next_sample = -11585; break;  // 135 degrees
+                            case 2: state_.noise.next_sample = -11585; break;  // 225 degrees
+                            case 3: state_.noise.next_sample = 11585;  break;  // 315 degrees
+                        }
+                    }
+                    break;
+                    
+                case 2:  // 8-PSK (8-level Phase Shift Keying)
+                    {
+                        uint32_t symbol = Rng() & 7;
+                        float angle = symbol * M_PI / 4.0f;
+                        state_.noise.next_sample = static_cast<int32_t>(16384 * std::cos(angle));
+                    }
+                    break;
+                    
+                case 3:  // QAM-like (amplitude + phase)
+                    {
+                        uint32_t amplitude = 8192 + ((Rng() >> 17) & 8191);  // Variable amplitude
+                        uint32_t phase_offset = Rng() & 7;
+                        float angle = phase_offset * M_PI / 4.0f;
+                        state_.noise.next_sample = static_cast<int32_t>(amplitude * std::cos(angle));
+                    }
+                    break;
+            }
+        }
+        
+        // Generate carrier with modulation
+        int16_t carrier = InterpolateWaveform(wav_sine, phase, 1024);
+        int32_t result = (carrier * state_.noise.next_sample) >> 15;
+        
+        // Add some filtering to make it more musical
+        state_.noise.integrator_state += ((result - state_.noise.integrator_state) * 16384) >> 15;
+        
+        *buffer++ = static_cast<int16_t>(state_.noise.integrator_state);
     }
+    
+    phase_ = phase;
 }
 
 }  // namespace braidy
