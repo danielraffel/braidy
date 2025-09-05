@@ -111,6 +111,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Source/BraidyCore/BraidyResources.cpp
     Source/BraidyCore/BraidyResources.h
     Source/BraidyCore/ParameterInterpolation.h
+    Source/BraidyCore/PresetManager.cpp
+    Source/BraidyCore/PresetManager.h
     Source/BraidyVoice/BraidyVoice.cpp
     Source/BraidyVoice/BraidyVoice.h
     Source/BraidyVoice/VoiceManager.cpp

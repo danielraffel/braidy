@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "BraidyCore/BraidySettings.h"
+#include "BraidyCore/PresetManager.h"
 #include "BraidyVoice/VoiceManager.h"
 #include <memory>
 
@@ -47,11 +48,15 @@ public:
     
     // Voice management
     braidy::VoiceManager& getVoiceManager() { return *voice_manager_; }
+    
+    // Preset management
+    braidy::PresetManager& getPresetManager() { return *preset_manager_; }
 
 private:
     // Braidy synthesizer components
     std::unique_ptr<braidy::BraidySettings> braidy_settings_;
     std::unique_ptr<braidy::VoiceManager> voice_manager_;
+    std::unique_ptr<braidy::PresetManager> preset_manager_;
     
     // JUCE parameter management
     juce::AudioProcessorValueTreeState apvts_;
@@ -64,6 +69,15 @@ private:
     
     // MIDI processing helpers
     void processMidiMessage(const juce::MidiMessage& message);
+    
+    // Preset management helpers
+    void loadPreset(size_t index);
+    void saveCurrentAsPreset(const juce::String& name);
+    
+    // Performance optimization
+    void optimizeForRealtime();
+    bool parameter_update_pending_;
+    int samples_since_parameter_update_;
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BraidyAudioProcessor)
 };

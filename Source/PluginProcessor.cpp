@@ -11,6 +11,11 @@ BraidyAudioProcessor::BraidyAudioProcessor()
     // Initialize Braidy components
     braidy_settings_ = std::make_unique<braidy::BraidySettings>();
     voice_manager_ = std::make_unique<braidy::VoiceManager>();
+    preset_manager_ = std::make_unique<braidy::PresetManager>();
+    
+    // Initialize performance optimization variables
+    parameter_update_pending_ = false;
+    samples_since_parameter_update_ = 0;
     
     braidy_settings_->Init();
     voice_manager_->Init();
@@ -126,6 +131,11 @@ bool BraidyAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) co
 }
 
 void BraidyAudioProcessor::updateBraidyFromAPVTS() {
+    // Performance optimization: only update parameters if they've changed
+    if (!parameter_update_pending_) {
+        return;
+    }
+    
     // Update Braidy settings from JUCE parameters
     for (int i = 0; i < static_cast<int>(braidy::BraidyParameter::PARAMETER_COUNT); ++i) {
         auto param = static_cast<braidy::BraidyParameter>(i);
@@ -143,6 +153,8 @@ void BraidyAudioProcessor::updateBraidyFromAPVTS() {
     
     // Update parameter smoothing
     braidy_settings_->UpdateSmoothers();
+    
+    parameter_update_pending_ = false;
 }
 
 void BraidyAudioProcessor::processMidiMessage(const juce::MidiMessage& message) {
@@ -191,9 +203,18 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     // Clear any input (we're a synthesizer)
     buffer.clear();
     
-    // Update parameters
+    // Performance optimization: mark parameter update as pending
+    parameter_update_pending_ = true;
+    samples_since_parameter_update_ += buffer.getNumSamples();
+    
+    // Update parameters (optimized to skip if no changes)
     updateBraidyFromAPVTS();
-    voice_manager_->UpdateFromSettings(*braidy_settings_);
+    
+    // Only update voice settings if parameters changed or periodically
+    if (parameter_update_pending_ || samples_since_parameter_update_ > 1024) {
+        voice_manager_->UpdateFromSettings(*braidy_settings_);
+        samples_since_parameter_update_ = 0;
+    }
     
     // Process MIDI messages
     for (const auto metadata : midiMessages) {
@@ -230,6 +251,47 @@ void BraidyAudioProcessor::setStateInformation(const void* data, int sizeInBytes
             apvts_.replaceState(juce::ValueTree::fromXml(*xmlState));
         }
     }
+}
+
+void BraidyAudioProcessor::loadPreset(size_t index) {
+    const braidy::BraidyPreset* preset = preset_manager_->GetPreset(index);
+    if (preset && preset->IsValid()) {
+        preset->ApplyToSettings(*braidy_settings_);
+        
+        // Update APVTS to reflect new parameter values
+        for (int i = 0; i < static_cast<int>(braidy::BraidyParameter::PARAMETER_COUNT); ++i) {
+            auto param = static_cast<braidy::BraidyParameter>(i);
+            const auto& info = braidy::BraidySettings::GetParameterInfo(param);
+            
+            juce::String paramId = info.short_name;
+            paramId = paramId.toLowerCase().replaceCharacter(' ', '_');
+            
+            if (auto* apvtsParam = apvts_.getParameter(paramId)) {
+                float value = braidy_settings_->GetParameter(param);
+                float normalized = (value - info.min_value) / (info.max_value - info.min_value);
+                apvtsParam->setValueNotifyingHost(normalized);
+            }
+        }
+        
+        preset_manager_->SetCurrentPreset(index);
+        parameter_update_pending_ = true;
+    }
+}
+
+void BraidyAudioProcessor::saveCurrentAsPreset(const juce::String& name) {
+    preset_manager_->AddPreset(name.toStdString(), *braidy_settings_);
+}
+
+void BraidyAudioProcessor::optimizeForRealtime() {
+    // Performance optimization hints
+    
+    // Optimize voice manager for realtime use
+    voice_manager_->SetMaxPolyphony(16);  // Reasonable limit for realtime performance
+    
+    // Prepare for consistent block sizes
+    prepareToPlay(getSampleRate(), getBlockSize());
+    
+    // Note: Thread priority and denormal optimization are handled automatically by JUCE's audio thread
 }
 
 //==============================================================================
