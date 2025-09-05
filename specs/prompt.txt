@@ -1,0 +1,62 @@
+Write a product specification in @specs/product-spec-braids-phases.md for converting @eurorack/braids/ into a highly faithful software instrument built with JUCE.
+
+Key considerations:
+	•	The software version will use MIDI input rather than CV, so make thoughtful adaptations where appropriate and use as much of the original code for inspiration.
+	•	After defining the product specification, outline development phases and organize them into clear, discrete steps, including audio functionality.
+	•	The goal is to deliver a highly faithful feature set.
+	•	The original hardware’s rotary encoder (turn + tap) and LED screen interactions must be accurately reproduced in the software version.
+    •	The original hardware was monophonic, but since this will be a software synthesizer, it should support polyphony. If you identify other opportunities to expand it now that it's a software synth consider proposing as future enhancements.
+    •	Features such as Meta mode must remain fully functional, and the LED display should behave in a way that faithfully mirrors the original firmware.
+
+Reference materials:
+	•	@specs/braids_quickstart.pdf (original manual)
+	•	@specs/braids-manual.png (unit image)
+	•	@specs/original-braids-manual.txt (detailed manual with additional notes)
+
+General ASCII Layout (with LED + Encoder separated)
+Note: In both ascii designs the input/output jacks have been removed.
++---------------------------------------------------+
+|                 Braids (macro osc)                |
+|---------------------------------------------------|
+|  (A) [ LED DISPLAY ]       (B) EDIT Encoder       |
+|  (e.g. "VOWL")         (rotary+push)              |
+|                                                   |
+|       (C)FINE        (D)COARSE        (E)FM       |
+|        knob            knob            knob       |
+|                                                   |
+| (F)TIMBRE         (G)MODULATION        (H)COLOR   |
+|   knob               knob                knob     |
+|                                                   |
+|                                                   |
++---------------------------------------------------+
+|  A: LED Display (mode / model / menu)             |
+|  B: EDIT Encoder (rotate + push to select)        |
+|  C: Fine frequency knob                           |
+|  D: Coarse frequency knob                         |
+|  E: FM attenuverter                               |
+|  F: Timbre knob                                   |
+|  G: Modulation attenuverter                       |
+|  H: Color knob                                    |
+|                                                   |
++---------------------------------------------------+
+
+Here’s an alternative graphical ASCII sketch to capture the “feel” of the front panel with knobs as ( ), encoder as (@), jacks as [O], and the LED display as a text box.
+
++---------------------------------------------------+
+|                 Braids (macro osc)                |
+|---------------------------------------------------|
+|                                                   |
+| [ VOWL ]                        (@) EDIT          |
+|   LED display                   encoder           |
+|                                                   |
+|     ( ) FINE        ( ) COARSE        ( ) FM      |
+|                                                   |
+|     ( ) TIMBRE      ( ) MODULATION    ( ) COLOR   |
+|                                                   |
+|                                                   |
++---------------------------------------------------+
+
+Legend:
+	•	[@] = Rotary encoder (clickable)
+	•	[ VOWL ] = LED alphanumeric display (mode/params)
+	•	( ) = Knobs (fine, coarse, FM, timbre, modulation, color)
