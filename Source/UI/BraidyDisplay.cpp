@@ -122,7 +122,7 @@ void BraidyDisplay::drawCharacter(juce::Graphics& g, juce::Rectangle<float> boun
 
 void BraidyDisplay::resized() {
     // Adjust font size based on component size
-    float fontSize = jmin(getHeight() * 0.6f, getWidth() * 0.15f);
+    float fontSize = juce::jmin(getHeight() * 0.6f, getWidth() * 0.15f);
     displayFont_ = juce::Font(juce::Font::getDefaultMonospacedFontName(), fontSize, juce::Font::bold);
 }
 

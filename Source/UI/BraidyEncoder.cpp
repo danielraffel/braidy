@@ -57,7 +57,7 @@ void BraidyEncoder::removeListener(Listener* listener) {
 void BraidyEncoder::paint(juce::Graphics& g) {
     auto bounds = getLocalBounds().toFloat();
     auto center = bounds.getCentre();
-    auto radius = jmin(bounds.getWidth(), bounds.getHeight()) * 0.4f;
+    auto radius = juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.4f;
     
     // Draw encoder body
     auto encoderBounds = juce::Rectangle<float>(radius * 2, radius * 2).withCentre(center);
@@ -146,9 +146,11 @@ void BraidyEncoder::drawFocusIndicator(juce::Graphics& g, juce::Rectangle<float>
     juce::Path focusPath;
     focusPath.addEllipse(bounds.reduced(2.0f));
     
+    // Draw dashed focus ring
+    juce::PathStrokeType strokeType(1.0f);
     float dashLengths[] = {3.0f, 3.0f};
-    g.strokePath(focusPath, juce::PathStrokeType(1.0f), juce::AffineTransform(),
-                 {dashLengths, 2});
+    strokeType.createDashedStroke(focusPath, focusPath, dashLengths, 2);
+    g.strokePath(focusPath, strokeType);
 }
 
 float BraidyEncoder::getIndicatorAngle() const {

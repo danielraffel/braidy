@@ -220,7 +220,7 @@ void BraidyVisualizer::drawOscilloscope(juce::Graphics& g, juce::Rectangle<float
     
     float centerX = bounds.getCentreX();
     float centerY = bounds.getCentreY();
-    float scale = jmin(bounds.getWidth(), bounds.getHeight()) * 0.4f / amplitudeScale_;
+    float scale = juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.4f / amplitudeScale_;
     
     juce::Path path;
     bool firstPoint = true;

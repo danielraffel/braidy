@@ -169,9 +169,11 @@ void BraidyAudioProcessorEditor::drawConnections(juce::Graphics& g) {
     connectionPath.addLineSegment({timbreCenter.toFloat(), displayCenter.toFloat()}, 1.0f);
     connectionPath.addLineSegment({colorCenter.toFloat(), displayCenter.toFloat()}, 1.0f);
     
+    // Draw dashed connection line
+    juce::PathStrokeType strokeType(0.5f);
     float dashLengths[] = {2.0f, 4.0f};
-    g.strokePath(connectionPath, juce::PathStrokeType(0.5f), juce::AffineTransform(),
-                 {dashLengths, 2});
+    strokeType.createDashedStroke(connectionPath, connectionPath, dashLengths, 2);
+    g.strokePath(connectionPath, strokeType);
 }
 
 void BraidyAudioProcessorEditor::drawLEDs(juce::Graphics& g) {
