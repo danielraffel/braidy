@@ -374,7 +374,6 @@ The settings menu (accessed via encoder click) includes:
 
 #### 9.3 Documentation
 - User manual creation
-- Video tutorials
 - Preset design guide
 - MIDI implementation chart
 
@@ -399,8 +398,7 @@ The settings menu (accessed via encoder click) includes:
 #### 10.3 Release Preparation
 - Installer creation
 - License system integration
-- Website preparation
-- Marketing materials
+- User Manual and updated README.md
 
 **Deliverable**: Released product
 
