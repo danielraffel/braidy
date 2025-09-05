@@ -1,21 +1,25 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include "BraidyCore/BraidySettings.h"
+#include "BraidyVoice/VoiceManager.h"
+#include <memory>
 
 //==============================================================================
 /**
-*/
+ * Braidy Audio Processor - Mutable Instruments Braids port for JUCE
+ */
 class BraidyAudioProcessor : public juce::AudioProcessor
 {
 public:
     BraidyAudioProcessor();
     ~BraidyAudioProcessor() override;
 
+    // AudioProcessor interface
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
 
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
-
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
@@ -37,6 +41,29 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    // Parameter management
+    juce::AudioProcessorValueTreeState& getAPVTS() { return apvts_; }
+    braidy::BraidySettings& getBraidySettings() { return *braidy_settings_; }
+    
+    // Voice management
+    braidy::VoiceManager& getVoiceManager() { return *voice_manager_; }
+
 private:
+    // Braidy synthesizer components
+    std::unique_ptr<braidy::BraidySettings> braidy_settings_;
+    std::unique_ptr<braidy::VoiceManager> voice_manager_;
+    
+    // JUCE parameter management
+    juce::AudioProcessorValueTreeState apvts_;
+    
+    // Parameter layout creation
+    juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    
+    // Parameter update handling
+    void updateBraidyFromAPVTS();
+    
+    // MIDI processing helpers
+    void processMidiMessage(const juce::MidiMessage& message);
+    
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BraidyAudioProcessor)
 };

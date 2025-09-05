@@ -72,10 +72,10 @@ endif()
 juce_add_plugin(${PROJECT_NAME}
     COMPANY_NAME ${COMPANY_NAME}
     BUNDLE_ID ${PROJECT_BUNDLE_ID}
-    IS_SYNTH FALSE
+    IS_SYNTH TRUE  # Braidy is a synthesizer
     NEEDS_MIDI_INPUT TRUE
-    NEEDS_MIDI_OUTPUT TRUE
-    IS_MIDI_EFFECT TRUE  # This is a MIDI effect plugin
+    NEEDS_MIDI_OUTPUT FALSE
+    IS_MIDI_EFFECT FALSE
     NEEDS_EDITOR TRUE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     COPY_PLUGIN_AFTER_BUILD TRUE
@@ -84,11 +84,10 @@ juce_add_plugin(${PROJECT_NAME}
     FORMATS AU VST3 Standalone
     PRODUCT_NAME ${PROJECT_NAME}
     VERSION ${PLUGIN_VERSION}
-    AU_MAIN_TYPE kAudioUnitType_MIDIProcessor
+    AU_MAIN_TYPE kAudioUnitType_MusicDevice
     AU_EXPORT_PREFIX "${PROJECT_NAME}AU"
     AU_SANDBOX_SAFE TRUE
-    VST3_CATEGORIES "Drum|Tools"
-    ICON_BIG Resources/Images/app_icon_1024.png
+    VST3_CATEGORIES "Synth|Generator"
 )
 
 juce_generate_juce_header(${PROJECT_NAME})
@@ -98,16 +97,24 @@ target_sources(${PROJECT_NAME} PRIVATE
     Source/PluginProcessor.h
     Source/PluginEditor.cpp
     Source/PluginEditor.h
-    Source/Marbly/RandomStream.cpp
-    Source/Marbly/RandomStream.h
-    Source/Marbly/TGenerator.cpp
-    Source/Marbly/TGenerator.h
-    Source/Marbly/XYGenerator.cpp
-    Source/Marbly/XYGenerator.h
-    Source/Marbly/LFOModulator.h
-    Source/PluginEditor_ModulationTab.cpp
-    Source/Visage/VisageStyle.cpp
-    Source/Visage/VisageStyle.h
+    Source/BraidyCore/BraidyTypes.h
+    Source/BraidyCore/BraidyMath.cpp
+    Source/BraidyCore/BraidyMath.h
+    Source/BraidyCore/BraidySettings.cpp
+    Source/BraidyCore/BraidySettings.h
+    Source/BraidyCore/MacroOscillator.cpp
+    Source/BraidyCore/MacroOscillator.h
+    Source/BraidyCore/AnalogOscillator.cpp
+    Source/BraidyCore/AnalogOscillator.h
+    Source/BraidyCore/DigitalOscillator.cpp
+    Source/BraidyCore/DigitalOscillator.h
+    Source/BraidyCore/BraidyResources.cpp
+    Source/BraidyCore/BraidyResources.h
+    Source/BraidyCore/ParameterInterpolation.h
+    Source/BraidyVoice/BraidyVoice.cpp
+    Source/BraidyVoice/BraidyVoice.h
+    Source/BraidyVoice/VoiceManager.cpp
+    Source/BraidyVoice/VoiceManager.h
 )
 
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
@@ -115,10 +122,10 @@ target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
 # No additional include directories needed
 
 # Feature flags
-option(ENABLE_VELOCITY_SYSTEM "Enable velocity/accent system for dynamics" ON)
-option(ENABLE_EUCLIDEAN_MODE "Enable Euclidean rhythm generation" ON)
-option(ENABLE_PATTERN_CHAIN "Enable pattern chaining system" ON)
-option(ENABLE_MODULATION_MATRIX "Enable LFO modulation matrix" ON)
+option(BRAIDY_ENABLE_ALL_MODELS "Enable all 45 synthesis models" ON)
+option(BRAIDY_ENABLE_POLYPHONY "Enable polyphonic operation (1-16 voices)" ON)
+option(BRAIDY_ENABLE_ADVANCED_UI "Enable advanced UI features" ON)
+option(BRAIDY_ENABLE_PRESET_SYSTEM "Enable preset management" ON)
 
 target_compile_definitions(${PROJECT_NAME} PUBLIC
     JUCE_VST3_CAN_REPLACE_VST2=0
@@ -128,20 +135,20 @@ target_compile_definitions(${PROJECT_NAME} PUBLIC
 )
 
 # Add feature flags
-if(ENABLE_VELOCITY_SYSTEM)
-    target_compile_definitions(${PROJECT_NAME} PUBLIC ENABLE_VELOCITY_SYSTEM=1)
+if(BRAIDY_ENABLE_ALL_MODELS)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC BRAIDY_ENABLE_ALL_MODELS=1)
 endif()
 
-if(ENABLE_EUCLIDEAN_MODE)
-    target_compile_definitions(${PROJECT_NAME} PUBLIC ENABLE_EUCLIDEAN_MODE=1)
+if(BRAIDY_ENABLE_POLYPHONY)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC BRAIDY_ENABLE_POLYPHONY=1)
 endif()
 
-if(ENABLE_PATTERN_CHAIN)
-    target_compile_definitions(${PROJECT_NAME} PUBLIC ENABLE_PATTERN_CHAIN=1)
+if(BRAIDY_ENABLE_ADVANCED_UI)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC BRAIDY_ENABLE_ADVANCED_UI=1)
 endif()
 
-if(ENABLE_MODULATION_MATRIX)
-    target_compile_definitions(${PROJECT_NAME} PUBLIC ENABLE_MODULATION_MATRIX=1)
+if(BRAIDY_ENABLE_PRESET_SYSTEM)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC BRAIDY_ENABLE_PRESET_SYSTEM=1)
 endif()
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
@@ -157,16 +164,10 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     juce::juce_graphics
     juce::juce_gui_basics
     juce::juce_gui_extra
-    ${PROJECT_NAME}_Resources
 )
 
-# Add font resources
-set(FONT_RESOURCES
-    Resources/Fonts/Material_Symbols_Outlined/MaterialSymbolsOutlined-VariableFont_FILL,GRAD,opsz,wght.ttf
-)
-
-# Add binary data for resources including fonts
-juce_add_binary_data(${PROJECT_NAME}_Resources SOURCES ${FONT_RESOURCES})
+# No binary resources for now
+# juce_add_binary_data(${PROJECT_NAME}_Resources SOURCES)
 
 add_custom_command(TARGET ${PROJECT_NAME}_AU
     POST_BUILD
