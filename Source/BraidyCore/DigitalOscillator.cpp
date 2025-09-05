@@ -720,77 +720,485 @@ void DigitalOscillator::ProcessFilter(float* state, float input, float frequency
     *output = static_cast<int16_t>(std::max(-32767.0f, std::min(32767.0f, output_f * 32767.0f)));
 }
 
-// Physical modeling stubs (Phase 4 - to be implemented fully)
+// Phase 4: Physical Modeling Synthesis
 
 void DigitalOscillator::RenderStruckBell(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Bell synthesis using modal synthesis
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // Bell synthesis using modal synthesis with 11 partials
+    if (struck_) {
+        // Initialize bell partials with inharmonic ratios
+        float bell_ratios[11] = {1.0f, 2.76f, 5.40f, 8.93f, 13.34f, 18.64f, 
+                                 24.83f, 31.92f, 39.89f, 48.78f, 58.57f};
+        
+        for (int i = 0; i < 11; ++i) {
+            float partial_freq = ComputePhaseIncrement(pitch_) * bell_ratios[i];
+            state_.bell.bell_phase[i] = 0;
+            // Amplitude rolloff and damping based on frequency
+            float damping = 1.0f - (i * 0.08f);  
+            state_.bell.bell_amplitude[i] = static_cast<int16_t>(16384 * damping / (i + 1));
+        }
+        struck_ = false;
+    }
+    
+    float stiffness = static_cast<float>(parameter_[0]) / 32767.0f;
+    float damping = static_cast<float>(parameter_[1]) / 32767.0f;
+    
+    while (size--) {
+        if (*sync++) {
+            // Reset bell on sync
+            for (int i = 0; i < 11; ++i) {
+                state_.bell.bell_phase[i] = 0;
+            }
+        }
+        
+        int32_t result = 0;
+        for (int i = 0; i < 11; ++i) {
+            // Update each partial
+            float partial_increment = ComputePhaseIncrement(pitch_) * (i + 1) * (1.0f + stiffness * i * 0.02f);
+            state_.bell.bell_phase[i] += static_cast<uint32_t>(partial_increment);
+            
+            // Generate partial with sine wave
+            int16_t partial = InterpolateWaveform(wav_sine, state_.bell.bell_phase[i], 1024);
+            
+            // Apply amplitude envelope with damping
+            int16_t amplitude = state_.bell.bell_amplitude[i];
+            amplitude = static_cast<int16_t>(amplitude * (1.0f - damping * 0.0001f));
+            state_.bell.bell_amplitude[i] = amplitude;
+            
+            result += (partial * amplitude) >> 15;
+        }
+        
+        *buffer++ = SoftLimit(result >> 1);
     }
 }
 
 void DigitalOscillator::RenderStruckDrum(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Drum synthesis
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // Drum synthesis with 6 partials and membrane modeling
+    if (struck_) {
+        float drum_ratios[6] = {1.0f, 1.59f, 2.14f, 2.65f, 3.11f, 3.56f};
+        
+        for (int i = 0; i < 6; ++i) {
+            state_.drum.drum_phase[i] = 0;
+            state_.drum.drum_amplitude[i] = 16384 / (i + 1);
+            state_.drum.drum_decay[i] = 65000 - (i * 8000);  // Different decay rates
+        }
+        struck_ = false;
+    }
+    
+    float tension = static_cast<float>(parameter_[0]) / 32767.0f;
+    float brightness = static_cast<float>(parameter_[1]) / 32767.0f;
+    
+    while (size--) {
+        if (*sync++) {
+            for (int i = 0; i < 6; ++i) {
+                state_.drum.drum_phase[i] = 0;
+            }
+        }
+        
+        int32_t result = 0;
+        for (int i = 0; i < 6; ++i) {
+            // Membrane modes with tension affecting pitch
+            float partial_increment = ComputePhaseIncrement(pitch_) * (i + 1) * (0.8f + tension * 0.4f);
+            state_.drum.drum_phase[i] += static_cast<uint32_t>(partial_increment);
+            
+            int16_t partial = InterpolateWaveform(wav_sine, state_.drum.drum_phase[i], 1024);
+            
+            // Exponential decay
+            uint16_t decay_rate = state_.drum.drum_decay[i];
+            int16_t amplitude = state_.drum.drum_amplitude[i];
+            amplitude = (amplitude * decay_rate) >> 16;
+            state_.drum.drum_amplitude[i] = amplitude;
+            
+            // Brightness affects harmonic balance
+            float harmonic_gain = 1.0f - (i * 0.1f * (1.0f - brightness));
+            result += static_cast<int32_t>((partial * amplitude * harmonic_gain)) >> 15;
+        }
+        
+        *buffer++ = SoftLimit(result);
     }
 }
 
 void DigitalOscillator::RenderKick(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Kick drum synthesis
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // Kick drum with pitch envelope and punch
+    if (struck_) {
+        state_.kick.punch_phase = 0;
+        state_.kick.tone_phase = 0;
+        state_.kick.svf_state[0] = 0;
+        state_.kick.svf_state[1] = 0;
+        struck_ = false;
+    }
+    
+    float punch_amount = static_cast<float>(parameter_[0]) / 32767.0f;
+    float tone_amount = static_cast<float>(parameter_[1]) / 32767.0f;
+    
+    uint32_t base_increment = ComputePhaseIncrement(pitch_);
+    
+    while (size--) {
+        if (*sync++) {
+            state_.kick.punch_phase = 0;
+            state_.kick.tone_phase = 0;
+        }
+        
+        // Punch component - fast decaying click
+        uint32_t punch_increment = base_increment * 8;  // High frequency click
+        state_.kick.punch_phase += punch_increment;
+        int16_t punch = (state_.kick.punch_phase >> 16) - 32768;  // Sawtooth
+        punch = static_cast<int16_t>(punch * punch_amount * std::exp(-punch_amount * 0.1f));
+        
+        // Tone component - sine wave with pitch envelope
+        float pitch_env = std::exp(-tone_amount * 0.05f);  // Pitch drops over time
+        uint32_t tone_increment = static_cast<uint32_t>(base_increment * pitch_env);
+        state_.kick.tone_phase += tone_increment;
+        int16_t tone = InterpolateWaveform(wav_sine, state_.kick.tone_phase, 1024);
+        
+        // Mix punch and tone
+        int32_t result = punch + ((tone * static_cast<int32_t>(tone_amount)) >> 8);
+        
+        // Low-pass filter for body
+        state_.kick.svf_state[0] += ((result - state_.kick.svf_state[0]) * 8192) >> 15;
+        state_.kick.svf_state[1] += ((state_.kick.svf_state[0] - state_.kick.svf_state[1]) * 4096) >> 15;
+        
+        *buffer++ = SoftLimit(state_.kick.svf_state[1]);
     }
 }
 
 void DigitalOscillator::RenderCymbal(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Cymbal synthesis
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // Cymbal synthesis using filtered noise and resonant modes
+    if (struck_) {
+        for (int i = 0; i < 6; ++i) {
+            state_.cymb.hihat_phase[i] = Rng();
+            state_.cymb.hihat_amplitude[i] = 16384 / (i + 1);
+        }
+        state_.cymb.click_phase = 0;
+        state_.cymb.filter_state = 0;
+        struck_ = false;
+    }
+    
+    float brightness = static_cast<float>(parameter_[0]) / 32767.0f;
+    float decay_rate = static_cast<float>(parameter_[1]) / 32767.0f;
+    
+    while (size--) {
+        if (*sync++) {
+            for (int i = 0; i < 6; ++i) {
+                state_.cymb.hihat_phase[i] = Rng();
+            }
+            state_.cymb.click_phase = 0;
+        }
+        
+        int32_t result = 0;
+        
+        // High frequency resonant modes
+        for (int i = 0; i < 6; ++i) {
+            // Use noise-modulated oscillators
+            uint32_t noise_mod = Rng() >> 24;
+            uint32_t freq_mult = 8 + i * 4;  // High frequency modes
+            uint32_t increment = ComputePhaseIncrement(pitch_) * freq_mult + noise_mod;
+            
+            state_.cymb.hihat_phase[i] += increment;
+            int16_t partial = InterpolateWaveform(wav_sine, state_.cymb.hihat_phase[i], 1024);
+            
+            // Exponential decay
+            int16_t amplitude = state_.cymb.hihat_amplitude[i];
+            amplitude = (amplitude * (65536 - static_cast<int32_t>(decay_rate * 200))) >> 16;
+            state_.cymb.hihat_amplitude[i] = amplitude;
+            
+            result += (partial * amplitude * static_cast<int32_t>(brightness)) >> 16;
+        }
+        
+        // Add metallic click component
+        state_.cymb.click_phase += ComputePhaseIncrement(pitch_) * 16;
+        int16_t click = ((state_.cymb.click_phase >> 16) ^ (state_.cymb.click_phase >> 20)) - 32768;
+        result += click * static_cast<int32_t>(brightness * 0.3f);
+        
+        // High-pass filter for shimmer
+        int32_t hp_input = result;
+        state_.cymb.filter_state += ((hp_input - state_.cymb.filter_state) * 16384) >> 15;
+        result = hp_input - state_.cymb.filter_state;
+        
+        *buffer++ = SoftLimit(result >> 2);
     }
 }
 
 void DigitalOscillator::RenderSnare(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Snare synthesis
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // Snare drum with noise and tonal components
+    if (struck_) {
+        state_.snar.noise_phase = Rng();
+        state_.snar.tone_phase = 0;
+        state_.snar.filter_state_1 = 0;
+        state_.snar.filter_state_2 = 0;
+        state_.snar.decay = 65000;
+        struck_ = false;
+    }
+    
+    float snare_tension = static_cast<float>(parameter_[0]) / 32767.0f;
+    float snare_brightness = static_cast<float>(parameter_[1]) / 32767.0f;
+    
+    while (size--) {
+        if (*sync++) {
+            state_.snar.noise_phase = Rng();
+            state_.snar.tone_phase = 0;
+        }
+        
+        // Noise component (snare buzz)
+        state_.snar.noise_phase = Rng();
+        int16_t noise = static_cast<int16_t>(state_.snar.noise_phase >> 16) - 32768;
+        
+        // Band-pass filter for snare character
+        state_.snar.filter_state_1 += ((noise - state_.snar.filter_state_1) * 12288) >> 15;
+        state_.snar.filter_state_2 += ((state_.snar.filter_state_1 - state_.snar.filter_state_2) * 8192) >> 15;
+        int16_t filtered_noise = state_.snar.filter_state_1 - state_.snar.filter_state_2;
+        
+        // Tonal component (drum head)
+        uint32_t tone_increment = ComputePhaseIncrement(pitch_) * (1.0f + snare_tension);
+        state_.snar.tone_phase += tone_increment;
+        int16_t tone = InterpolateWaveform(wav_sine, state_.snar.tone_phase, 1024);
+        
+        // Mix noise and tone with brightness control
+        int32_t result = (filtered_noise * snare_brightness) + (tone * (1.0f - snare_brightness * 0.5f));
+        
+        // Exponential decay
+        uint16_t decay = state_.snar.decay;
+        decay = (decay * 65400) >> 16;  // Slow decay
+        state_.snar.decay = decay;
+        
+        result = (result * decay) >> 16;
+        
+        *buffer++ = SoftLimit(result);
     }
 }
 
 void DigitalOscillator::RenderPlucked(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Karplus-Strong plucked string
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // Karplus-Strong plucked string synthesis
+    uint32_t delay_length = ComputeDelay(pitch_);
+    if (delay_length < 4) delay_length = 4;
+    if (delay_length > 1024) delay_length = 1024;
+    
+    if (struck_ || (sync && *sync)) {
+        // Initialize delay line with noise burst for pluck excitation
+        for (uint32_t i = 0; i < delay_length; ++i) {
+            state_.pluk.string_1[i] = static_cast<int16_t>(Rng() >> 17) - 16384;
+        }
+        state_.pluk.ptr_1 = 0;
+        state_.pluk.length_1 = delay_length;
+        struck_ = false;
+    }
+    
+    float damping = 1.0f - (static_cast<float>(parameter_[0]) / 65534.0f);  // 0.5 to 1.0
+    float brightness = static_cast<float>(parameter_[1]) / 32767.0f;
+    
+    while (size--) {
+        sync++;  // Advance sync pointer
+        
+        // Read from delay line
+        int16_t output = state_.pluk.string_1[state_.pluk.ptr_1];
+        
+        // Get next sample for averaging (Karplus-Strong smoothing)
+        uint32_t next_ptr = (state_.pluk.ptr_1 + 1) % state_.pluk.length_1;
+        int16_t next_sample = state_.pluk.string_1[next_ptr];
+        
+        // Low-pass filter (averaging) with brightness control
+        int32_t averaged = (output + next_sample) >> 1;
+        int32_t hp_component = output - averaged;
+        int32_t filtered = averaged + ((hp_component * static_cast<int32_t>(brightness)) >> 8);
+        
+        // Apply damping
+        filtered = static_cast<int32_t>(filtered * damping);
+        
+        // Write back to delay line
+        state_.pluk.string_1[next_ptr] = SoftLimit(filtered);
+        
+        // Advance pointer
+        state_.pluk.ptr_1 = next_ptr;
+        
+        *buffer++ = output;
     }
 }
 
 void DigitalOscillator::RenderBowed(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Bowed string synthesis
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // Bowed string using waveguide synthesis with bow-string interaction
+    uint32_t delay_length = ComputeDelay(pitch_);
+    if (delay_length < 4) delay_length = 4;
+    if (delay_length > 1024) delay_length = 1024;
+    
+    if (struck_) {
+        // Initialize string with small excitation
+        for (uint32_t i = 0; i < delay_length; ++i) {
+            state_.pluk.string_1[i] = static_cast<int16_t>(Rng() >> 20);  // Small initial excitation
+        }
+        state_.pluk.ptr_1 = 0;
+        state_.pluk.length_1 = delay_length;
+        state_.pluk.excitation_state = 0;
+        struck_ = false;
+    }
+    
+    float bow_pressure = static_cast<float>(parameter_[0]) / 32767.0f;
+    float bow_position = static_cast<float>(parameter_[1]) / 32767.0f;
+    
+    // Bow position affects where we inject energy
+    uint32_t bow_pos = static_cast<uint32_t>(bow_position * delay_length);
+    
+    while (size--) {
+        if (*sync++) {
+            // Reset on sync
+            for (uint32_t i = 0; i < delay_length; ++i) {
+                state_.pluk.string_1[i] = 0;
+            }
+        }
+        
+        // Read current string displacement
+        int16_t string_velocity = state_.pluk.string_1[state_.pluk.ptr_1];
+        
+        // Bow-string interaction (simplified friction model)
+        int16_t bow_velocity = static_cast<int16_t>(bow_pressure * 8192);  // Bow velocity
+        int16_t velocity_diff = bow_velocity - string_velocity;
+        
+        // Friction force (simplified)
+        int16_t friction_force = 0;
+        if (std::abs(velocity_diff) > 1000) {
+            friction_force = static_cast<int16_t>(velocity_diff * bow_pressure * 0.1f);
+        } else {
+            // Stick condition - string follows bow
+            friction_force = static_cast<int16_t>(velocity_diff * bow_pressure * 0.5f);
+        }
+        
+        // Inject bow energy at bow position
+        uint32_t bow_ptr = (state_.pluk.ptr_1 + bow_pos) % state_.pluk.length_1;
+        state_.pluk.string_1[bow_ptr] += friction_force >> 4;
+        
+        // String propagation with damping
+        uint32_t next_ptr = (state_.pluk.ptr_1 + 1) % state_.pluk.length_1;
+        int16_t next_sample = state_.pluk.string_1[next_ptr];
+        
+        // Simple damping and dispersion
+        int32_t averaged = (string_velocity + next_sample) >> 1;
+        averaged = (averaged * 32600) >> 15;  // Slight damping
+        
+        state_.pluk.string_1[next_ptr] = SoftLimit(averaged);
+        state_.pluk.ptr_1 = next_ptr;
+        
+        *buffer++ = string_velocity;
     }
 }
 
 void DigitalOscillator::RenderBlown(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Blown pipe synthesis
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // Blown pipe synthesis using waveguide with reed/embouchure modeling
+    uint32_t delay_length = ComputeDelay(pitch_) >> 1;  // Half wavelength for open pipe
+    if (delay_length < 4) delay_length = 4;
+    if (delay_length > 512) delay_length = 512;
+    
+    if (struck_) {
+        // Initialize pipe with small noise
+        for (uint32_t i = 0; i < delay_length; ++i) {
+            state_.pluk.string_1[i] = static_cast<int16_t>(Rng() >> 20);
+        }
+        state_.pluk.ptr_1 = 0;
+        state_.pluk.length_1 = delay_length;
+        struck_ = false;
+    }
+    
+    float breath_pressure = static_cast<float>(parameter_[0]) / 32767.0f;
+    float embouchure = static_cast<float>(parameter_[1]) / 32767.0f;
+    
+    while (size--) {
+        if (*sync++) {
+            for (uint32_t i = 0; i < delay_length; ++i) {
+                state_.pluk.string_1[i] = 0;
+            }
+        }
+        
+        // Read from delay line (pipe pressure)
+        int16_t pipe_pressure = state_.pluk.string_1[state_.pluk.ptr_1];
+        
+        // Reed/embouchure non-linearity
+        float pressure_diff = breath_pressure * 16384 - pipe_pressure;
+        
+        // Non-linear flow (simplified reed model)
+        float flow = 0;
+        if (pressure_diff > 0) {
+            flow = pressure_diff * embouchure;
+            if (flow > 8192) flow = 8192;  // Saturation
+        }
+        
+        // Inject flow into pipe
+        int32_t new_pressure = static_cast<int32_t>(flow);
+        
+        // Waveguide propagation
+        uint32_t next_ptr = (state_.pluk.ptr_1 + 1) % state_.pluk.length_1;
+        int16_t reflected = -state_.pluk.string_1[next_ptr];  // Open end reflection (inverted)
+        
+        // Mix injected flow with reflected wave
+        new_pressure = (new_pressure + reflected) >> 1;
+        
+        // Mild low-pass filtering for realism
+        new_pressure = (new_pressure * 7 + state_.pluk.string_1[state_.pluk.ptr_1]) >> 3;
+        
+        state_.pluk.string_1[state_.pluk.ptr_1] = SoftLimit(new_pressure);
+        state_.pluk.ptr_1 = next_ptr;
+        
+        *buffer++ = static_cast<int16_t>(new_pressure);
     }
 }
 
 void DigitalOscillator::RenderFluted(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Flute synthesis
-    // Placeholder implementation
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = 0;
+    // Flute synthesis using jet-edge interaction and bore modeling
+    uint32_t delay_length = ComputeDelay(pitch_) >> 1;  // Half wavelength
+    if (delay_length < 8) delay_length = 8;
+    if (delay_length > 512) delay_length = 512;
+    
+    if (struck_) {
+        // Initialize flute bore
+        for (uint32_t i = 0; i < delay_length; ++i) {
+            state_.pluk.string_1[i] = 0;  // Clean start for flute
+        }
+        state_.pluk.ptr_1 = 0;
+        state_.pluk.length_1 = delay_length;
+        state_.pluk.excitation_state = 0;
+        struck_ = false;
+    }
+    
+    float jet_velocity = static_cast<float>(parameter_[0]) / 32767.0f;
+    float jet_offset = static_cast<float>(parameter_[1]) / 32767.0f;
+    
+    while (size--) {
+        if (*sync++) {
+            for (uint32_t i = 0; i < delay_length; ++i) {
+                state_.pluk.string_1[i] = 0;
+            }
+        }
+        
+        // Read bore pressure
+        int16_t bore_pressure = state_.pluk.string_1[state_.pluk.ptr_1];
+        
+        // Jet-edge interaction (Verge's model simplified)
+        float jet_displacement = jet_offset * 16384 + bore_pressure * 0.3f;  // Jet follows bore somewhat
+        
+        // Non-linear jet-edge interaction
+        float edge_force = 0;
+        if (jet_displacement > 0) {
+            edge_force = jet_velocity * jet_displacement * 0.1f;
+            // Add slight non-linearity
+            edge_force += jet_velocity * jet_displacement * jet_displacement * 0.00001f;
+        }
+        
+        // Limit edge force
+        if (edge_force > 8192) edge_force = 8192;
+        if (edge_force < -8192) edge_force = -8192;
+        
+        // Inject into bore
+        int32_t new_pressure = static_cast<int32_t>(edge_force);
+        
+        // Bore propagation with open end reflection
+        uint32_t reflection_ptr = (state_.pluk.ptr_1 + delay_length - 1) % state_.pluk.length_1;
+        int16_t reflected = -state_.pluk.string_1[reflection_ptr] >> 2;  // Partial reflection
+        
+        new_pressure = (new_pressure + reflected + bore_pressure) / 3;
+        
+        // Gentle low-pass for breath-like quality
+        state_.pluk.excitation_state = (state_.pluk.excitation_state * 3 + new_pressure) >> 2;
+        
+        state_.pluk.string_1[state_.pluk.ptr_1] = SoftLimit(state_.pluk.excitation_state);
+        state_.pluk.ptr_1 = (state_.pluk.ptr_1 + 1) % state_.pluk.length_1;
+        
+        *buffer++ = static_cast<int16_t>(state_.pluk.excitation_state);
     }
 }
 
