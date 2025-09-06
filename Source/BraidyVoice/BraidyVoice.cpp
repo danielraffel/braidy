@@ -3,6 +3,7 @@
 #include <cmath>
 #include <algorithm>
 #include <chrono>
+#include <juce_core/juce_core.h>
 
 namespace braidy {
 
@@ -313,11 +314,20 @@ void BraidyVoice::AllNotesOff() {
 }
 
 void BraidyVoice::UpdateFromSettings(const BraidySettings& settings) {
+    DBG("=== BRAIDY VOICE UPDATE FROM SETTINGS DEBUG ===");
+    
     // Update oscillator parameters
     MacroOscillatorShape new_shape = settings.GetShape();
+    DBG("Voice " + juce::String(voice_id_) + " - Current shape: " + juce::String(static_cast<int>(current_shape_)));
+    DBG("Voice " + juce::String(voice_id_) + " - New shape: " + juce::String(static_cast<int>(new_shape)));
+    
     if (new_shape != current_shape_) {
+        DBG("Voice " + juce::String(voice_id_) + " - Shape changed! Setting macro_oscillator shape to: " + juce::String(static_cast<int>(new_shape)));
         macro_oscillator_.set_shape(new_shape);
         current_shape_ = new_shape;
+        DBG("Voice " + juce::String(voice_id_) + " - macro_oscillator_.set_shape() called");
+    } else {
+        DBG("Voice " + juce::String(voice_id_) + " - Shape unchanged, skipping set_shape call");
     }
     
     // Update timbre and color

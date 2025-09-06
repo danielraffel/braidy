@@ -136,6 +136,11 @@ void BraidyAudioProcessor::updateBraidyFromAPVTS() {
         return;
     }
     
+    DBG("=== PROCESSOR UPDATE BRAIDY FROM APVTS DEBUG ===");
+    
+    bool shapeParameterFound = false;
+    float oldShapeValue = braidy_settings_->GetParameter(braidy::BraidyParameter::SHAPE);
+    
     // Update Braidy settings from JUCE parameters
     for (int i = 0; i < static_cast<int>(braidy::BraidyParameter::PARAMETER_COUNT); ++i) {
         auto param = static_cast<braidy::BraidyParameter>(i);
@@ -147,14 +152,37 @@ void BraidyAudioProcessor::updateBraidyFromAPVTS() {
         if (auto* apvtsParam = apvts_.getParameter(paramId)) {
             float normalizedValue = apvtsParam->getValue();
             float actualValue = info.min_value + normalizedValue * (info.max_value - info.min_value);
+            
+            if (param == braidy::BraidyParameter::SHAPE) {
+                shapeParameterFound = true;
+                DBG("SHAPE parameter found!");
+                DBG("  Parameter ID: " + paramId);
+                DBG("  Normalized value: " + juce::String(normalizedValue, 4));
+                DBG("  Min value: " + juce::String(info.min_value, 2));
+                DBG("  Max value: " + juce::String(info.max_value, 2));
+                DBG("  Actual value: " + juce::String(actualValue, 2));
+                DBG("  Old Braidy shape value: " + juce::String(oldShapeValue, 2));
+            }
+            
             braidy_settings_->SetParameter(param, actualValue);
+            
+            if (param == braidy::BraidyParameter::SHAPE) {
+                float newShapeValue = braidy_settings_->GetParameter(braidy::BraidyParameter::SHAPE);
+                DBG("  New Braidy shape value: " + juce::String(newShapeValue, 2));
+                DBG("  Shape as int: " + juce::String(static_cast<int>(newShapeValue)));
+            }
         }
+    }
+    
+    if (!shapeParameterFound) {
+        DBG("WARNING: SHAPE parameter was not found!");
     }
     
     // Update parameter smoothing
     braidy_settings_->UpdateSmoothers();
     
     parameter_update_pending_ = false;
+    DBG("=== END PROCESSOR UPDATE DEBUG ===");
 }
 
 void BraidyAudioProcessor::processMidiMessage(const juce::MidiMessage& message) {
@@ -213,8 +241,16 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     
     // Only update voice settings if parameters changed or periodically
     if (parameters_were_updated || samples_since_parameter_update_ > 1024) {
+        float currentShape = braidy_settings_->GetParameter(braidy::BraidyParameter::SHAPE);
+        DBG("=== PROCESSOR PROCESS BLOCK DEBUG ===");
+        DBG("Parameters were updated: " + juce::String(parameters_were_updated ? "true" : "false"));
+        DBG("Current shape value being passed to voice manager: " + juce::String(currentShape, 2));
+        DBG("Shape as int: " + juce::String(static_cast<int>(currentShape)));
+        
         voice_manager_->UpdateFromSettings(*braidy_settings_);
         samples_since_parameter_update_ = 0;
+        
+        DBG("=== END PROCESSOR PROCESS BLOCK DEBUG ===");
     }
     
     // Process MIDI messages

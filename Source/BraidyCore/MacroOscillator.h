@@ -5,6 +5,7 @@
 #include "BraidySettings.h"
 #include "AnalogOscillator.h"
 #include "ParameterInterpolation.h"
+#include <cstdio>
 
 namespace braidy {
 
@@ -23,9 +24,12 @@ public:
     // Main parameter setters
     inline void set_shape(MacroOscillatorShape shape) {
         if (shape != shape_) {
+            printf("=== MACRO OSCILLATOR SET_SHAPE DEBUG ===\n");
+            printf("Shape changing from %d to %d\n", static_cast<int>(shape_), static_cast<int>(shape));
             Strike();  // Trigger any percussion/strike elements
         }
         shape_ = shape;
+        printf("MacroOscillator shape set to: %d\n", static_cast<int>(shape_));
     }
     
     inline void set_pitch(int16_t pitch) { pitch_ = pitch; }

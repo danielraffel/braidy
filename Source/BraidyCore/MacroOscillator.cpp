@@ -1,5 +1,6 @@
 #include "MacroOscillator.h"
 #include "DigitalOscillator.h"
+#include <cstdio>
 
 namespace braidy {
 
@@ -115,6 +116,40 @@ void MacroOscillator::Render(const uint8_t* sync_buffer, int16_t* buffer, size_t
     }
     
     UpdateParameters();
+    
+    // Debug output for shape changes
+    static MacroOscillatorShape last_shape = MacroOscillatorShape::LAST;
+    if (shape_ != last_shape) {
+        printf("=== MACRO OSCILLATOR RENDER DEBUG ===\n");
+        printf("Shape changed to: %d\n", static_cast<int>(shape_));
+        printf("Shape index: %d\n", static_cast<int>(shape_));
+        printf("Max shapes: %d\n", static_cast<int>(MacroOscillatorShape::LAST));
+        last_shape = shape_;
+        
+        // Print which render function will be called
+        int shape_index = static_cast<int>(shape_);
+        if (shape_index >= 0 && shape_index < static_cast<int>(MacroOscillatorShape::LAST)) {
+            const char* render_function_names[] = {
+                "RenderCSaw", "RenderMorph", "RenderSawSquare", "RenderSineTriangle", "RenderBuzz",
+                "RenderSub", "RenderSub", "RenderDualSync", "RenderDualSync", "RenderTriple", 
+                "RenderTriple", "RenderTriple", "RenderTriple", "RenderTriple", "RenderSawSquare",
+                "RenderDigital", "RenderDigital", "RenderDigital", "RenderDigital", "RenderDigital",
+                "RenderDigital", "RenderDigital", "RenderDigital", "RenderDigital", "RenderDigital",
+                "RenderDigital", "RenderDigital", "RenderDigital", "RenderDigital", "RenderDigital",
+                "RenderDigital", "RenderDigital", "RenderDigital", "RenderDigital", "RenderDigital",
+                "RenderDigital", "RenderDigital", "RenderDigital", "RenderDigital", "RenderDigital",
+                "RenderDigital", "RenderDigital", "RenderDigital", "RenderDigital", "RenderDigital",
+                "RenderDigital", "RenderDigital", "RenderDigital"
+            };
+            
+            if (shape_index < 48) {
+                printf("Will call: %s\n", render_function_names[shape_index]);
+            }
+        } else {
+            printf("Shape index out of range, will call RenderCSaw fallback\n");
+        }
+        printf("=== END MACRO OSCILLATOR RENDER DEBUG ===\n");
+    }
     
     // Dispatch to appropriate rendering function
     int shape_index = static_cast<int>(shape_);

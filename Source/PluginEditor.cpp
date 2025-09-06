@@ -28,6 +28,9 @@ const std::array<const char*, 20> BraidyAudioProcessorEditor::menuPageNames_ = {
 //==============================================================================
 BraidyAudioProcessorEditor::BraidsEncoder::BraidsEncoder() {
     setSize(60, 60);  // Large encoder like on Braids
+    setInterceptsMouseClicks(true, false);  // Accept mouse clicks but don't intercept children
+    setWantsKeyboardFocus(false);
+    DBG("BraidsEncoder constructed");
 }
 
 void BraidyAudioProcessorEditor::BraidsEncoder::paint(juce::Graphics& g) {
@@ -65,10 +68,16 @@ void BraidyAudioProcessorEditor::BraidsEncoder::paint(juce::Graphics& g) {
 }
 
 void BraidyAudioProcessorEditor::BraidsEncoder::mouseDown(const juce::MouseEvent& e) {
+    DBG("=== ENCODER MOUSE DOWN ===");
     isPressed_ = true;
     longPressTriggered_ = false;
     pressStartTime_ = juce::Time::currentTimeMillis();
-    lastAngle_ = angle_;
+    
+    // Calculate initial angle from mouse position
+    auto center = getLocalBounds().getCentre().toFloat();
+    lastAngle_ = std::atan2(e.position.y - center.y, e.position.x - center.x);
+    DBG("Mouse down at angle: " << lastAngle_);
+    
     repaint();
 }
 
@@ -77,9 +86,9 @@ void BraidyAudioProcessorEditor::BraidsEncoder::mouseDrag(const juce::MouseEvent
     
     auto center = getLocalBounds().getCentre().toFloat();
     auto mousePos = e.position;
-    auto deltaAngle = std::atan2(mousePos.y - center.y, mousePos.x - center.x);
+    auto currentAngle = std::atan2(mousePos.y - center.y, mousePos.x - center.x);
     
-    auto angleDiff = deltaAngle - lastAngle_;
+    auto angleDiff = currentAngle - lastAngle_;
     
     // Handle wrap-around
     if (angleDiff > juce::MathConstants<float>::pi)
@@ -87,15 +96,17 @@ void BraidyAudioProcessorEditor::BraidsEncoder::mouseDrag(const juce::MouseEvent
     else if (angleDiff < -juce::MathConstants<float>::pi)
         angleDiff += juce::MathConstants<float>::twoPi;
     
+    // Update visual angle
     angle_ += angleDiff;
-    lastAngle_ = deltaAngle;
     
-    // Convert angle change to encoder steps
-    int steps = static_cast<int>(angleDiff * 10.0f);  // Sensitivity adjustment
+    // Convert angle change to encoder steps with higher sensitivity
+    int steps = static_cast<int>(angleDiff * 20.0f);  // Increased sensitivity
     if (steps != 0 && onValueChange) {
+        DBG("=== ENCODER DRAG: steps = " << steps);
         onValueChange(steps);
     }
     
+    lastAngle_ = currentAngle;
     repaint();
 }
 
@@ -764,13 +775,24 @@ void BraidyAudioProcessorEditor::updateParameterFromKnob(BraidsKnob* knob, const
 // Encoder Handling
 //==============================================================================
 void BraidyAudioProcessorEditor::handleEncoderRotation(int delta) {
+    DBG("=== ENCODER ROTATION DEBUG ===");
+    DBG("Delta: " + juce::String(delta));
+    DBG("Display Mode: " + juce::String(static_cast<int>(displayMode_)));
+    
     switch (displayMode_) {
         case DisplayMode::Algorithm:
-            // Navigate algorithms
-            currentAlgorithm_ = juce::jlimit(0, 47, currentAlgorithm_ + delta);
-            // Update the audio parameter
-            updateAlgorithmParameter();
-            break;
+            {
+                int oldAlgorithm = currentAlgorithm_;
+                // Navigate algorithms
+                currentAlgorithm_ = juce::jlimit(0, 47, currentAlgorithm_ + delta);
+                
+                DBG("Algorithm changed from " + juce::String(oldAlgorithm) + " to " + juce::String(currentAlgorithm_));
+                DBG("Algorithm name: " + juce::String(algorithmNames_[currentAlgorithm_]));
+                
+                // Update the audio parameter
+                updateAlgorithmParameter();
+                break;
+            }
             
         case DisplayMode::Menu:
             if (inEditMode_) {
@@ -866,14 +888,34 @@ void BraidyAudioProcessorEditor::applyMenuValue() {
 }
 
 void BraidyAudioProcessorEditor::updateAlgorithmParameter() {
+    DBG("=== UPDATE ALGORITHM PARAMETER DEBUG ===");
+    
     // Update the SHAPE parameter in APVTS based on current algorithm
     if (auto* shapeParam = processorRef.getAPVTS().getParameter("alg")) {
         // Convert algorithm index (0-47) to normalized value (0.0-1.0)
         float normalizedValue = static_cast<float>(currentAlgorithm_) / 47.0f;
-        shapeParam->setValueNotifyingHost(normalizedValue);
         
-        // Debug output to verify the connection
-        // DBG("Algorithm changed to: " + juce::String(currentAlgorithm_) + " (" + algorithmNames_[currentAlgorithm_] + ")");
+        DBG("Found 'alg' parameter in APVTS");
+        DBG("Current algorithm index: " + juce::String(currentAlgorithm_));
+        DBG("Normalized value: " + juce::String(normalizedValue, 4));
+        
+        float oldValue = shapeParam->getValue();
+        shapeParam->setValueNotifyingHost(normalizedValue);
+        float newValue = shapeParam->getValue();
+        
+        DBG("Parameter value changed from " + juce::String(oldValue, 4) + " to " + juce::String(newValue, 4));
+        DBG("Algorithm: " + juce::String(algorithmNames_[currentAlgorithm_]));
+    } else {
+        DBG("ERROR: 'alg' parameter NOT FOUND in APVTS!");
+        
+        // List all available parameters
+        DBG("Available parameters:");
+        auto& apvts = processorRef.getAPVTS();
+        for (auto* param : processorRef.getParameters()) {
+            if (auto* rangedParam = dynamic_cast<juce::RangedAudioParameter*>(param)) {
+                DBG("  - " + rangedParam->getParameterID());
+            }
+        }
     }
 }
 
