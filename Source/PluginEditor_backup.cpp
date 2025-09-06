@@ -122,7 +122,6 @@ void BraidyAudioProcessorEditor::BraidsEncoder::mouseUp(const juce::MouseEvent& 
 //==============================================================================
 BraidyAudioProcessorEditor::BraidsKnob::BraidsKnob(bool isBipolar, uint32_t indicatorColor) 
     : isBipolar_(isBipolar), indicatorColor_(indicatorColor) {
-    setOpaque(true);  // Make component opaque for proper rendering
     if (isBipolar_) {
         value_ = 0.5f;  // Center position for bipolar
     }
@@ -133,22 +132,18 @@ void BraidyAudioProcessorEditor::BraidsKnob::paint(juce::Graphics& g) {
     auto center = bounds.getCentre();
     auto radius = std::min(bounds.getWidth(), bounds.getHeight()) * 0.4f;
     
-    // Knob body - lighter for better visibility
-    juce::Colour knobColor(0xFF6A6A6A);  // Much lighter gray
+    // Knob body - darker for hardware look
+    juce::Colour knobColor(0xFF3A3A3A);
     g.setColour(knobColor);
     g.fillEllipse(bounds.reduced(2));
     
-    // Outer ring highlight - more prominent
-    g.setColour(knobColor.brighter(0.5f));
-    g.drawEllipse(bounds.reduced(2), 2.0f);
+    // Outer ring highlight
+    g.setColour(knobColor.brighter(0.2f));
+    g.drawEllipse(bounds.reduced(2), 1.0f);
     
-    // Inner ring (knob cap) - more visible
-    g.setColour(knobColor.brighter(0.3f));
+    // Inner ring (knob cap)
+    g.setColour(knobColor.brighter(0.1f));
     g.fillEllipse(bounds.reduced(6));
-    
-    // Add center detail for depth
-    g.setColour(knobColor.darker(0.2f));
-    g.drawEllipse(bounds.reduced(8), 1.0f);
     
     // Position indicator - use custom color if specified, otherwise white
     juce::Colour indicatorColor = (indicatorColor_ != 0) ? juce::Colour(indicatorColor_) : juce::Colours::white;
@@ -211,7 +206,6 @@ void BraidyAudioProcessorEditor::BraidsKnob::setValue(float value) {
 //==============================================================================
 BraidyAudioProcessorEditor::CvJack::CvJack(const juce::String& label, bool isOutput) 
     : label_(label), isOutput_(isOutput) {
-    setOpaque(true);  // Make component opaque for proper rendering
     setSize(20, 30);  // Width for jack + label space
 }
 
@@ -219,23 +213,13 @@ void BraidyAudioProcessorEditor::CvJack::paint(juce::Graphics& g) {
     auto bounds = getLocalBounds();
     auto jackBounds = bounds.removeFromTop(15);
     
-    // Jack socket - more visible
-    g.setColour(juce::Colour(0xFF3A3A3A));  // Lighter than pure black
+    // Jack socket
+    g.setColour(juce::Colour(BraidsColors::jack));
     g.fillEllipse(jackBounds.reduced(2).toFloat());
     
-    // Outer ring for visibility
-    g.setColour(juce::Colour(0xFF7A7A7A));
-    g.drawEllipse(jackBounds.reduced(2).toFloat(), 2.0f);
-    
-    // Inner ring
-    g.setColour(juce::Colour(0xFF5A5A5A));
-    g.drawEllipse(jackBounds.reduced(4).toFloat(), 1.5f);
-    
-    // Center hole with highlight
-    g.setColour(juce::Colour(0xFF1A1A1A));
-    g.fillEllipse(jackBounds.reduced(jackBounds.getWidth() * 0.35f).toFloat());
-    g.setColour(juce::Colour(0xFF4A4A4A));
-    g.drawEllipse(jackBounds.reduced(jackBounds.getWidth() * 0.35f).toFloat(), 0.5f);
+    // Inner highlight
+    g.setColour(juce::Colour(BraidsColors::jack).brighter(0.2f));
+    g.drawEllipse(jackBounds.reduced(4).toFloat(), 0.5f);
     
     // Label
     g.setColour(juce::Colour(BraidsColors::text));
@@ -249,8 +233,7 @@ void BraidyAudioProcessorEditor::CvJack::paint(juce::Graphics& g) {
 class SimpleOLEDDisplay : public juce::Component {
 public:
     SimpleOLEDDisplay() {
-        setOpaque(true);  // Make component opaque for proper rendering
-        setText("VOWL");
+        setText("CSAW");
     }
     
     void setText(const juce::String& text) {
@@ -263,26 +246,22 @@ public:
     void paint(juce::Graphics& g) override {
         auto bounds = getLocalBounds().toFloat();
         
-        // Black OLED background with visible border
-        g.setColour(juce::Colour(0xFF1A1A1A));  // Slightly lighter for visibility
+        // Black OLED background
+        g.setColour(juce::Colour(0xFF000000));
         g.fillRoundedRectangle(bounds, 4.0f);
-        
-        // Outer border for visibility
-        g.setColour(juce::Colour(0xFF5A5A5A));
-        g.drawRoundedRectangle(bounds, 4.0f, 2.0f);
         
         // Inner bezel
         g.setColour(juce::Colour(0xFF333333));
         g.drawRoundedRectangle(bounds.reduced(2.0f), 4.0f, 1.0f);
         
-        // Bright green LED text
-        g.setColour(juce::Colour(0xFF00FF40));  // Brighter green for better visibility
-        g.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), bounds.getHeight() * 0.65f, juce::Font::bold));
+        // Green LED text
+        g.setColour(juce::Colour(0xFF00FF00));
+        g.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), bounds.getHeight() * 0.6f, juce::Font::bold));
         g.drawText(displayText_, bounds, juce::Justification::centred);
         
-        // Enhanced glow effect
-        g.setColour(juce::Colour(0xFF00FF40).withAlpha(0.25f));
-        g.drawText(displayText_, bounds.expanded(2), juce::Justification::centred);
+        // Glow effect
+        g.setColour(juce::Colour(0xFF00FF00).withAlpha(0.3f));
+        g.drawText(displayText_, bounds.expanded(1), juce::Justification::centred);
     }
     
 private:
@@ -296,26 +275,13 @@ BraidyAudioProcessorEditor::BraidyAudioProcessorEditor(BraidyAudioProcessor& p)
     : AudioProcessorEditor(&p), processorRef(p) {
     
     // Set size to match 16HP Eurorack module proportions (more compact)
-    setSize(320, 480);  // Increased size for better component visibility
-    
-    DBG("=== Braidy Editor Constructor ===");
-    DBG("Editor size set to: " + juce::String(getWidth()) + "x" + juce::String(getHeight()));
-    
-    // Initialize display to show VOWL algorithm  
-    displayMode_ = DisplayMode::Algorithm;
-    currentAlgorithm_ = 22; // VOWL algorithm (index 22 in algorithmNames_ - "VOWL")
+    setSize(280, 400);  // Reduced size for authentic Braids proportions
     
     setupComponents();
     updateDisplay();
     
-    // Force initial layout and repaint
-    resized();
-    repaint();
-    
     // Start timer for parameter updates (reduce frequency to avoid issues)
     startTimer(100);
-    
-    DBG("=== Constructor Complete ===");
 }
 
 BraidyAudioProcessorEditor::~BraidyAudioProcessorEditor() {
@@ -326,8 +292,6 @@ void BraidyAudioProcessorEditor::setupComponents() {
     // Simple OLED Display (4-character green) - using inline class
     oledDisplay_ = std::make_unique<SimpleOLEDDisplay>();
     addAndMakeVisible(*oledDisplay_);
-    oledDisplay_->setVisible(true);
-    DBG("Created OLED Display");
     
     // Main EDIT encoder (large)
     editEncoder_ = std::make_unique<BraidsEncoder>();
@@ -335,64 +299,48 @@ void BraidyAudioProcessorEditor::setupComponents() {
     editEncoder_->onClick = [this]() { handleEncoderClick(); };
     editEncoder_->onLongPress = [this]() { handleEncoderLongPress(); };
     addAndMakeVisible(*editEncoder_);
-    editEncoder_->setVisible(true);
-    DBG("Created Edit Encoder");
     
     // Top row knobs (FINE, COARSE, FM)
     fineKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar
     fineKnob_->onValueChange = [this](float value) { /* Parameter handling */ };
     addAndMakeVisible(*fineKnob_);
-    fineKnob_->setVisible(true);
-    DBG("Created Fine Knob");
     
     coarseKnob_ = std::make_unique<BraidsKnob>();
     coarseKnob_->onValueChange = [this](float value) { /* Parameter handling */ };
     addAndMakeVisible(*coarseKnob_);
-    coarseKnob_->setVisible(true);
-    DBG("Created Coarse Knob");
     
     fmKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar attenuverter
     fmKnob_->onValueChange = [this](float value) { /* Parameter handling */ };
     addAndMakeVisible(*fmKnob_);
-    fmKnob_->setVisible(true);
-    DBG("Created FM Knob");
     
     // Main parameter knobs with colored indicators (matching hardware)
     timbreKnob_ = std::make_unique<BraidsKnob>(false, 0xFF00CCA3);  // Teal indicator
     timbreKnob_->onValueChange = [this](float value) { /* Parameter handling */ };
     addAndMakeVisible(*timbreKnob_);
-    timbreKnob_->setVisible(true);
-    DBG("Created Timbre Knob");
     
     colorKnob_ = std::make_unique<BraidsKnob>(false, 0xFFE74C3C);  // Red indicator
     colorKnob_->onValueChange = [this](float value) { /* Parameter handling */ };
     addAndMakeVisible(*colorKnob_);
-    colorKnob_->setVisible(true);
-    DBG("Created Color Knob");
     
     // Modulation attenuverter (center knob)
     timbreModKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar
     timbreModKnob_->onValueChange = [this](float value) { /* Parameter handling */ };
     addAndMakeVisible(*timbreModKnob_);
-    timbreModKnob_->setVisible(true);
-    DBG("Created Modulation Knob");
+    
+    // Remove colorModKnob - not in authentic Braids layout
     
     // CV Jacks (bottom row)
     const std::array<juce::String, 6> jackLabels = {"TRIG", "V/OCT", "FM", "TIMBRE", "COLOR", "OUT"};
     for (int i = 0; i < 6; ++i) {
         cvJacks_[i] = std::make_unique<CvJack>(jackLabels[i], i == 5);  // OUT is output
         addAndMakeVisible(*cvJacks_[i]);
-        cvJacks_[i]->setVisible(true);
-        DBG("Created CV Jack: " + jackLabels[i]);
     }
-    
-    DBG("=== All Components Created ===");
 }
 
 void BraidyAudioProcessorEditor::paint(juce::Graphics& g) {
     auto bounds = getLocalBounds();
     
-    // Draw authentic Braids panel background
+    // Draw authentic Braids panel
     drawBraidsPanel(g);
     drawScrewHoles(g);
     
@@ -405,26 +353,11 @@ void BraidyAudioProcessorEditor::paint(juce::Graphics& g) {
     g.setFont(juce::Font("Arial", 8.0f, juce::Font::plain));
     g.drawText("macro oscillator", titleBounds, juce::Justification::centred);
     
-    // Draw labels AFTER components are positioned (avoiding overlap)
+    // Draw labels and component outlines
     drawControlLabels(g);
     
-    // LEDs for TIMBRE and COLOR (draw last to ensure visibility)
+    // LEDs for TIMBRE and COLOR
     drawParameterLeds(g);
-    
-    // Debug: Draw component outlines to verify positioning
-    g.setColour(juce::Colours::yellow.withAlpha(0.3f));
-    if (oledDisplay_) g.drawRect(oledDisplay_->getBounds(), 2);
-    if (editEncoder_) g.drawRect(editEncoder_->getBounds(), 2);
-    
-    g.setColour(juce::Colours::blue.withAlpha(0.3f));
-    if (fineKnob_) g.drawRect(fineKnob_->getBounds(), 1);
-    if (coarseKnob_) g.drawRect(coarseKnob_->getBounds(), 1);
-    if (fmKnob_) g.drawRect(fmKnob_->getBounds(), 1);
-    
-    g.setColour(juce::Colours::green.withAlpha(0.3f));
-    if (timbreKnob_) g.drawRect(timbreKnob_->getBounds(), 1);
-    if (timbreModKnob_) g.drawRect(timbreModKnob_->getBounds(), 1);
-    if (colorKnob_) g.drawRect(colorKnob_->getBounds(), 1);
 }
 
 void BraidyAudioProcessorEditor::drawBraidsPanel(juce::Graphics& g) {
@@ -587,136 +520,101 @@ void BraidyAudioProcessorEditor::resized() {
     auto titleArea = bounds.removeFromTop(28);
     
     // LED Display and EDIT encoder on same row (like hardware)
-    auto displayEncoderArea = bounds.removeFromTop(60);
-    auto displayWidth = 100;
-    auto encoderSize = 50;
-    auto gapBetween = 20;
-    auto totalWidth = displayWidth + gapBetween + encoderSize;
-    auto startX = (getWidth() - totalWidth) / 2;
+    auto displayEncoderArea = bounds.removeFromTop(50);
+    auto displayWidth = 80;
+    auto encoderSize = 45;
+    auto totalWidth = displayWidth + 15 + encoderSize;
+    auto startX = (displayEncoderArea.getWidth() - totalWidth) / 2;
     
     // OLED Display on left (more prominent positioning)
     if (oledDisplay_) {
-        auto displayHeight = 30;
-        auto displayY = titleArea.getBottom() + 10;
-        oledDisplay_->setBounds(startX, displayY, displayWidth, displayHeight);
-        oledDisplay_->setVisible(true);
-        oledDisplay_->toFront(false);
+        auto displayHeight = 22;
+        oledDisplay_->setBounds(startX, displayEncoderArea.getY() + 8, displayWidth, displayHeight);
     }
     
     // EDIT encoder on right (matching hardware position)
     if (editEncoder_) {
-        auto encoderY = titleArea.getBottom() + 5;
-        editEncoder_->setBounds(startX + displayWidth + gapBetween, encoderY, encoderSize, encoderSize);
-        editEncoder_->setVisible(true);
-        editEncoder_->toFront(false);
+        editEncoder_->setBounds(startX + displayWidth + 15, displayEncoderArea.getY() + 3, encoderSize, encoderSize);
     }
+    
+    bounds.removeFromTop(15);
     
     // Top row: FINE, COARSE, FM knobs (small knobs)
-    auto topKnobY = titleArea.getBottom() + displayEncoderArea.getHeight() + 20;
-    auto smallKnobSize = 35;
-    auto knobSpacing = getWidth() / 3.0f;
+    auto topKnobArea = bounds.removeFromTop(45);
+    auto smallKnobSize = 28;
+    auto knobSpacing = bounds.getWidth() / 3;
     
     if (fineKnob_) {
-        auto x = static_cast<int>(knobSpacing * 0 + (knobSpacing - smallKnobSize) / 2);
-        fineKnob_->setBounds(x, topKnobY, smallKnobSize, smallKnobSize);
-        fineKnob_->setVisible(true);
-        fineKnob_->toFront(false);
+        auto x = knobSpacing / 2 - smallKnobSize / 2;
+        fineKnob_->setBounds(x, topKnobArea.getY(), smallKnobSize, smallKnobSize);
     }
     if (coarseKnob_) {
-        auto x = static_cast<int>(knobSpacing * 1 + (knobSpacing - smallKnobSize) / 2);
-        coarseKnob_->setBounds(x, topKnobY, smallKnobSize, smallKnobSize);
-        coarseKnob_->setVisible(true);
-        coarseKnob_->toFront(false);
+        auto x = knobSpacing + knobSpacing / 2 - smallKnobSize / 2;
+        coarseKnob_->setBounds(x, topKnobArea.getY(), smallKnobSize, smallKnobSize);
     }
     if (fmKnob_) {
-        auto x = static_cast<int>(knobSpacing * 2 + (knobSpacing - smallKnobSize) / 2);
-        fmKnob_->setBounds(x, topKnobY, smallKnobSize, smallKnobSize);
-        fmKnob_->setVisible(true);
-        fmKnob_->toFront(false);
+        auto x = knobSpacing * 2 + knobSpacing / 2 - smallKnobSize / 2;
+        fmKnob_->setBounds(x, topKnobArea.getY(), smallKnobSize, smallKnobSize);
     }
     
+    bounds.removeFromTop(18);
+    
     // Main row: TIMBRE (left), MODULATION (center), COLOR (right)
-    auto mainKnobY = topKnobY + smallKnobSize + 30;
-    auto mainKnobSize = 45;  // Large knobs for TIMBRE and COLOR
-    auto modKnobSize = 40;   // Slightly smaller for MODULATION
+    auto mainKnobArea = bounds.removeFromTop(55);
+    auto mainKnobSize = 36;  // Large knobs for TIMBRE and COLOR
+    auto modKnobSize = 32;   // Slightly smaller for MODULATION
+    
+    // Calculate positions for 3 knobs
+    auto col1X = knobSpacing / 2 - mainKnobSize / 2;
+    auto col2X = knobSpacing + knobSpacing / 2 - modKnobSize / 2;
+    auto col3X = knobSpacing * 2 + knobSpacing / 2 - mainKnobSize / 2;
     
     // TIMBRE knob (left, large with teal indicator)
     if (timbreKnob_) {
-        auto x = static_cast<int>(knobSpacing * 0 + (knobSpacing - mainKnobSize) / 2);
-        timbreKnob_->setBounds(x, mainKnobY, mainKnobSize, mainKnobSize);
-        timbreKnob_->setVisible(true);
-        timbreKnob_->toFront(false);
+        timbreKnob_->setBounds(col1X, mainKnobArea.getY(), mainKnobSize, mainKnobSize);
     }
     
     // MODULATION knob in center (slightly smaller)
     if (timbreModKnob_) {
-        auto x = static_cast<int>(knobSpacing * 1 + (knobSpacing - modKnobSize) / 2);
-        auto adjustedY = mainKnobY + (mainKnobSize - modKnobSize) / 2;
-        timbreModKnob_->setBounds(x, adjustedY, modKnobSize, modKnobSize);
-        timbreModKnob_->setVisible(true);
-        timbreModKnob_->toFront(false);
+        timbreModKnob_->setBounds(col2X, mainKnobArea.getY() + 2, modKnobSize, modKnobSize);
     }
     
     // COLOR knob (right, large with red indicator)
     if (colorKnob_) {
-        auto x = static_cast<int>(knobSpacing * 2 + (knobSpacing - mainKnobSize) / 2);
-        colorKnob_->setBounds(x, mainKnobY, mainKnobSize, mainKnobSize);
-        colorKnob_->setVisible(true);
-        colorKnob_->toFront(false);
+        colorKnob_->setBounds(col3X, mainKnobArea.getY(), mainKnobSize, mainKnobSize);
     }
     
+    bounds.removeFromTop(20);
+    
     // CV Jacks at bottom (6 jacks in a row)
-    auto jackY = getHeight() - 50;
-    auto jackWidth = 20;
-    auto jackHeight = 25;
-    auto jackSpacing = getWidth() / 6.0f;
+    auto jackArea = bounds.removeFromBottom(35);
+    auto jackWidth = 25;
+    auto jackSpacing = bounds.getWidth() / 6.0f;
     
     for (int i = 0; i < 6; ++i) {
         if (cvJacks_[i]) {
             auto x = static_cast<int>(jackSpacing * i + (jackSpacing - jackWidth) / 2);
-            cvJacks_[i]->setBounds(x, jackY, jackWidth, jackHeight);
-            cvJacks_[i]->setVisible(true);
-            cvJacks_[i]->toFront(false);
+            cvJacks_[i]->setBounds(x, jackArea.getY(), jackWidth, 30);
         }
     }
-    
-    // Debug: Print bounds to verify layout
-    DBG("=== Component Layout Debug ===");
-    DBG("Editor size: " + juce::String(getWidth()) + "x" + juce::String(getHeight()));
-    if (oledDisplay_) DBG("OLED Display: " + oledDisplay_->getBounds().toString());
-    if (editEncoder_) DBG("Edit Encoder: " + editEncoder_->getBounds().toString());
-    if (fineKnob_) DBG("Fine Knob: " + fineKnob_->getBounds().toString());
-    if (coarseKnob_) DBG("Coarse Knob: " + coarseKnob_->getBounds().toString());
-    if (fmKnob_) DBG("FM Knob: " + fmKnob_->getBounds().toString());
-    if (timbreKnob_) DBG("Timbre Knob: " + timbreKnob_->getBounds().toString());
-    if (timbreModKnob_) DBG("Timbre Mod Knob: " + timbreModKnob_->getBounds().toString());
-    if (colorKnob_) DBG("Color Knob: " + colorKnob_->getBounds().toString());
 }
 
 //==============================================================================
 // Parameter and Display Updates (simplified for initial version)
 //==============================================================================
 void BraidyAudioProcessorEditor::updateDisplay() {
-    if (!oledDisplay_) {
-        DBG("updateDisplay: oledDisplay_ is null!");
-        return;
-    }
-    
-    juce::String displayText;
+    if (!oledDisplay_) return;
     
     switch (displayMode_) {
         case DisplayMode::Algorithm:
-            displayText = algorithmNames_[currentAlgorithm_];
-            static_cast<SimpleOLEDDisplay*>(oledDisplay_.get())->setText(displayText);
-            // DBG("Display updated to algorithm: " + displayText);  // Commented to reduce console spam
+            static_cast<SimpleOLEDDisplay*>(oledDisplay_.get())->setText(algorithmNames_[currentAlgorithm_]);
             break;
             
         case DisplayMode::Value:
             // Show parameter value being edited
             if (inEditMode_) {
-                displayText = juce::String(menuValue_).paddedLeft('0', 3);
-                static_cast<SimpleOLEDDisplay*>(oledDisplay_.get())->setText(displayText);
-                DBG("Display updated to value: " + displayText);
+                auto valueStr = juce::String(menuValue_).paddedLeft('0', 3);
+                static_cast<SimpleOLEDDisplay*>(oledDisplay_.get())->setText(valueStr);
             }
             break;
             
@@ -724,29 +622,19 @@ void BraidyAudioProcessorEditor::updateDisplay() {
             if (currentMenuPage_ != MenuPage::None) {
                 int pageIndex = static_cast<int>(currentMenuPage_) - 1;
                 if (pageIndex >= 0 && pageIndex < menuPageNames_.size()) {
-                    displayText = menuPageNames_[pageIndex];
-                    static_cast<SimpleOLEDDisplay*>(oledDisplay_.get())->setText(displayText);
-                    DBG("Display updated to menu: " + displayText);
+                    static_cast<SimpleOLEDDisplay*>(oledDisplay_.get())->setText(menuPageNames_[pageIndex]);
                 }
             }
             break;
             
         case DisplayMode::Startup:
-            displayText = "VOWL";  // Start with VOWL as shown in specs
-            static_cast<SimpleOLEDDisplay*>(oledDisplay_.get())->setText(displayText);
-            DBG("Display set to startup: " + displayText);
+            static_cast<SimpleOLEDDisplay*>(oledDisplay_.get())->setText("----");
             // After startup delay, switch to algorithm display
             juce::Timer::callAfterDelay(1000, [this]() {
                 displayMode_ = DisplayMode::Algorithm;
-                currentAlgorithm_ = 23; // VOWL algorithm index
                 updateDisplay();
             });
             break;
-    }
-    
-    // Force display repaint
-    if (oledDisplay_) {
-        oledDisplay_->repaint();
     }
 }
 
@@ -768,8 +656,7 @@ void BraidyAudioProcessorEditor::handleEncoderRotation(int delta) {
         case DisplayMode::Algorithm:
             // Navigate algorithms
             currentAlgorithm_ = juce::jlimit(0, 47, currentAlgorithm_ + delta);
-            // Update the audio parameter
-            updateAlgorithmParameter();
+            // No parameter update for now - just visual
             break;
             
         case DisplayMode::Menu:
@@ -866,15 +753,7 @@ void BraidyAudioProcessorEditor::applyMenuValue() {
 }
 
 void BraidyAudioProcessorEditor::updateAlgorithmParameter() {
-    // Update the SHAPE parameter in APVTS based on current algorithm
-    if (auto* shapeParam = processorRef.getAPVTS().getParameter("alg")) {
-        // Convert algorithm index (0-47) to normalized value (0.0-1.0)
-        float normalizedValue = static_cast<float>(currentAlgorithm_) / 47.0f;
-        shapeParam->setValueNotifyingHost(normalizedValue);
-        
-        // Debug output to verify the connection
-        // DBG("Algorithm changed to: " + juce::String(currentAlgorithm_) + " (" + algorithmNames_[currentAlgorithm_] + ")");
-    }
+    // Placeholder - would update the actual parameter once system is working
 }
 
 //==============================================================================
@@ -889,22 +768,14 @@ void BraidyAudioProcessorEditor::buttonClicked(juce::Button* button) {
 }
 
 void BraidyAudioProcessorEditor::timerCallback() {
-    // Update parameter values from processor
+    // Simplified timer - just update display occasionally
     updateParameterValues();
     
-    // Only update display if algorithm changed (not every timer tick)
-    static int lastAlgorithm = -1;
-    if (currentAlgorithm_ != lastAlgorithm) {
-        lastAlgorithm = currentAlgorithm_;
-        if (displayMode_ == DisplayMode::Algorithm) {
-            updateDisplay();
-        }
+    // Trigger display update if in algorithm mode 
+    if (displayMode_ == DisplayMode::Algorithm) {
+        updateDisplay();
     }
     
-    // Repaint LEDs to show parameter activity (less frequent)
-    static int repaintCounter = 0;
-    if (++repaintCounter >= 5) {  // Only repaint every 5th tick (500ms)
-        repaintCounter = 0;
-        repaint();
-    }
+    // Repaint LEDs to show parameter activity
+    repaint();
 }

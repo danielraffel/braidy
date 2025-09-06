@@ -476,63 +476,134 @@ void DigitalOscillator::RenderDigitalFilterHP(const uint8_t* sync, int16_t* buff
 // Phase 3: Advanced Synthesis - Formant Synthesis
 
 void DigitalOscillator::RenderVosim(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // VOSIM (Voice Simulation) synthesis
-    uint32_t phase = phase_;
-    uint32_t increment = phase_increment_;
+    // VOSIM (Voice Simulation) synthesis - authentic Braids implementation
+    // Two formant oscillators with bell envelope modulation
     
-    uint32_t pulse_count = (parameter_[0] >> 13) + 1;  // 1-4 pulses
-    uint32_t decay_rate = parameter_[1];
-    
-    while (size--) {
-        if (*sync++) {
-            phase = 0;
-        }
-        
-        phase += increment;
-        
-        // Generate VOSIM pulse train
-        uint32_t cycle_phase = phase % (0xFFFFFFFF / pulse_count);
-        float t = static_cast<float>(cycle_phase) / 0xFFFFFFFF;
-        
-        float amplitude = std::exp(-t * decay_rate / 8192.0f);
-        float pulse = std::sin(2.0f * M_PI * t * pulse_count) * amplitude;
-        
-        *buffer++ = static_cast<int16_t>(pulse * 16384.0f);
+    // Set up formant frequencies based on parameters
+    for (size_t i = 0; i < 2; ++i) {
+        state_.vow.formant_increment[i] = ComputePhaseIncrement(parameter_[i] >> 1);
     }
     
-    phase_ = phase;
+    while (size--) {
+        phase_ += phase_increment_;
+        if (*sync++) {
+            phase_ = 0;
+        }
+        
+        // Base level for mix
+        int32_t sample = 16384 + 8192;
+        
+        // First formant (primary)
+        state_.vow.formant_phase[0] += state_.vow.formant_increment[0];
+        sample += InterpolateWaveform(wav_sine, state_.vow.formant_phase[0], 1024) >> 1;
+        
+        // Second formant (secondary)
+        state_.vow.formant_phase[1] += state_.vow.formant_increment[1];
+        sample += InterpolateWaveform(wav_sine, state_.vow.formant_phase[1], 1024) >> 2;
+        
+        // Apply bell envelope from lookup table
+        uint32_t envelope_phase = (phase_ >> 24);  // Use top 8 bits
+        uint32_t envelope_value = lut_bell[envelope_phase] >> 1;
+        sample = (sample * envelope_value) >> 15;
+        
+        // Reset formants at cycle start
+        if (phase_ < phase_increment_) {
+            state_.vow.formant_phase[0] = 0;
+            state_.vow.formant_phase[1] = 0;
+            sample = 0;
+        }
+        
+        // Remove DC offset
+        sample -= 16384 + 8192;
+        
+        *buffer++ = SoftLimit(sample);
+    }
 }
 
 void DigitalOscillator::RenderVowel(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Simple vowel synthesis using formant filtering
-    uint32_t phase = phase_;
-    uint32_t increment = phase_increment_;
+    // Complete VOWEL synthesis - authentic Braids implementation with phoneme data
+    size_t vowel_index = parameter_[0] >> 12;  // 0-7 vowels
+    uint16_t balance = parameter_[0] & 0x0fff;
+    uint16_t formant_shift = (200 + (parameter_[1] >> 6));
     
-    // Update formants based on parameter
-    UpdateFormants(parameter_[0]);
-    
-    while (size--) {
-        if (*sync++) {
-            phase = 0;
+    // Handle consonant burst on strike
+    if (struck_) {
+        struck_ = false;
+        state_.vow.consonant_frames = 160;  // Duration of consonant
+        uint16_t consonant_index = (Rng() & 7);  // Random consonant
+        
+        // Set up consonant formants
+        for (size_t i = 0; i < 3; ++i) {
+            state_.vow.formant_increment[i] = 
+                static_cast<uint32_t>(consonant_data[consonant_index].formant_frequency[i]) * 
+                0x1000 * formant_shift;
+            state_.vow.formant_amplitude[i] = consonant_data[consonant_index].formant_amplitude[i];
         }
-        
-        phase += increment;
-        
-        // Generate sawtooth as excitation
-        int16_t excitation = (phase >> 16) - 32768;
-        
-        // Apply formant filtering (simplified)
-        int32_t result = excitation;
-        for (int i = 0; i < 3; ++i) {
-            state_.vow.formant_phase[i] += state_.vow.formant_increment[i];
-            int32_t formant = InterpolateWaveform(wav_sine, state_.vow.formant_phase[i], 1024);
-            result = (result * formant) >> 16;
-        }
-        
-        *buffer++ = SoftLimit(result);
+        state_.vow.noise = (consonant_index >= 6) ? 4095 : 0;  // Fricatives have noise
     }
     
-    phase_ = phase;
+    // Transition from consonant to vowel
+    if (state_.vow.consonant_frames) {
+        --state_.vow.consonant_frames;
+    } else {
+        // Set up vowel formants with interpolation between adjacent vowels
+        for (size_t i = 0; i < 3; ++i) {
+            state_.vow.formant_increment[i] = 
+                (vowels_data[vowel_index].formant_frequency[i] * (0x1000 - balance) + 
+                 vowels_data[vowel_index + 1].formant_frequency[i] * balance) * 
+                formant_shift;
+            state_.vow.formant_amplitude[i] =
+                (vowels_data[vowel_index].formant_amplitude[i] * (0x1000 - balance) + 
+                 vowels_data[vowel_index + 1].formant_amplitude[i] * balance) >> 12;
+        }
+        state_.vow.noise = 0;
+    }
+    
+    int32_t noise = state_.vow.noise;
+    
+    while (size--) {
+        phase_ += phase_increment_;
+        if (*sync++) {
+            phase_ = 0;
+        }
+        
+        int16_t sample = 0;
+        
+        // Generate three formant oscillators
+        for (size_t i = 0; i < 3; ++i) {
+            state_.vow.formant_phase[i] += state_.vow.formant_increment[i];
+            size_t phaselet = (state_.vow.formant_phase[i] >> 24) & 0xf0;
+            uint8_t amplitude = state_.vow.formant_amplitude[i] & 0x0f;
+            
+            // Use formant waveforms with amplitude control
+            if (i < 2) {
+                // First two formants use sine waves
+                sample += wav_formant_sine[phaselet | amplitude];
+            } else {
+                // Third formant uses square for breathiness
+                sample += wav_formant_square[phaselet | amplitude];
+            }
+        }
+        
+        // Apply fundamental envelope
+        sample *= (255 - (phase_ >> 24));
+        
+        // Add noise for fricatives
+        int32_t phase_noise = (Rng() >> 16) * noise;
+        
+        // Reset formants at fundamental period
+        if ((phase_ + phase_noise) < phase_increment_) {
+            state_.vow.formant_phase[0] = 0;
+            state_.vow.formant_phase[1] = 0;
+            state_.vow.formant_phase[2] = 0;
+            sample = 0;
+        }
+        
+        // Apply waveshaping for vocal character
+        sample = SoftLimit(sample);
+        
+        *buffer++ = sample;
+    }
 }
 
 void DigitalOscillator::RenderVowelFof(const uint8_t* sync, int16_t* buffer, size_t size) {
@@ -541,33 +612,94 @@ void DigitalOscillator::RenderVowelFof(const uint8_t* sync, int16_t* buffer, siz
 }
 
 void DigitalOscillator::RenderHarmonics(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Additive synthesis with 14 harmonics
+    // Additive synthesis with 14 harmonics - authentic Braids implementation
     uint32_t phase = phase_;
-    uint32_t increment = phase_increment_;
+    int16_t previous_sample = state_.hrm.previous_sample;
+    uint32_t phase_increment = phase_increment_ << 1;  // Double for 2x oversampling
     
-    UpdateHarmonics(parameter_[0]);
+    int32_t target_amplitude[kNumAdditiveHarmonics];
+    int32_t amplitude[kNumAdditiveHarmonics];
     
-    while (size--) {
-        if (*sync++) {
-            phase = 0;
-            for (int i = 0; i < 14; ++i) {
-                state_.harm.phase[i] = 0;
-            }
-        }
+    // Calculate spectral shaping based on parameters
+    int32_t peak = (kNumAdditiveHarmonics * parameter_[0]) >> 7;  // Primary peak position
+    int32_t second_peak = (peak >> 1) + kNumAdditiveHarmonics * 128;  // Secondary peak
+    int32_t second_peak_amount = (parameter_[1] * parameter_[1]) >> 15;  // Secondary peak level
+    
+    // Calculate spectral width based on parameter 1
+    int32_t sqrtsqrt_width = parameter_[1] < 16384 
+        ? parameter_[1] >> 6 : 511 - (parameter_[1] >> 6);
+    int32_t sqrt_width = (sqrtsqrt_width * sqrtsqrt_width) >> 10;
+    int32_t width = sqrt_width * sqrt_width + 4;
+    
+    // Calculate target amplitude for each harmonic
+    int32_t total = 0;
+    for (size_t i = 0; i < kNumAdditiveHarmonics; ++i) {
+        int32_t x = i << 8;
+        int32_t d, g;
         
-        phase += increment;
+        // Primary peak contribution
+        d = (x - peak);
+        g = (32768 * 128) / (128 + (d * d) / width);
         
-        int32_t result = 0;
-        for (int i = 0; i < 14; ++i) {
-            state_.harm.phase[i] += state_.harm.increment[i];
-            int16_t harmonic = InterpolateWaveform(wav_sine, state_.harm.phase[i], 1024);
-            result += (harmonic * state_.harm.harmonics[i]) >> 15;
-        }
+        // Secondary peak contribution
+        d = (x - second_peak);
+        g += (second_peak_amount * 128) / (128 + (d * d) / width);
         
-        *buffer++ = SoftLimit(result >> 2);  // Divide by 4 to prevent clipping
+        total += g;
+        target_amplitude[i] = g;
     }
     
+    // Normalize and apply anti-aliasing
+    int32_t attenuation = 2147483647 / total;
+    for (size_t i = 0; i < kNumAdditiveHarmonics; ++i) {
+        // Anti-alias by removing harmonics that would alias
+        if ((phase_increment >> 16) * (i + 1) > 0x4000) {
+            target_amplitude[i] = 0;
+        } else {
+            target_amplitude[i] = (target_amplitude[i] * attenuation) >> 16;
+        }
+        amplitude[i] = state_.hrm.amplitude[i];
+    }
+    
+    // Render harmonics with 2x oversampling
+    while (size) {
+        int32_t out = 0;
+        
+        phase += phase_increment;
+        if (*sync++ || (size > 1 && *sync)) {  // Check both samples
+            phase = 0;
+        }
+        
+        // Sum all harmonics
+        for (size_t i = 0; i < kNumAdditiveHarmonics; ++i) {
+            int32_t harmonic_sample = InterpolateWaveform(wav_sine, phase * (i + 1), 1024);
+            out += (harmonic_sample * amplitude[i]) >> 15;
+            
+            // Smooth amplitude changes
+            amplitude[i] += (target_amplitude[i] - amplitude[i]) >> 8;
+        }
+        
+        // Clamp output
+        out = SoftLimit(out);
+        
+        // Downsample with simple anti-aliasing
+        *buffer++ = static_cast<int16_t>((out + previous_sample) >> 1);
+        if (size > 1) {
+            *buffer++ = static_cast<int16_t>(out);
+            size -= 2;
+        } else {
+            size--;
+        }
+        
+        previous_sample = static_cast<int16_t>(out);
+    }
+    
+    // Store state
+    state_.hrm.previous_sample = previous_sample;
     phase_ = phase;
+    for (size_t i = 0; i < kNumAdditiveHarmonics; ++i) {
+        state_.hrm.amplitude[i] = amplitude[i];
+    }
 }
 
 // Phase 3: FM Synthesis
@@ -725,97 +857,196 @@ void DigitalOscillator::ProcessFilter(float* state, float input, float frequency
 // Phase 4: Physical Modeling Synthesis
 
 void DigitalOscillator::RenderStruckBell(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Bell synthesis using modal synthesis with 11 partials
+    // Bell synthesis using modal synthesis with inharmonic partials
+    // Based on authentic Braids bell model with modal decay
+    
+    static const float bell_ratios[11] = {
+        1.0f, 2.756f, 5.404f, 8.933f, 13.344f, 18.638f, 
+        24.816f, 31.881f, 39.832f, 48.674f, 58.405f
+    };
+    
     if (struck_) {
-        // Initialize bell partials with inharmonic ratios
-        float bell_ratios[11] = {1.0f, 2.76f, 5.40f, 8.93f, 13.34f, 18.64f, 
-                                 24.83f, 31.92f, 39.89f, 48.78f, 58.57f};
-        
+        // Initialize bell partials on strike
+        bool reset_phase = state_.hrm.partial_amplitude[0] < 1024;
         for (int i = 0; i < 11; ++i) {
-            float partial_freq = ComputePhaseIncrement(pitch_) * bell_ratios[i];
-            state_.bell.bell_phase[i] = 0;
-            // Amplitude rolloff and damping based on frequency
-            float damping = 1.0f - (i * 0.08f);  
-            state_.bell.bell_amplitude[i] = static_cast<int16_t>(16384 * damping / (i + 1));
+            state_.hrm.target_partial_amplitude[i] = 
+                static_cast<int32_t>(16384.0f / (1.0f + i * 0.3f));  // Natural amplitude rolloff
+            if (reset_phase) {
+                state_.bell.bell_phase[i] = (1L << 30);  // Start with phase offset
+            }
         }
         struck_ = false;
     }
     
     float stiffness = static_cast<float>(parameter_[0]) / 32767.0f;
-    float damping = static_cast<float>(parameter_[1]) / 32767.0f;
+    float brightness = static_cast<float>(parameter_[1]) / 32767.0f;
+    
+    // Calculate partial decay rates
+    if (parameter_[0] < 32000) {
+        for (int i = 0; i < 11; ++i) {
+            // Different decay rates for each partial (higher partials decay faster)
+            int32_t decay_rate = 65400 - (i * 200) - static_cast<int32_t>(stiffness * 1000);
+            decay_rate = Clip(decay_rate, 60000, 65500);
+            
+            state_.hrm.target_partial_amplitude[i] = 
+                (state_.hrm.partial_amplitude[i] * decay_rate) >> 16;
+        }
+    }
+    
+    // Update partial frequencies with inharmonicity
+    for (int i = 0; i < 11; ++i) {
+        float freq_mult = bell_ratios[i] * (1.0f + stiffness * i * 0.001f);  // Inharmonicity
+        uint32_t increment = static_cast<uint32_t>(ComputePhaseIncrement(pitch_) * freq_mult);
+        state_.bell.bell_phase[i] += increment << 1;  // 2x oversampling
+    }
+    
+    int16_t previous_sample = state_.hrm.previous_sample;
     
     while (size--) {
         if (*sync++) {
-            // Reset bell on sync
             for (int i = 0; i < 11; ++i) {
-                state_.bell.bell_phase[i] = 0;
+                state_.bell.bell_phase[i] = (1L << 30);
             }
         }
         
-        int32_t result = 0;
+        int32_t harmonics = 0;
+        
+        // Sum all bell partials
         for (int i = 0; i < 11; ++i) {
-            // Update each partial
-            float partial_increment = ComputePhaseIncrement(pitch_) * (i + 1) * (1.0f + stiffness * i * 0.02f);
-            state_.bell.bell_phase[i] += static_cast<uint32_t>(partial_increment);
+            // Generate partial
+            int32_t partial = InterpolateWaveform(wav_sine, state_.bell.bell_phase[i], 1024);
             
-            // Generate partial with sine wave
-            int16_t partial = InterpolateWaveform(wav_sine, state_.bell.bell_phase[i], 1024);
+            // Apply smooth amplitude envelope
+            int32_t amplitude = state_.hrm.partial_amplitude[i] + 
+                ((state_.hrm.target_partial_amplitude[i] - state_.hrm.partial_amplitude[i]) >> 8);
             
-            // Apply amplitude envelope with damping
-            int16_t amplitude = state_.bell.bell_amplitude[i];
-            amplitude = static_cast<int16_t>(amplitude * (1.0f - damping * 0.0001f));
-            state_.bell.bell_amplitude[i] = amplitude;
+            // Apply brightness control (higher partials affected more)
+            float brightness_factor = 1.0f - (i * (1.0f - brightness) * 0.1f);
+            amplitude = static_cast<int32_t>(amplitude * brightness_factor);
             
-            result += (partial * amplitude) >> 15;
+            partial = (partial * amplitude) >> 16;
+            harmonics += partial;
         }
         
-        *buffer++ = SoftLimit(result >> 1);
+        // Apply subtle nonlinearity for metallic character
+        harmonics = SoftLimit(harmonics);
+        
+        // Simple anti-aliasing with previous sample
+        int16_t output = static_cast<int16_t>((harmonics + previous_sample) >> 1);
+        *buffer++ = output;
+        previous_sample = static_cast<int16_t>(harmonics);
+    }
+    
+    // Update state
+    state_.hrm.previous_sample = previous_sample;
+    for (int i = 0; i < 11; ++i) {
+        state_.hrm.partial_amplitude[i] = state_.hrm.target_partial_amplitude[i];
     }
 }
 
 void DigitalOscillator::RenderStruckDrum(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Drum synthesis with 6 partials and membrane modeling
+    // Drum synthesis based on authentic Braids model with partials and noise
+    // Combines harmonic partials with filtered noise for realistic drum sound
+    
     if (struck_) {
-        float drum_ratios[6] = {1.0f, 1.59f, 2.14f, 2.65f, 3.11f, 3.56f};
-        
-        for (int i = 0; i < 6; ++i) {
-            state_.drum.drum_phase[i] = 0;
-            state_.drum.drum_amplitude[i] = 16384 / (i + 1);
-            state_.drum.drum_decay[i] = 65000 - (i * 8000);  // Different decay rates
+        // Initialize drum partials on strike
+        bool reset_phase = state_.hrm.partial_amplitude[0] < 1024;
+        for (int i = 0; i < kNumDrumPartials; ++i) {
+            state_.hrm.target_partial_amplitude[i] = kDrumPartialAmplitude[i];
+            if (reset_phase) {
+                state_.hrm.partial_phase[i] = (1L << 30);
+            }
         }
         struck_ = false;
+    } else {
+        // Apply decay to partials when not striking
+        if (parameter_[0] < 32000) {
+            for (int i = 0; i < kNumDrumPartials; ++i) {
+                // Different decay rates for each partial
+                int32_t decay_long = 65500 - (i * 500);   // Longer decay for lower partials
+                int32_t decay_short = 64000 - (i * 1000); // Shorter decay for higher partials
+                int16_t balance = (32767 - parameter_[0]) >> 8;
+                balance = (balance * balance) >> 7;
+                int32_t decay = decay_long - ((decay_long - decay_short) * balance >> 7);
+                
+                state_.hrm.target_partial_amplitude[i] = 
+                    (state_.hrm.partial_amplitude[i] * decay) >> 16;
+            }
+        }
     }
     
-    float tension = static_cast<float>(parameter_[0]) / 32767.0f;
-    float brightness = static_cast<float>(parameter_[1]) / 32767.0f;
+    // Calculate partial frequencies (drum modes: 1.0, 1.59, 2.14, 2.65, 3.11, 3.56)
+    static const int16_t drum_partials[kNumDrumPartials] = {0, 635, 1084, 1427, 1700, 1922};
+    for (int i = 0; i < kNumDrumPartials; ++i) {
+        int16_t partial_pitch = pitch_ + drum_partials[i];
+        uint32_t increment = ComputePhaseIncrement(partial_pitch) << 1;  // 2x oversampling
+        state_.hrm.partial_phase[i] += increment;
+    }
+    
+    int16_t previous_sample = state_.hrm.previous_sample;
+    
+    // Filter setup for noise component
+    int32_t cutoff = (pitch_ - 12 * 128) + (parameter_[1] >> 2);
+    cutoff = Clip(cutoff, 0, 32767);
+    float filter_freq = static_cast<float>(cutoff) / 32767.0f * 0.3f;  // Filter frequency
+    
+    int32_t harmonics_gain = parameter_[1] < 12888 ? (parameter_[1] + 4096) : 16384;
+    int32_t noise_mode_gain = parameter_[1] < 16384 ? 0 : parameter_[1] - 16384;
+    noise_mode_gain = (noise_mode_gain * 12888) >> 14;
     
     while (size--) {
         if (*sync++) {
-            for (int i = 0; i < 6; ++i) {
-                state_.drum.drum_phase[i] = 0;
+            for (int i = 0; i < kNumDrumPartials; ++i) {
+                state_.hrm.partial_phase[i] = (1L << 30);
             }
         }
         
-        int32_t result = 0;
-        for (int i = 0; i < 6; ++i) {
-            // Membrane modes with tension affecting pitch
-            float partial_increment = ComputePhaseIncrement(pitch_) * (i + 1) * (0.8f + tension * 0.4f);
-            state_.drum.drum_phase[i] += static_cast<uint32_t>(partial_increment);
-            
-            int16_t partial = InterpolateWaveform(wav_sine, state_.drum.drum_phase[i], 1024);
-            
-            // Exponential decay
-            uint16_t decay_rate = state_.drum.drum_decay[i];
-            int16_t amplitude = state_.drum.drum_amplitude[i];
-            amplitude = (amplitude * decay_rate) >> 16;
-            state_.drum.drum_amplitude[i] = amplitude;
-            
-            // Brightness affects harmonic balance
-            float harmonic_gain = 1.0f - (i * 0.1f * (1.0f - brightness));
-            result += static_cast<int32_t>((partial * amplitude * harmonic_gain)) >> 15;
+        int32_t harmonics = 0;
+        int32_t partials[kNumDrumPartials];
+        
+        // Generate drum partials
+        for (int i = 0; i < kNumDrumPartials; ++i) {
+            int32_t partial = InterpolateWaveform(wav_sine, state_.hrm.partial_phase[i], 1024);
+            int32_t amplitude = state_.hrm.partial_amplitude[i] +
+                ((state_.hrm.target_partial_amplitude[i] - state_.hrm.partial_amplitude[i]) >> 8);
+            partial = (partial * amplitude) >> 16;
+            harmonics += partial;
+            partials[i] = partial;
         }
         
-        *buffer++ = SoftLimit(result);
+        // Add noise component for drum character
+        int32_t noise = static_cast<int16_t>(Rng() >> 17) - 16384;
+        noise = Clip(noise, -16384, 16384);
+        
+        // Simple 3-stage lowpass filter for noise
+        state_.kick.svf_state[0] += ((noise - state_.kick.svf_state[0]) * 
+                                    static_cast<int32_t>(filter_freq * 32768)) >> 15;
+        state_.kick.svf_state[1] += ((state_.kick.svf_state[0] - state_.kick.svf_state[1]) * 
+                                    static_cast<int32_t>(filter_freq * 32768)) >> 15;
+        
+        int32_t filtered_noise = state_.kick.svf_state[1];
+        
+        // Mix harmonics and noise based on parameters
+        int32_t sample = partials[0];  // Fundamental
+        int32_t noise_mode_1 = (partials[1] * filtered_noise) >> 8;
+        int32_t noise_mode_2 = (partials[3] * filtered_noise) >> 9;
+        
+        sample += (noise_mode_1 * (12288 - noise_mode_gain)) >> 14;
+        sample += (noise_mode_2 * noise_mode_gain) >> 14;
+        sample += (harmonics * harmonics_gain) >> 14;
+        
+        sample = SoftLimit(sample);
+        
+        // Anti-aliasing
+        int16_t output = static_cast<int16_t>((sample + previous_sample) >> 1);
+        *buffer++ = output;
+        previous_sample = static_cast<int16_t>(sample);
+    }
+    
+    // Update state
+    state_.hrm.previous_sample = previous_sample;
+    for (int i = 0; i < kNumDrumPartials; ++i) {
+        state_.hrm.partial_amplitude[i] = state_.hrm.target_partial_amplitude[i];
     }
 }
 
@@ -1207,17 +1438,17 @@ void DigitalOscillator::RenderFluted(const uint8_t* sync, int16_t* buffer, size_
 // Wavetable and noise stubs (Phase 5)
 
 void DigitalOscillator::RenderWavetables(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Standard wavetable synthesis with morphing
+    // Authentic Braids wavetable synthesis with morphing and scanning
     uint32_t phase = phase_;
     uint32_t increment = phase_increment_;
     
-    // Parameter 0 controls wavetable selection (0-63)
-    uint32_t wavetable_index = (parameter_[0] * 63) >> 15;
-    uint32_t next_wavetable = (wavetable_index + 1) & 63;
-    uint32_t morph_amount = (parameter_[0] * 63) & 0x7FFF;  // Fractional part
+    // Parameter 0 controls wavetable bank selection (0-63 mapped to wavetables)
+    uint32_t wavetable_a = (parameter_[0] * 63) >> 15;
+    uint32_t wavetable_b = (wavetable_a + 1) & 63;
+    uint32_t morph = (parameter_[0] * 63) & 0x7FFF;  // Fractional part for morphing
     
-    // Parameter 1 controls wavetable scanning position
-    uint32_t scan_position = parameter_[1];
+    // Parameter 1 controls wavetable position/scan within the table
+    uint32_t scan_offset = parameter_[1] << 16;  // Convert to phase offset
     
     while (size--) {
         if (*sync++) {
@@ -1226,16 +1457,21 @@ void DigitalOscillator::RenderWavetables(const uint8_t* sync, int16_t* buffer, s
         
         phase += increment;
         
-        // Get sample from current wavetable
-        auto current_wt = GetWavetable(wavetable_index);
-        int16_t sample_a = current_wt.LookupInterpolated(phase + scan_position);
+        // Apply scan offset to phase
+        uint32_t scan_phase = phase + scan_offset;
         
-        // Get sample from next wavetable for morphing
-        auto next_wt = GetWavetable(next_wavetable);
-        int16_t sample_b = next_wt.LookupInterpolated(phase + scan_position);
+        // Get samples from two adjacent wavetables for morphing
+        auto wt_a = GetWavetable(wavetable_a);
+        auto wt_b = GetWavetable(wavetable_b);
         
-        // Morph between wavetables
-        int32_t result = sample_a + (((sample_b - sample_a) * morph_amount) >> 15);
+        int16_t sample_a = wt_a.LookupInterpolated(scan_phase);
+        int16_t sample_b = wt_b.LookupInterpolated(scan_phase);
+        
+        // Crossfade between wavetables
+        int32_t result = sample_a + (((sample_b - sample_a) * morph) >> 15);
+        
+        // Apply subtle anti-aliasing
+        result = SoftLimit(result);
         
         *buffer++ = static_cast<int16_t>(result);
     }
@@ -1477,62 +1713,93 @@ void DigitalOscillator::RenderClockedNoise(const uint8_t* sync, int16_t* buffer,
 }
 
 void DigitalOscillator::RenderGranularCloud(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Granular cloud synthesis - multiple overlapping grains
-    float grain_density = static_cast<float>(parameter_[0]) / 32767.0f;  // 0-1
-    float grain_size = static_cast<float>(parameter_[1]) / 32767.0f;     // 0-1
+    // Granular cloud synthesis - realistic grain-based synthesis
+    // Based on authentic granular synthesis principles with multiple overlapping grains
     
-    // Convert to useful ranges
-    uint32_t grain_length = static_cast<uint32_t>(48 + grain_size * 1000);  // 1-21ms grains
-    uint32_t grain_rate = static_cast<uint32_t>(1 + grain_density * 100);   // 1-100 grains per second
+    float grain_density = static_cast<float>(parameter_[0]) / 32767.0f;  // 0-1 grain density
+    float grain_pitch = static_cast<float>(parameter_[1]) / 32767.0f;    // 0-1 grain pitch variation
+    
+    // Convert parameters to useful ranges
+    uint32_t grain_rate_threshold = static_cast<uint32_t>((1.0f - grain_density) * 65535);
+    float pitch_variation = (grain_pitch - 0.5f) * 2.0f;  // ±1.0 pitch variation
+    
+    // Grain length based on fundamental frequency
+    uint32_t base_grain_length = std::max(32U, ComputeDelay(pitch_) >> 1);  // Half-period grains
     
     while (size--) {
-        sync++;  // Advance sync pointer
+        if (*sync++) {
+            // Reset all grains on sync
+            for (int g = 0; g < 8; ++g) {
+                state_.wtbl.phase[g] = 0;
+                state_.wtbl.level[g] = 0;
+            }
+        }
         
         int32_t result = 0;
         
-        // Update grain triggers
-        for (int g = 0; g < 8; ++g) {  // 8 concurrent grains max
+        // Process 8 concurrent grains
+        for (int g = 0; g < 8; ++g) {
             // Check if grain should start
             if (state_.wtbl.phase[g] == 0) {
                 // Random grain triggering based on density
-                if ((Rng() & 0xFFFF) < (grain_rate * 655)) {
+                if ((Rng() & 0xFFFF) > grain_rate_threshold) {
                     state_.wtbl.phase[g] = 1;  // Start grain
-                    state_.wtbl.level[g] = grain_length;  // Grain length counter
+                    
+                    // Random grain length variation (±50%)
+                    uint32_t length_variation = (Rng() & 0x3FFF) - 0x1FFF;  // ±8191
+                    uint32_t grain_length = base_grain_length + (length_variation >> 3);
+                    grain_length = std::max(16U, std::min(grain_length, 1024U));
+                    state_.wtbl.level[g] = static_cast<int16_t>(grain_length);
+                    
+                    // Calculate grain pitch (stored in upper bits of phase)
+                    float grain_pitch_offset = pitch_variation * ((Rng() >> 16) / 65535.0f - 0.5f);
+                    int16_t grain_pitch = pitch_ + static_cast<int16_t>(grain_pitch_offset * 128 * 12);  // ±12 semitones
+                    uint32_t grain_increment = ComputePhaseIncrement(grain_pitch);
+                    
+                    // Store increment in unused state space
+                    state_.harm.increment[g] = grain_increment;
+                    state_.harm.phase[g] = Rng();  // Random start phase
                 }
             }
             
             // Process active grains
             if (state_.wtbl.phase[g] > 0) {
-                // Grain position within length
-                float grain_pos = static_cast<float>(state_.wtbl.phase[g]) / grain_length;
+                uint32_t grain_length = static_cast<uint32_t>(state_.wtbl.level[g]);
+                uint32_t grain_pos = state_.wtbl.phase[g];
                 
-                // Simple grain envelope (Hann window)
-                float envelope = 0.5f * (1.0f - std::cos(2.0f * M_PI * grain_pos));
+                // Grain envelope (Hann window for smooth grains)
+                float envelope_pos = static_cast<float>(grain_pos) / static_cast<float>(grain_length);
+                float envelope = 0.5f * (1.0f - std::cos(2.0f * M_PI * envelope_pos));
                 
-                // Generate grain content (filtered noise)
-                int16_t grain_noise = static_cast<int16_t>(Rng() >> 17) - 16384;
+                // Generate grain content using wavetable
+                uint32_t grain_phase = state_.harm.phase[g];
+                grain_phase += state_.harm.increment[g];
+                state_.harm.phase[g] = grain_phase;
                 
-                // Apply different grain characteristics per grain
-                float grain_freq = 0.1f + (g * 0.1f);  // Different filter freq per grain
+                // Use different wavetables for different grains
+                uint32_t wavetable_index = (g * 8) & 63;  // Distribute across wavetables
+                auto wt = GetWavetable(wavetable_index);
+                int16_t grain_sample = wt.LookupInterpolated(grain_phase);
                 
-                // Simple one-pole low-pass per grain
-                state_.noise.integrator_state = static_cast<int32_t>(
-                    state_.noise.integrator_state * (1.0f - grain_freq) + grain_noise * grain_freq
-                );
+                // Apply envelope and pitch-dependent amplitude
+                float amplitude = envelope * (1.0f - grain_pos * 0.0001f);  // Slight decay
+                int32_t grain_out = static_cast<int32_t>(grain_sample * amplitude);
                 
-                // Apply envelope and add to result
-                int32_t grain_out = static_cast<int32_t>(state_.noise.integrator_state * envelope);
-                result += grain_out >> 3;  // Scale down
+                result += grain_out >> 4;  // Sum grains with scaling
                 
-                // Advance grain
+                // Advance grain position
                 state_.wtbl.phase[g]++;
-                if (state_.wtbl.phase[g] > grain_length) {
+                if (grain_pos >= grain_length) {
                     state_.wtbl.phase[g] = 0;  // End grain
+                    state_.wtbl.level[g] = 0;
                 }
             }
         }
         
-        *buffer++ = SoftLimit(result);
+        // Apply subtle filtering and limiting
+        result = SoftLimit(result);
+        
+        *buffer++ = static_cast<int16_t>(result);
     }
 }
 

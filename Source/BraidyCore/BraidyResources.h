@@ -67,8 +67,40 @@ extern const int16_t* ws_sine_fold;
 // Wavetables for wavetable synthesis
 extern int16_t wt_waves[64][129];  // Non-const for runtime initialization
 
+// Original Braids wavetable data
+extern const int16_t braids_wavetable_data[16512];
+
 // Character set for display (if UI needs it)
 extern const uint8_t character_table[95][5];
+
+// Formant synthesis data structures
+struct PhonemeDefinition {
+    uint8_t formant_frequency[3];
+    uint8_t formant_amplitude[3];
+};
+
+// Phoneme data for vowel and consonant synthesis
+extern const PhonemeDefinition vowels_data[9];
+extern const PhonemeDefinition consonant_data[8];
+
+// Formant frequency and amplitude tables for different voice types
+static const int kNumFormants = 5;
+extern const int16_t formant_f_data[kNumFormants][kNumFormants][kNumFormants];
+extern const int16_t formant_a_data[kNumFormants][kNumFormants][kNumFormants];
+
+// Formant waveform tables
+extern const int16_t* wav_formant_sine;
+extern const int16_t* wav_formant_square;
+
+// Bell envelope for VOSIM synthesis
+extern const uint16_t* lut_bell;
+
+// Additive synthesis constants
+static const int kNumAdditiveHarmonics = 14;
+
+// Physical modeling constants
+static const int kNumDrumPartials = 6;
+extern const int16_t kDrumPartialAmplitude[kNumDrumPartials];
 
 // Resource access functions
 LookupTable<int16_t> GetSineWave();

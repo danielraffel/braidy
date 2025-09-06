@@ -65,8 +65,11 @@ enum class DigitalOscillatorShape {
 // State for various synthesis models
 union OscillatorState {
     struct {
-        uint32_t formant_phase[5];
-        uint32_t formant_increment[5];
+        uint32_t formant_phase[3];
+        uint32_t formant_increment[3];
+        uint16_t formant_amplitude[3];
+        uint16_t consonant_frames;
+        int32_t noise;
     } vow;
     
     struct {
@@ -80,6 +83,14 @@ union OscillatorState {
         uint32_t phase[14];
         uint32_t increment[14];
     } harm;
+    
+    struct {
+        int32_t amplitude[14];
+        int16_t previous_sample;
+        uint32_t partial_phase[6];
+        int32_t target_partial_amplitude[6];
+        int32_t partial_amplitude[6];
+    } hrm;
     
     struct {
         uint16_t delay_line[8192];

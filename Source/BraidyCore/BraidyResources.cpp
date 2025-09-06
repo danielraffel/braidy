@@ -1,5 +1,6 @@
 #include "BraidyResources.h"
 #include "BraidyMath.h"
+#include "BraidsWavetableData.h"
 #include <cmath>
 
 namespace braidy {
@@ -90,6 +91,133 @@ const uint8_t character_table[95][5] = {
     {0x00, 0x00, 0x00, 0x00, 0x00}, // space
     {0x00, 0x00, 0x5f, 0x00, 0x00}, // !
     // ... would contain full character set
+};
+
+// Phoneme data for VOWEL synthesis (from original Braids)
+const PhonemeDefinition vowels_data[9] = {
+    { { 27,  40,  89 }, { 15,  13,  1 } },
+    { { 18,  51,  62 }, { 13,  12,  6 } },
+    { { 15,  69,  93 }, { 14,  12,  7 } },
+    { { 10,  84, 110 }, { 13,  10,  8 } },
+    { { 23,  44,  87 }, { 15,  12,  1 } },
+    { { 13,  29,  80 }, { 13,   8,  0 } },
+    { {  6,  46,  81 }, { 12,   3,  0 } },
+    { {  9,  51,  95 }, { 15,   3,  0 } },
+    { {  6,  73,  99 }, {  7,   3,  14 } }
+};
+
+const PhonemeDefinition consonant_data[8] = {
+    { { 6, 54, 121 }, { 9,  9,  0 } },
+    { { 18, 50, 51 }, { 12,  10,  5 } },
+    { { 11, 24, 70 }, { 13,  8,  0 } },
+    { { 15, 69, 74 }, { 14,  12,  7 } },
+    { { 16, 37, 111 }, { 14,  8,  1 } },
+    { { 18, 51, 62 }, { 14,  12,  6 } },
+    { { 6, 26, 81 }, { 5,  5,  5 } },
+    { { 6, 73, 99 }, { 7,  10,  14 } },
+};
+
+// Formant frequency and amplitude tables for FOF synthesis
+const int16_t formant_f_data[kNumFormants][kNumFormants][kNumFormants] = {
+    // bass
+    {
+        { 9519, 10738, 12448, 12636, 12892 }, // a
+        { 8620, 11720, 12591, 12932, 13158 }, // e
+        { 7579, 11891, 12768, 13122, 13323 }, // i
+        { 8620, 10013, 12591, 12768, 13010 }, // o
+        { 8324, 9519, 12591, 12831, 13048 }   // u
+    },
+    // tenor
+    {
+        { 9696, 10821, 12810, 13010, 13263 }, // a
+        { 8620, 11827, 12768, 13228, 13477 }, // e
+        { 7908, 12038, 12932, 13263, 13452 }, // i
+        { 8620, 10156, 12768, 12932, 13085 }, // o
+        { 8324, 9519, 12852, 13010, 13296 }   // u
+    },
+    // countertenor
+    {
+        { 9730, 10902, 12892, 13085, 13330 }, // a
+        { 8832, 11953, 12852, 13085, 13296 }, // e
+        { 7749, 12014, 13010, 13330, 13483 }, // i
+        { 8781, 10211, 12852, 13085, 13296 }, // o
+        { 8448, 9627, 12892, 13085, 13363 }   // u
+    },
+    // alto
+    {
+        { 10156, 10960, 12932, 13427, 14195 }, // a
+        { 8620, 11692, 12852, 13296, 14195 },  // e
+        { 8324, 11827, 12852, 13550, 14195 },  // i
+        { 8881, 10156, 12956, 13427, 14195 },  // o
+        { 8160, 9860, 12708, 13427, 14195 }    // u
+    },
+    // soprano
+    {
+        { 10156, 10960, 13010, 13667, 14195 }, // a
+        { 8324, 12187, 12932, 13489, 14195 },  // e
+        { 7749, 12337, 13048, 13667, 14195 },  // i
+        { 8881, 10156, 12956, 13609, 14195 },  // o
+        { 8160, 9860, 12852, 13609, 14195 }    // u
+    }
+};
+
+const int16_t formant_a_data[kNumFormants][kNumFormants][kNumFormants] = {
+    // bass
+    {
+        { 16384, 7318, 5813, 5813, 1638 }, // a
+        { 16384, 4115, 5813, 4115, 2062 }, // e
+        { 16384, 518, 2596, 1301, 652 },   // i
+        { 16384, 4617, 1460, 1638, 163 },  // o
+        { 16384, 1638, 411, 652, 259 }     // u
+    },
+    // tenor
+    {
+        { 16384, 8211, 7318, 6522, 1301 }, // a
+        { 16384, 3269, 4115, 3269, 1638 }, // e
+        { 16384, 2913, 2062, 1638, 518 },  // i
+        { 16384, 5181, 4115, 4115, 821 },  // o
+        { 16384, 1638, 2314, 3269, 821 }   // u
+    },
+    // countertenor
+    {
+        { 16384, 8211, 1159, 1033, 206 },  // a
+        { 16384, 3269, 2062, 1638, 1638 }, // e
+        { 16384, 1033, 1033, 259, 259 },   // i
+        { 16384, 5181, 821, 1301, 326 },   // o
+        { 16384, 1638, 518, 1160, 411 }    // u
+    },
+    // alto
+    {
+        { 16384, 4115, 2062, 1033, 411 },  // a
+        { 16384, 2913, 2596, 2062, 1301 }, // e
+        { 16384, 518, 1638, 1301, 652 },   // i
+        { 16384, 2596, 1460, 1301, 518 },  // o
+        { 16384, 821, 1033, 1638, 652 }    // u
+    },
+    // soprano
+    {
+        { 16384, 4115, 2596, 1301, 518 },  // a
+        { 16384, 1160, 2596, 1638, 1160 }, // e
+        { 16384, 326, 1301, 518, 259 },    // i
+        { 16384, 2596, 1460, 1301, 652 },  // o
+        { 16384, 821, 1301, 1301, 821 }    // u
+    }
+};
+
+// Bell envelope for VOSIM synthesis
+uint16_t bell_temp[256];
+const uint16_t* lut_bell = nullptr;
+
+// Formant waveform tables
+int16_t formant_sine_temp[256];
+const int16_t* wav_formant_sine = nullptr;
+
+int16_t formant_square_temp[256];
+const int16_t* wav_formant_square = nullptr;
+
+// Physical modeling drum partials
+const int16_t kDrumPartialAmplitude[kNumDrumPartials] = {
+    16384, 8192, 4096, 2048, 1024, 512
 };
 
 void InitializeResources() {
@@ -185,91 +313,44 @@ void InitializeResources() {
         wav_bandlimited_square[i] = wav_square;
     }
     
-    // Generate 64 different wavetables
+    // Initialize wavetables using real Braids wavetable data
+    // The Braids data contains 16512 samples = 128 wavetables * 129 samples each
+    // We'll use the first 64 wavetables
     for (int wt = 0; wt < 64; ++wt) {
         for (int i = 0; i < 129; ++i) {
-            float phase = static_cast<float>(i) * k2Pi / 128.0f;
-            float value = 0.0f;
-            
-            // Different wavetable types based on index
-            switch (wt / 8) {
-                case 0: {
-                    // Basic waveforms with harmonics (0-7)
-                    int harmonics = (wt % 8) + 1;
-                    for (int h = 1; h <= harmonics; ++h) {
-                        value += std::sin(phase * h) / h;
-                    }
-                    break;
-                }
-                case 1: {
-                    // PWM variants (8-15)
-                    float duty = 0.1f + (wt % 8) * 0.1f;  // 10-80% duty cycle
-                    value = (std::fmod(phase, k2Pi) < (k2Pi * duty)) ? 1.0f : -1.0f;
-                    // Anti-alias with sine blend
-                    value = value * 0.7f + std::sin(phase) * 0.3f;
-                    break;
-                }
-                case 2: {
-                    // Filtered sawtooth variants (16-23)
-                    float cutoff = 2.0f + (wt % 8);  // Different filter cutoffs
-                    value = phase / kPi - 1.0f;  // Sawtooth
-                    for (int h = 2; h <= 16; ++h) {
-                        if (h <= cutoff) {
-                            value += std::sin(phase * h) / (h * h);
-                        }
-                    }
-                    break;
-                }
-                case 3: {
-                    // FM-like wavetables (24-31)
-                    float mod_index = (wt % 8) * 0.5f;
-                    value = std::sin(phase + mod_index * std::sin(phase * 2.0f));
-                    break;
-                }
-                case 4: {
-                    // Resonant filter sweeps (32-39)
-                    float q = 0.5f + (wt % 8) * 0.2f;
-                    float freq_mod = 1.0f + (wt % 8) * 0.5f;
-                    value = std::sin(phase) + q * std::sin(phase * freq_mod);
-                    value = std::tanh(value);  // Clip
-                    break;
-                }
-                case 5: {
-                    // Harmonic series with gaps (40-47)
-                    for (int h = 1; h <= 12; ++h) {
-                        if ((h & (1 << (wt % 8))) != 0) {
-                            value += std::sin(phase * h) / h;
-                        }
-                    }
-                    break;
-                }
-                case 6: {
-                    // Formant-like structures (48-55)
-                    float f1 = 200.0f + (wt % 4) * 100.0f;
-                    float f2 = 1000.0f + ((wt % 8) / 4) * 500.0f;
-                    value = std::sin(phase * f1/220.0f) + 0.5f * std::sin(phase * f2/220.0f);
-                    break;
-                }
-                case 7: {
-                    // Noise-like and chaotic (56-63)
-                    uint32_t chaos = static_cast<uint32_t>(i * 13 + wt * 17);
-                    chaos = (chaos * 1664525L + 1013904223L) >> 16;  // Simple PRNG
-                    float noise_factor = (wt % 8) * 0.05f;
-                    value = std::sin(phase) + noise_factor * (static_cast<float>(chaos) / 32768.0f - 1.0f);
-                    break;
-                }
+            // Direct copy from Braids wavetable data
+            int source_index = wt * 129 + i;
+            if (source_index < 16512) {
+                wt_waves[wt][i] = braids_wavetable_data[source_index];
+            } else {
+                wt_waves[wt][i] = 0;  // Safety fallback
             }
-            
-            wt_temp[wt][i] = static_cast<int16_t>(std::tanh(value * 0.8f) * 32767.0f);
         }
     }
     
-    // Copy the generated wavetables to the array
-    for (int wt = 0; wt < 64; ++wt) {
-        for (int i = 0; i < 129; ++i) {
-            wt_waves[wt][i] = wt_temp[wt][i];
-        }
+    // Generate bell envelope for VOSIM synthesis
+    for (int i = 0; i < 256; ++i) {
+        float t = static_cast<float>(i) / 255.0f;
+        // Bell-shaped envelope: e^(-5*t) * sin(pi*t)
+        float bell = std::exp(-5.0f * t) * std::sin(kPi * t);
+        bell_temp[i] = static_cast<uint16_t>(bell * 65535.0f);
     }
+    lut_bell = bell_temp;
+    
+    // Generate formant waveform tables
+    for (int i = 0; i < 256; ++i) {
+        float phase = static_cast<float>(i) * k2Pi / 256.0f;
+        
+        // Formant sine with amplitude modulation capability
+        float sine_val = std::sin(phase);
+        formant_sine_temp[i] = static_cast<int16_t>(sine_val * 32767.0f);
+        
+        // Formant square for breathiness
+        float square_val = (phase < kPi) ? 1.0f : -1.0f;
+        formant_square_temp[i] = static_cast<int16_t>(square_val * 16384.0f);
+    }
+    wav_formant_sine = formant_sine_temp;
+    wav_formant_square = formant_square_temp;
 }
 
 LookupTable<int16_t> GetSineWave() {

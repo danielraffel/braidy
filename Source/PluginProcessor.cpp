@@ -208,10 +208,11 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     samples_since_parameter_update_ += buffer.getNumSamples();
     
     // Update parameters (optimized to skip if no changes)
+    bool parameters_were_updated = parameter_update_pending_;
     updateBraidyFromAPVTS();
     
     // Only update voice settings if parameters changed or periodically
-    if (parameter_update_pending_ || samples_since_parameter_update_ > 1024) {
+    if (parameters_were_updated || samples_since_parameter_update_ > 1024) {
         voice_manager_->UpdateFromSettings(*braidy_settings_);
         samples_since_parameter_update_ = 0;
     }
