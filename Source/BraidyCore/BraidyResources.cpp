@@ -83,7 +83,7 @@ const int16_t* ws_sine_fold = nullptr;
 
 // Wavetables - procedurally generated for 64 different wavetables
 int16_t wt_temp[64][129];
-const int16_t wt_waves[64][129] = {};
+int16_t wt_waves[64][129];  // Made non-const to allow runtime initialization
 
 // Character table for display
 const uint8_t character_table[95][5] = {
@@ -264,11 +264,10 @@ void InitializeResources() {
         }
     }
     
-    // Copy the generated wavetables to the const array (const_cast for initialization)
-    int16_t* wt_mutable = const_cast<int16_t*>(&wt_waves[0][0]);
+    // Copy the generated wavetables to the array
     for (int wt = 0; wt < 64; ++wt) {
         for (int i = 0; i < 129; ++i) {
-            wt_mutable[wt * 129 + i] = wt_temp[wt][i];
+            wt_waves[wt][i] = wt_temp[wt][i];
         }
     }
 }

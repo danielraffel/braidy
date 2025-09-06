@@ -65,7 +65,7 @@ extern const int16_t* ws_violent_overdrive;
 extern const int16_t* ws_sine_fold;
 
 // Wavetables for wavetable synthesis
-extern const int16_t wt_waves[64][129];
+extern int16_t wt_waves[64][129];  // Non-const for runtime initialization
 
 // Character set for display (if UI needs it)
 extern const uint8_t character_table[95][5];

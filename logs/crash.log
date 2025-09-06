@@ -1,0 +1,363 @@
+-------------------------------------
+Translated Report (Full Report Below)
+-------------------------------------
+
+Process:               braidy [46298]
+Path:                  /Users/USER/*/braidy.app/Contents/MacOS/braidy
+Identifier:            com.generouscorp.braidy
+Version:               1.0.30 (1.0.30)
+Code Type:             ARM-64 (Native)
+Parent Process:        launchd [1]
+User ID:               501
+
+Date/Time:             2025-09-06 08:42:54.0333 +0300
+OS Version:            macOS 15.6.1 (24G90)
+Report Version:        12
+Anonymous UUID:        7D8EB1A7-A62E-B718-D724-9CCAB01CD795
+
+Sleep/Wake UUID:       8986DCB7-ED54-4CE2-9597-381E56FC111C
+
+Time Awake Since Boot: 69000 seconds
+Time Since Wake:       67881 seconds
+
+System Integrity Protection: enabled
+
+Crashed Thread:        0  JUCE v8.0.8: Message Thread  Dispatch queue: com.apple.main-thread
+
+Exception Type:        EXC_BAD_ACCESS (SIGBUS)
+Exception Codes:       KERN_PROTECTION_FAILURE at 0x00000001017b2d7a
+Exception Codes:       0x0000000000000002, 0x00000001017b2d7a
+
+Termination Reason:    Namespace SIGNAL, Code 10 Bus error: 10
+Terminating Process:   exc handler [46298]
+
+VM Region Info: 0x1017b2d7a is in 0x100984000-0x101810000;  bytes after start: 14871930  bytes before end: 381573
+      REGION TYPE                    START - END         [ VSIZE] PRT/MAX SHRMOD  REGION DETAIL
+      UNUSED SPACE AT START
+--->  __TEXT                      100984000-101810000    [ 14.5M] r-x/r-x SM=COW  /Users/USER/*/braidy.app/Contents/MacOS/braidy
+      __DATA_CONST                101810000-101864000    [  336K] r--/rw- SM=COW  /Users/USER/*/braidy.app/Contents/MacOS/braidy
+
+Thread 0 Crashed:: JUCE v8.0.8: Message Thread Dispatch queue: com.apple.main-thread
+0   braidy                        	       0x1015fa978 braidy::InitializeResources() + 3508
+1   braidy                        	       0x10162e610 BraidyAudioProcessor::BraidyAudioProcessor() + 528
+2   braidy                        	       0x10162eeb4 BraidyAudioProcessor::BraidyAudioProcessor() + 28
+3   braidy                        	       0x101630434 createPluginFilter() + 28
+4   braidy                        	       0x10099df1c juce::createPluginFilterOfType(juce::AudioProcessor::WrapperType) + 72 (juce_CreatePluginFilter.h:44)
+5   braidy                        	       0x10099c434 juce::StandalonePluginHolder::handleCreatePlugin() + 40 (juce_StandaloneFilterWindow.h:449)
+6   braidy                        	       0x10099bf50 juce::StandalonePluginHolder::StandalonePluginHolder(juce::PropertySet*, bool, juce::String const&, juce::AudioDeviceManager::AudioDeviceSetup const*, juce::Array<juce::StandalonePluginHolder::PluginInOuts, juce::DummyCriticalSection, 0> const&, bool) + 696 (juce_StandaloneFilterWindow.h:101)
+7   braidy                        	       0x10099bc54 juce::StandalonePluginHolder::StandalonePluginHolder(juce::PropertySet*, bool, juce::String const&, juce::AudioDeviceManager::AudioDeviceSetup const*, juce::Array<juce::StandalonePluginHolder::PluginInOuts, juce::DummyCriticalSection, 0> const&, bool) + 84 (juce_StandaloneFilterWindow.h:93)
+8   braidy                        	       0x10099bac4 std::__1::__unique_if<juce::StandalonePluginHolder>::__unique_single std::__1::make_unique[abi:de190102]<juce::StandalonePluginHolder, juce::PropertiesFile*, bool, juce::String, std::nullptr_t, juce::Array<juce::StandalonePluginHolder::PluginInOuts, juce::DummyCriticalSection, 0> const&, bool const&>(juce::PropertiesFile*&&, bool&&, juce::String&&, std::nullptr_t&&, juce::Array<juce::StandalonePluginHolder::PluginInOuts, juce::DummyCriticalSection, 0> const&, bool const&) + 104 (unique_ptr.h:635)
+9   braidy                        	       0x10098c974 juce::StandaloneFilterApp::createPluginHolder() + 140 (juce_audio_plugin_client_Standalone.cpp:121)
+10  braidy                        	       0x10098c824 juce::StandaloneFilterApp::createWindow() + 184 (juce_audio_plugin_client_Standalone.cpp:101)
+11  braidy                        	       0x10098c4c4 juce::StandaloneFilterApp::initialise(juce::String const&) + 32 (juce_audio_plugin_client_Standalone.cpp:132)
+12  braidy                        	       0x100e0cdd8 juce::JUCEApplicationBase::initialiseApp() + 196
+13  braidy                        	       0x101202420 juce::JUCEApplication::initialiseApp() + 24
+14  braidy                        	       0x100e0cb5c juce::JUCEApplicationBase::main() + 292
+15  braidy                        	       0x100e0c9e0 juce::JUCEApplicationBase::main(int, char const**) + 68
+16  braidy                        	       0x10098bdd8 main + 56 (juce_audio_plugin_client_Standalone.cpp:234)
+17  dyld                          	       0x19b6ceb98 start + 6076
+
+Thread 1::  Dispatch queue: app exceptions timeout queue
+0   libsystem_kernel.dylib        	       0x19ba2fa8c __ulock_wake + 8
+1   libsystem_platform.dylib      	       0x19baa7480 _os_unfair_lock_unlock_slow + 56
+2   libdispatch.dylib             	       0x19b8cd690 _dispatch_source_dispose + 92
+3   libdispatch.dylib             	       0x19b8b84e4 _dispatch_dispose + 208
+4   libdispatch.dylib             	       0x19b8ce758 _dispatch_source_invoke + 1964
+5   libdispatch.dylib             	       0x19b8c01b8 _dispatch_lane_serial_drain + 332
+6   libdispatch.dylib             	       0x19b8c0e60 _dispatch_lane_invoke + 440
+7   libdispatch.dylib             	       0x19b8cb264 _dispatch_root_queue_drain_deferred_wlh + 292
+8   libdispatch.dylib             	       0x19b8caae8 _dispatch_workloop_worker_thread + 540
+9   libsystem_pthread.dylib       	       0x19ba6be64 _pthread_wqthread + 292
+10  libsystem_pthread.dylib       	       0x19ba6ab74 start_wqthread + 8
+
+Thread 2:
+0   libsystem_pthread.dylib       	       0x19ba6ab6c start_wqthread + 0
+
+Thread 3:
+0   libsystem_pthread.dylib       	       0x19ba6ab6c start_wqthread + 0
+
+Thread 4:: JUCE v8.0.8: Timer
+0   libsystem_kernel.dylib        	       0x19ba313cc __psynch_cvwait + 8
+1   libsystem_pthread.dylib       	       0x19ba700e0 _pthread_cond_wait + 984
+2   libc++.1.dylib                	       0x19b9a0300 std::__1::condition_variable::__do_timed_wait(std::__1::unique_lock<std::__1::mutex>&, std::__1::chrono::time_point<std::__1::chrono::system_clock, std::__1::chrono::duration<long long, std::__1::ratio<1l, 1000000000l>>>) + 104
+3   braidy                        	       0x100d1fb70 std::__1::cv_status std::__1::condition_variable::wait_for<long long, std::__1::ratio<1l, 1000000000l>>(std::__1::unique_lock<std::__1::mutex>&, std::__1::chrono::duration<long long, std::__1::ratio<1l, 1000000000l>> const&) + 328
+4   braidy                        	       0x100d1f7fc void std::__1::condition_variable::__do_timed_wait[abi:de190102]<std::__1::chrono::steady_clock>(std::__1::unique_lock<std::__1::mutex>&, std::__1::chrono::time_point<std::__1::chrono::steady_clock, std::__1::chrono::duration<long long, std::__1::ratio<1l, 1000000000l>>>) + 104
+5   braidy                        	       0x100d5ef20 std::__1::cv_status std::__1::condition_variable::wait_until<std::__1::chrono::steady_clock, std::__1::chrono::duration<double, std::__1::ratio<1l, 1000000000l>>>(std::__1::unique_lock<std::__1::mutex>&, std::__1::chrono::time_point<std::__1::chrono::steady_clock, std::__1::chrono::duration<double, std::__1::ratio<1l, 1000000000l>>> const&) + 132
+6   braidy                        	       0x100d5edcc bool std::__1::condition_variable::wait_until<std::__1::chrono::steady_clock, std::__1::chrono::duration<double, std::__1::ratio<1l, 1000000000l>>, juce::WaitableEvent::wait(double) const::$_1>(std::__1::unique_lock<std::__1::mutex>&, std::__1::chrono::time_point<std::__1::chrono::steady_clock, std::__1::chrono::duration<double, std::__1::ratio<1l, 1000000000l>>> const&, juce::WaitableEvent::wait(double) const::$_1) + 72
+7   braidy                        	       0x100ce4474 bool std::__1::condition_variable::wait_for[abi:de190102]<double, std::__1::ratio<1l, 1000l>, juce::WaitableEvent::wait(double) const::$_1>(std::__1::unique_lock<std::__1::mutex>&, std::__1::chrono::duration<double, std::__1::ratio<1l, 1000l>> const&, juce::WaitableEvent::wait(double) const::$_1) + 100
+8   braidy                        	       0x100cb2ffc juce::WaitableEvent::wait(double) const + 188
+9   braidy                        	       0x100cb4e44 juce::Thread::wait(double) const + 36
+10  braidy                        	       0x100e1be1c juce::Timer::TimerThread::run() + 420
+11  braidy                        	       0x100cb3ddc juce::Thread::threadEntryPoint() + 340
+12  braidy                        	       0x100cb41a0 juce::juce_threadEntryPoint(void*) + 24
+13  braidy                        	       0x100d0dcac juce::Thread::createNativeThread(juce::Thread::Priority)::$_0::operator()(void*) const + 148
+14  braidy                        	       0x100d0dc0c juce::Thread::createNativeThread(juce::Thread::Priority)::$_0::__invoke(void*) + 28
+15  libsystem_pthread.dylib       	       0x19ba6fc0c _pthread_start + 136
+16  libsystem_pthread.dylib       	       0x19ba6ab80 thread_start + 8
+
+
+Thread 0 crashed with ARM Thread State (64-bit):
+    x0: 0x00000001a9c2eb10   x1: 0x0000000000000014   x2: 0x0000000000000000   x3: 0x000000003f490fdb
+    x4: 0x000000003f800000   x5: 0x0000000000000004   x6: 0x0000000000000002   x7: 0x0000000000000000
+    x8: 0x0000000000000000   x9: 0x00000001017b2d7a  x10: 0x0000000000000000  x11: 0x0000000000000000
+   x12: 0x0000000080800001  x13: 0x00000000c1490fdb  x14: 0x0000000000000003  x15: 0x0000000000000101
+   x16: 0x00000001a9c2e970  x17: 0x0000000000000000  x18: 0x0000000000000000  x19: 0x00000002097840b0
+   x20: 0x0000000209784018  x21: 0x000000016f47a4b8  x22: 0x0fffffff0009d71d  x23: 0x0000000209784018
+   x24: 0x0000000209784150  x25: 0x000000016f47a620  x26: 0x0000000000000000  x27: 0x0000000000000000
+   x28: 0x0000000000000000   fp: 0x000000016f479d80   lr: 0x00000001015fa8a0
+    sp: 0x000000016f479ca0   pc: 0x00000001015fa978 cpsr: 0x80001000
+   far: 0x00000001017b2d7a  esr: 0x92000047 (Data Abort) byte write Translation fault
+
+Binary Images:
+       0x100984000 -        0x10180ffff com.generouscorp.braidy (1.0.30) <0777009f-29f4-3a11-a1f4-cc077061af4e> /Users/USER/*/braidy.app/Contents/MacOS/braidy
+       0x19b6c8000 -        0x19b763577 dyld (*) <3247e185-ced2-36ff-9e29-47a77c23e004> /usr/lib/dyld
+       0x1a9c24000 -        0x1a9c612b7 libsystem_m.dylib (*) <0d060230-bd2f-3c8e-acb9-8a79f5cd8ede> /usr/lib/system/libsystem_m.dylib
+               0x0 - 0xffffffffffffffff ??? (*) <00000000-0000-0000-0000-000000000000> ???
+       0x19ba2d000 -        0x19ba68653 libsystem_kernel.dylib (*) <6e4a96ad-04b8-3e8a-b91d-087e62306246> /usr/lib/system/libsystem_kernel.dylib
+       0x19baa6000 -        0x19baade0b libsystem_platform.dylib (*) <fd19a599-8750-31f9-924f-c2810c938371> /usr/lib/system/libsystem_platform.dylib
+       0x19b8b6000 -        0x19b8fc75f libdispatch.dylib (*) <24ce0d89-4114-30c2-a81a-3db1f5931cff> /usr/lib/system/libdispatch.dylib
+       0x19ba69000 -        0x19ba75a47 libsystem_pthread.dylib (*) <d6494ba9-171e-39fc-b1aa-28ecf87975d1> /usr/lib/system/libsystem_pthread.dylib
+       0x19b982000 -        0x19ba0eff7 libc++.1.dylib (*) <643ed232-ce19-3f63-8015-0aee768c002f> /usr/lib/libc++.1.dylib
+
+External Modification Summary:
+  Calls made by other processes targeting this process:
+    task_for_pid: 0
+    thread_create: 0
+    thread_set_state: 0
+  Calls made by this process:
+    task_for_pid: 0
+    thread_create: 0
+    thread_set_state: 0
+  Calls made by all processes on this machine:
+    task_for_pid: 0
+    thread_create: 0
+    thread_set_state: 0
+
+VM Region Summary:
+ReadOnly portion of Libraries: Total=1.2G resident=0K(0%) swapped_out_or_unallocated=1.2G(100%)
+Writable regions: Total=680.2M written=402K(0%) resident=402K(0%) swapped_out=0K(0%) unallocated=679.8M(100%)
+
+                                VIRTUAL   REGION 
+REGION TYPE                        SIZE    COUNT (non-coalesced) 
+===========                     =======  ======= 
+Activity Tracing                   256K        1 
+ColorSync                          416K       23 
+CoreGraphics                        16K        1 
+Dispatch continuations            80.0M        1 
+Kernel Alloc Once                   32K        1 
+MALLOC                           589.4M       41 
+MALLOC guard page                  288K       18 
+STACK GUARD                       56.1M        5 
+Stack                             10.1M        5 
+VM_ALLOCATE                         32K        2 
+__AUTH                            1842K      291 
+__AUTH_CONST                      36.3M      467 
+__CTF                               824        1 
+__DATA                            9190K      447 
+__DATA_CONST                      18.1M      473 
+__DATA_DIRTY                      1008K      134 
+__FONT_DATA                        2352        1 
+__LINKEDIT                       644.0M        2 
+__OBJC_RO                         61.4M        1 
+__OBJC_RW                         2396K        1 
+__TEXT                           567.4M      489 
+__TPRO_CONST                       128K        2 
+mapped file                       66.9M       10 
+page table in kernel               402K        1 
+shared memory                     1376K       13 
+===========                     =======  ======= 
+TOTAL                              2.1G     2431 
+
+
+
+-----------
+Full Report
+-----------
+
+{"app_name":"braidy","timestamp":"2025-09-06 08:42:54.00 +0300","app_version":"1.0.30","slice_uuid":"0777009f-29f4-3a11-a1f4-cc077061af4e","build_version":"1.0.30","platform":1,"bundleID":"com.generouscorp.braidy","share_with_app_devs":0,"is_first_party":0,"bug_type":"309","os_version":"macOS 15.6.1 (24G90)","roots_installed":0,"name":"braidy","incident_id":"0691FA27-5602-4262-9D7D-440E5FDB3665"}
+{
+  "uptime" : 69000,
+  "procRole" : "Foreground",
+  "version" : 2,
+  "userID" : 501,
+  "deployVersion" : 210,
+  "modelCode" : "MacBookPro18,4",
+  "coalitionID" : 17963,
+  "osVersion" : {
+    "train" : "macOS 15.6.1",
+    "build" : "24G90",
+    "releaseType" : "User"
+  },
+  "captureTime" : "2025-09-06 08:42:54.0333 +0300",
+  "codeSigningMonitor" : 1,
+  "incident" : "0691FA27-5602-4262-9D7D-440E5FDB3665",
+  "pid" : 46298,
+  "translated" : false,
+  "cpuType" : "ARM-64",
+  "roots_installed" : 0,
+  "bug_type" : "309",
+  "procLaunch" : "2025-09-06 08:42:53.6331 +0300",
+  "procStartAbsTime" : 1669447613542,
+  "procExitAbsTime" : 1669456872056,
+  "procName" : "braidy",
+  "procPath" : "\/Users\/USER\/*\/braidy.app\/Contents\/MacOS\/braidy",
+  "bundleInfo" : {"CFBundleShortVersionString":"1.0.30","CFBundleVersion":"1.0.30","CFBundleIdentifier":"com.generouscorp.braidy"},
+  "storeInfo" : {"deviceIdentifierForVendor":"53532BEA-00C4-580D-B322-9A7DFD665E03","thirdParty":true},
+  "parentProc" : "launchd",
+  "parentPid" : 1,
+  "coalitionName" : "com.generouscorp.braidy",
+  "crashReporterKey" : "7D8EB1A7-A62E-B718-D724-9CCAB01CD795",
+  "appleIntelligenceStatus" : {"state":"available"},
+  "codeSigningID" : "com.generouscorp.braidy",
+  "codeSigningTeamID" : "",
+  "codeSigningFlags" : 570425861,
+  "codeSigningValidationCategory" : 10,
+  "codeSigningTrustLevel" : 4294967295,
+  "codeSigningAuxiliaryInfo" : 0,
+  "instructionByteStream" : {"beforePC":"6SuAuQgFCYsIAUB56RtA+eovQLkrEIBSSn0LG+srQLlKAQsLKcUqiw==","atPC":"KAEAeQEAABToK0C5CAUAEegrALnn\/\/8XAQAAFOgvQLkIBQAR6C8AuQ=="},
+  "bootSessionUUID" : "FC6B4EB3-2B62-4C44-8318-41C760ACE3EA",
+  "wakeTime" : 67881,
+  "sleepWakeUUID" : "8986DCB7-ED54-4CE2-9597-381E56FC111C",
+  "sip" : "enabled",
+  "vmRegionInfo" : "0x1017b2d7a is in 0x100984000-0x101810000;  bytes after start: 14871930  bytes before end: 381573\n      REGION TYPE                    START - END         [ VSIZE] PRT\/MAX SHRMOD  REGION DETAIL\n      UNUSED SPACE AT START\n--->  __TEXT                      100984000-101810000    [ 14.5M] r-x\/r-x SM=COW  \/Users\/USER\/*\/braidy.app\/Contents\/MacOS\/braidy\n      __DATA_CONST                101810000-101864000    [  336K] r--\/rw- SM=COW  \/Users\/USER\/*\/braidy.app\/Contents\/MacOS\/braidy",
+  "exception" : {"codes":"0x0000000000000002, 0x00000001017b2d7a","rawCodes":[2,4319817082],"type":"EXC_BAD_ACCESS","signal":"SIGBUS","subtype":"KERN_PROTECTION_FAILURE at 0x00000001017b2d7a"},
+  "termination" : {"flags":0,"code":10,"namespace":"SIGNAL","indicator":"Bus error: 10","byProc":"exc handler","byPid":46298},
+  "vmregioninfo" : "0x1017b2d7a is in 0x100984000-0x101810000;  bytes after start: 14871930  bytes before end: 381573\n      REGION TYPE                    START - END         [ VSIZE] PRT\/MAX SHRMOD  REGION DETAIL\n      UNUSED SPACE AT START\n--->  __TEXT                      100984000-101810000    [ 14.5M] r-x\/r-x SM=COW  \/Users\/USER\/*\/braidy.app\/Contents\/MacOS\/braidy\n      __DATA_CONST                101810000-101864000    [  336K] r--\/rw- SM=COW  \/Users\/USER\/*\/braidy.app\/Contents\/MacOS\/braidy",
+  "extMods" : {"caller":{"thread_create":0,"thread_set_state":0,"task_for_pid":0},"system":{"thread_create":0,"thread_set_state":0,"task_for_pid":0},"targeted":{"thread_create":0,"thread_set_state":0,"task_for_pid":0},"warnings":0},
+  "faultingThread" : 0,
+  "threads" : [{"threadState":{"x":[{"value":7143090960,"symbolLocation":416,"symbol":"tanhf"},{"value":20},{"value":0},{"value":1061752795},{"value":1065353216},{"value":4},{"value":2},{"value":0},{"value":0},{"value":4319817082,"symbolLocation":0,"symbol":"braidy::wt_waves"},{"value":0},{"value":0},{"value":2155872257},{"value":3242790875},{"value":3},{"value":257},{"value":7143090544,"symbolLocation":0,"symbol":"tanhf"},{"value":0},{"value":0},{"value":8748810416,"symbolLocation":0,"symbol":"lsl::sAllocatorBuffer"},{"value":8748810264,"symbolLocation":0,"symbol":"lsl::sMemoryManagerBuffer"},{"value":6161933496},{"value":1152921500312524573},{"value":8748810264,"symbolLocation":0,"symbol":"lsl::sMemoryManagerBuffer"},{"value":8748810576,"symbolLocation":96,"symbol":"lsl::sPoolBytes"},{"value":6161933856},{"value":0},{"value":0},{"value":0}],"flavor":"ARM_THREAD_STATE64","lr":{"value":4318013600},"cpsr":{"value":2147487744},"fp":{"value":6161931648},"sp":{"value":6161931424},"esr":{"value":2449473607,"description":"(Data Abort) byte write Translation fault"},"pc":{"value":4318013816,"matchesCrashFrame":1},"far":{"value":4319817082}},"id":3739118,"triggered":true,"name":"JUCE v8.0.8: Message Thread","queue":"com.apple.main-thread","frames":[{"imageOffset":13068664,"symbol":"braidy::InitializeResources()","symbolLocation":3508,"imageIndex":0},{"imageOffset":13280784,"symbol":"BraidyAudioProcessor::BraidyAudioProcessor()","symbolLocation":528,"imageIndex":0},{"imageOffset":13282996,"symbol":"BraidyAudioProcessor::BraidyAudioProcessor()","symbolLocation":28,"imageIndex":0},{"imageOffset":13288500,"symbol":"createPluginFilter()","symbolLocation":28,"imageIndex":0},{"imageOffset":106268,"sourceLine":44,"sourceFile":"juce_CreatePluginFilter.h","symbol":"juce::createPluginFilterOfType(juce::AudioProcessor::WrapperType)","imageIndex":0,"symbolLocation":72},{"imageOffset":99380,"sourceLine":449,"sourceFile":"juce_StandaloneFilterWindow.h","symbol":"juce::StandalonePluginHolder::handleCreatePlugin()","imageIndex":0,"symbolLocation":40},{"imageOffset":98128,"sourceLine":101,"sourceFile":"juce_StandaloneFilterWindow.h","symbol":"juce::StandalonePluginHolder::StandalonePluginHolder(juce::PropertySet*, bool, juce::String const&, juce::AudioDeviceManager::AudioDeviceSetup const*, juce::Array<juce::StandalonePluginHolder::PluginInOuts, juce::DummyCriticalSection, 0> const&, bool)","imageIndex":0,"symbolLocation":696},{"imageOffset":97364,"sourceLine":93,"sourceFile":"juce_StandaloneFilterWindow.h","symbol":"juce::StandalonePluginHolder::StandalonePluginHolder(juce::PropertySet*, bool, juce::String const&, juce::AudioDeviceManager::AudioDeviceSetup const*, juce::Array<juce::StandalonePluginHolder::PluginInOuts, juce::DummyCriticalSection, 0> const&, bool)","imageIndex":0,"symbolLocation":84},{"imageOffset":96964,"sourceLine":635,"sourceFile":"unique_ptr.h","symbol":"std::__1::__unique_if<juce::StandalonePluginHolder>::__unique_single std::__1::make_unique[abi:de190102]<juce::StandalonePluginHolder, juce::PropertiesFile*, bool, juce::String, std::nullptr_t, juce::Array<juce::StandalonePluginHolder::PluginInOuts, juce::DummyCriticalSection, 0> const&, bool const&>(juce::PropertiesFile*&&, bool&&, juce::String&&, std::nullptr_t&&, juce::Array<juce::StandalonePluginHolder::PluginInOuts, juce::DummyCriticalSection, 0> const&, bool const&)","imageIndex":0,"symbolLocation":104},{"imageOffset":35188,"sourceLine":121,"sourceFile":"juce_audio_plugin_client_Standalone.cpp","symbol":"juce::StandaloneFilterApp::createPluginHolder()","imageIndex":0,"symbolLocation":140},{"imageOffset":34852,"sourceLine":101,"sourceFile":"juce_audio_plugin_client_Standalone.cpp","symbol":"juce::StandaloneFilterApp::createWindow()","imageIndex":0,"symbolLocation":184},{"imageOffset":33988,"sourceLine":132,"sourceFile":"juce_audio_plugin_client_Standalone.cpp","symbol":"juce::StandaloneFilterApp::initialise(juce::String const&)","imageIndex":0,"symbolLocation":32},{"imageOffset":4754904,"symbol":"juce::JUCEApplicationBase::initialiseApp()","symbolLocation":196,"imageIndex":0},{"imageOffset":8905760,"symbol":"juce::JUCEApplication::initialiseApp()","symbolLocation":24,"imageIndex":0},{"imageOffset":4754268,"symbol":"juce::JUCEApplicationBase::main()","symbolLocation":292,"imageIndex":0},{"imageOffset":4753888,"symbol":"juce::JUCEApplicationBase::main(int, char const**)","symbolLocation":68,"imageIndex":0},{"imageOffset":32216,"sourceLine":234,"sourceFile":"juce_audio_plugin_client_Standalone.cpp","symbol":"main","imageIndex":0,"symbolLocation":56},{"imageOffset":27544,"symbol":"start","symbolLocation":6076,"imageIndex":1}]},{"id":3739166,"threadState":{"x":[{"value":0},{"value":0},{"value":0},{"value":2},{"value":5395998736},{"value":2},{"value":2},{"value":0},{"value":6162493664},{"value":4866},{"value":1548097},{"value":957776},{"value":5395988268},{"value":4349318176},{"value":1},{"value":113},{"value":516},{"value":8768558600},{"value":0},{"value":4349318144},{"value":5396061744},{"value":0},{"value":5397045872},{"value":6162491904},{"value":5397045872},{"value":16842760},{"value":0},{"value":0},{"value":6162493664}],"flavor":"ARM_THREAD_STATE64","lr":{"value":6906606720},"cpsr":{"value":1073745920},"fp":{"value":6162491328},"sp":{"value":6162491312},"esr":{"value":1442840704,"description":" Address size fault"},"pc":{"value":6906116748},"far":{"value":0}},"queue":"app exceptions timeout queue","frames":[{"imageOffset":10892,"symbol":"__ulock_wake","symbolLocation":8,"imageIndex":4},{"imageOffset":5248,"symbol":"_os_unfair_lock_unlock_slow","symbolLocation":56,"imageIndex":5},{"imageOffset":95888,"symbol":"_dispatch_source_dispose","symbolLocation":92,"imageIndex":6},{"imageOffset":9444,"symbol":"_dispatch_dispose","symbolLocation":208,"imageIndex":6},{"imageOffset":100184,"symbol":"_dispatch_source_invoke","symbolLocation":1964,"imageIndex":6},{"imageOffset":41400,"symbol":"_dispatch_lane_serial_drain","symbolLocation":332,"imageIndex":6},{"imageOffset":44640,"symbol":"_dispatch_lane_invoke","symbolLocation":440,"imageIndex":6},{"imageOffset":86628,"symbol":"_dispatch_root_queue_drain_deferred_wlh","symbolLocation":292,"imageIndex":6},{"imageOffset":84712,"symbol":"_dispatch_workloop_worker_thread","symbolLocation":540,"imageIndex":6},{"imageOffset":11876,"symbol":"_pthread_wqthread","symbolLocation":292,"imageIndex":7},{"imageOffset":7028,"symbol":"start_wqthread","symbolLocation":8,"imageIndex":7}]},{"id":3739167,"frames":[{"imageOffset":7020,"symbol":"start_wqthread","symbolLocation":0,"imageIndex":7}],"threadState":{"x":[{"value":6163066880},{"value":8963},{"value":6162530304},{"value":0},{"value":409604},{"value":18446744073709551615},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0}],"flavor":"ARM_THREAD_STATE64","lr":{"value":0},"cpsr":{"value":4096},"fp":{"value":0},"sp":{"value":6163066880},"esr":{"value":1442840704,"description":" Address size fault"},"pc":{"value":6906358636},"far":{"value":0}}},{"id":3739168,"frames":[{"imageOffset":7020,"symbol":"start_wqthread","symbolLocation":0,"imageIndex":7}],"threadState":{"x":[{"value":6163640320},{"value":18955},{"value":6163103744},{"value":0},{"value":409604},{"value":18446744073709551615},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0}],"flavor":"ARM_THREAD_STATE64","lr":{"value":0},"cpsr":{"value":4096},"fp":{"value":0},"sp":{"value":6163640320},"esr":{"value":1442840704,"description":" Address size fault"},"pc":{"value":6906358636},"far":{"value":0}}},{"id":3739170,"name":"JUCE v8.0.8: Timer","threadState":{"x":[{"value":260},{"value":0},{"value":0},{"value":0},{"value":0},{"value":160},{"value":0},{"value":99981000},{"value":6164212440},{"value":0},{"value":0},{"value":2},{"value":2},{"value":0},{"value":0},{"value":0},{"value":305},{"value":8768558352},{"value":0},{"value":5393971832},{"value":5393971896},{"value":6164213984},{"value":99981000},{"value":0},{"value":0},{"value":1},{"value":256},{"value":0},{"value":0}],"flavor":"ARM_THREAD_STATE64","lr":{"value":6906380512},"cpsr":{"value":1610616832},"fp":{"value":6164212560},"sp":{"value":6164212416},"esr":{"value":1442840704,"description":" Address size fault"},"pc":{"value":6906123212},"far":{"value":0}},"frames":[{"imageOffset":17356,"symbol":"__psynch_cvwait","symbolLocation":8,"imageIndex":4},{"imageOffset":28896,"symbol":"_pthread_cond_wait","symbolLocation":984,"imageIndex":7},{"imageOffset":123648,"symbol":"std::__1::condition_variable::__do_timed_wait(std::__1::unique_lock<std::__1::mutex>&, std::__1::chrono::time_point<std::__1::chrono::system_clock, std::__1::chrono::duration<long long, std::__1::ratio<1l, 1000000000l>>>)","symbolLocation":104,"imageIndex":8},{"imageOffset":3783536,"symbol":"std::__1::cv_status std::__1::condition_variable::wait_for<long long, std::__1::ratio<1l, 1000000000l>>(std::__1::unique_lock<std::__1::mutex>&, std::__1::chrono::duration<long long, std::__1::ratio<1l, 1000000000l>> const&)","symbolLocation":328,"imageIndex":0},{"imageOffset":3782652,"symbol":"void std::__1::condition_variable::__do_timed_wait[abi:de190102]<std::__1::chrono::steady_clock>(std::__1::unique_lock<std::__1::mutex>&, std::__1::chrono::time_point<std::__1::chrono::steady_clock, std::__1::chrono::duration<long long, std::__1::ratio<1l, 1000000000l>>>)","symbolLocation":104,"imageIndex":0},{"imageOffset":4042528,"symbol":"std::__1::cv_status std::__1::condition_variable::wait_until<std::__1::chrono::steady_clock, std::__1::chrono::duration<double, std::__1::ratio<1l, 1000000000l>>>(std::__1::unique_lock<std::__1::mutex>&, std::__1::chrono::time_point<std::__1::chrono::steady_clock, std::__1::chrono::duration<double, std::__1::ratio<1l, 1000000000l>>> const&)","symbolLocation":132,"imageIndex":0},{"imageOffset":4042188,"symbol":"bool std::__1::condition_variable::wait_until<std::__1::chrono::steady_clock, std::__1::chrono::duration<double, std::__1::ratio<1l, 1000000000l>>, juce::WaitableEvent::wait(double) const::$_1>(std::__1::unique_lock<std::__1::mutex>&, std::__1::chrono::time_point<std::__1::chrono::steady_clock, std::__1::chrono::duration<double, std::__1::ratio<1l, 1000000000l>>> const&, juce::WaitableEvent::wait(double) const::$_1)","symbolLocation":72,"imageIndex":0},{"imageOffset":3540084,"symbol":"bool std::__1::condition_variable::wait_for[abi:de190102]<double, std::__1::ratio<1l, 1000l>, juce::WaitableEvent::wait(double) const::$_1>(std::__1::unique_lock<std::__1::mutex>&, std::__1::chrono::duration<double, std::__1::ratio<1l, 1000l>> const&, juce::WaitableEvent::wait(double) const::$_1)","symbolLocation":100,"imageIndex":0},{"imageOffset":3338236,"symbol":"juce::WaitableEvent::wait(double) const","symbolLocation":188,"imageIndex":0},{"imageOffset":3345988,"symbol":"juce::Thread::wait(double) const","symbolLocation":36,"imageIndex":0},{"imageOffset":4816412,"symbol":"juce::Timer::TimerThread::run()","symbolLocation":420,"imageIndex":0},{"imageOffset":3341788,"symbol":"juce::Thread::threadEntryPoint()","symbolLocation":340,"imageIndex":0},{"imageOffset":3342752,"symbol":"juce::juce_threadEntryPoint(void*)","symbolLocation":24,"imageIndex":0},{"imageOffset":3710124,"symbol":"juce::Thread::createNativeThread(juce::Thread::Priority)::$_0::operator()(void*) const","symbolLocation":148,"imageIndex":0},{"imageOffset":3709964,"symbol":"juce::Thread::createNativeThread(juce::Thread::Priority)::$_0::__invoke(void*)","symbolLocation":28,"imageIndex":0},{"imageOffset":27660,"symbol":"_pthread_start","symbolLocation":136,"imageIndex":7},{"imageOffset":7040,"symbol":"thread_start","symbolLocation":8,"imageIndex":7}]}],
+  "usedImages" : [
+  {
+    "source" : "P",
+    "arch" : "arm64",
+    "base" : 4304945152,
+    "CFBundleShortVersionString" : "1.0.30",
+    "CFBundleIdentifier" : "com.generouscorp.braidy",
+    "size" : 15253504,
+    "uuid" : "0777009f-29f4-3a11-a1f4-cc077061af4e",
+    "path" : "\/Users\/USER\/*\/braidy.app\/Contents\/MacOS\/braidy",
+    "name" : "braidy",
+    "CFBundleVersion" : "1.0.30"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 6902546432,
+    "size" : 636280,
+    "uuid" : "3247e185-ced2-36ff-9e29-47a77c23e004",
+    "path" : "\/usr\/lib\/dyld",
+    "name" : "dyld"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 7143047168,
+    "size" : 250552,
+    "uuid" : "0d060230-bd2f-3c8e-acb9-8a79f5cd8ede",
+    "path" : "\/usr\/lib\/system\/libsystem_m.dylib",
+    "name" : "libsystem_m.dylib"
+  },
+  {
+    "size" : 0,
+    "source" : "A",
+    "base" : 0,
+    "uuid" : "00000000-0000-0000-0000-000000000000"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 6906105856,
+    "size" : 243284,
+    "uuid" : "6e4a96ad-04b8-3e8a-b91d-087e62306246",
+    "path" : "\/usr\/lib\/system\/libsystem_kernel.dylib",
+    "name" : "libsystem_kernel.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 6906601472,
+    "size" : 32268,
+    "uuid" : "fd19a599-8750-31f9-924f-c2810c938371",
+    "path" : "\/usr\/lib\/system\/libsystem_platform.dylib",
+    "name" : "libsystem_platform.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 6904569856,
+    "size" : 288608,
+    "uuid" : "24ce0d89-4114-30c2-a81a-3db1f5931cff",
+    "path" : "\/usr\/lib\/system\/libdispatch.dylib",
+    "name" : "libdispatch.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 6906351616,
+    "size" : 51784,
+    "uuid" : "d6494ba9-171e-39fc-b1aa-28ecf87975d1",
+    "path" : "\/usr\/lib\/system\/libsystem_pthread.dylib",
+    "name" : "libsystem_pthread.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 6905405440,
+    "size" : 577528,
+    "uuid" : "643ed232-ce19-3f63-8015-0aee768c002f",
+    "path" : "\/usr\/lib\/libc++.1.dylib",
+    "name" : "libc++.1.dylib"
+  }
+],
+  "sharedCache" : {
+  "base" : 6901710848,
+  "size" : 5040898048,
+  "uuid" : "4c1223e5-cace-3982-a003-6110a7a8a25c"
+},
+  "vmSummary" : "ReadOnly portion of Libraries: Total=1.2G resident=0K(0%) swapped_out_or_unallocated=1.2G(100%)\nWritable regions: Total=680.2M written=402K(0%) resident=402K(0%) swapped_out=0K(0%) unallocated=679.8M(100%)\n\n                                VIRTUAL   REGION \nREGION TYPE                        SIZE    COUNT (non-coalesced) \n===========                     =======  ======= \nActivity Tracing                   256K        1 \nColorSync                          416K       23 \nCoreGraphics                        16K        1 \nDispatch continuations            80.0M        1 \nKernel Alloc Once                   32K        1 \nMALLOC                           589.4M       41 \nMALLOC guard page                  288K       18 \nSTACK GUARD                       56.1M        5 \nStack                             10.1M        5 \nVM_ALLOCATE                         32K        2 \n__AUTH                            1842K      291 \n__AUTH_CONST                      36.3M      467 \n__CTF                               824        1 \n__DATA                            9190K      447 \n__DATA_CONST                      18.1M      473 \n__DATA_DIRTY                      1008K      134 \n__FONT_DATA                        2352        1 \n__LINKEDIT                       644.0M        2 \n__OBJC_RO                         61.4M        1 \n__OBJC_RW                         2396K        1 \n__TEXT                           567.4M      489 \n__TPRO_CONST                       128K        2 \nmapped file                       66.9M       10 \npage table in kernel               402K        1 \nshared memory                     1376K       13 \n===========                     =======  ======= \nTOTAL                              2.1G     2431 \n",
+  "legacyInfo" : {
+  "threadTriggered" : {
+    "name" : "JUCE v8.0.8: Message Thread",
+    "queue" : "com.apple.main-thread"
+  }
+},
+  "logWritingSignature" : "2cdd8633465ceb6a3691773ffefe7956deecc4e0",
+  "trialInfo" : {
+  "rollouts" : [
+    {
+      "rolloutId" : "6246d6a916a70b047e454124",
+      "factorPackIds" : {
+
+      },
+      "deploymentId" : 240000010
+    },
+    {
+      "rolloutId" : "6425c75e4327780c10cc4252",
+      "factorPackIds" : {
+        "SIRI_HOME_AUTOMATION_INTENT_SELECTION_CACHE" : "642600a457e7664b1698eb32"
+      },
+      "deploymentId" : 240000004
+    }
+  ],
+  "experiments" : [
+
+  ]
+}
+}
+
+Model: MacBookPro18,4, BootROM 11881.140.96, proc 10:8:2 processors, 64 GB, SMC 
+Graphics: Apple M1 Max, Apple M1 Max, Built-In
+Display: Color LCD, 3024 x 1964 Retina, Main, MirrorOff, Online
+Memory Module: LPDDR5, Hynix
+AirPort: spairport_wireless_card_type_wifi (0x14E4, 0x4387), wl0: Mar 23 2025 19:56:28 version 20.130.17.0.8.7.197 FWID 01-764e34b7
+IO80211_driverkit-1485.7 "IO80211_driverkit-1485.7" Jul 15 2025 20:46:41
+AirPort: 
+Bluetooth: Version (null), 0 services, 0 devices, 0 incoming serial ports
+Network Service: Wi-Fi, AirPort, en0
+Network Service: Tailscale, VPN (io.tailscale.ipn.macos), utun4
+USB Device: USB31Bus
+USB Device: USB31Bus
+USB Device: USB31Bus
+Thunderbolt Bus: MacBook Pro, Apple Inc.
+Thunderbolt Bus: MacBook Pro, Apple Inc.
+Thunderbolt Bus: MacBook Pro, Apple Inc.
