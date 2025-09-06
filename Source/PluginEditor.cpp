@@ -156,6 +156,10 @@ void BraidyAudioProcessorEditor::drawModularBackground(juce::Graphics& g, juce::
 
 void BraidyAudioProcessorEditor::drawConnections(juce::Graphics& g) {
     // Draw subtle connection lines between encoders and display (aesthetic)
+    if (!display_ || !algorithmEncoder_ || !timbreEncoder_ || !colorEncoder_) {
+        return;  // Components not yet initialized
+    }
+    
     g.setColour(accentColour_);
     
     auto displayCenter = display_->getBounds().getCentre();
@@ -207,7 +211,9 @@ void BraidyAudioProcessorEditor::resized() {
     
     // Display below title
     auto displayArea = bounds.removeFromTop(50);
-    display_->setBounds(displayArea.withSizeKeepingCentre(160, 40));
+    if (display_) {
+        display_->setBounds(displayArea.withSizeKeepingCentre(160, 40));
+    }
     
     bounds.removeFromTop(15);  // Spacing
     
@@ -219,24 +225,32 @@ void BraidyAudioProcessorEditor::resized() {
     encoderArea.removeFromLeft(spacing);
     
     auto algArea = encoderArea.removeFromLeft(encoderSize);
-    algorithmEncoder_->setBounds(algArea.removeFromBottom(encoderSize));
+    if (algorithmEncoder_) {
+        algorithmEncoder_->setBounds(algArea.removeFromBottom(encoderSize));
+    }
     algorithmLabel_.setBounds(algArea);
     
     encoderArea.removeFromLeft(spacing);
     
     auto timbreArea = encoderArea.removeFromLeft(encoderSize);
-    timbreEncoder_->setBounds(timbreArea.removeFromBottom(encoderSize));
+    if (timbreEncoder_) {
+        timbreEncoder_->setBounds(timbreArea.removeFromBottom(encoderSize));
+    }
     timbreLabel_.setBounds(timbreArea);
     
     encoderArea.removeFromLeft(spacing);
     
     auto colorArea = encoderArea.removeFromLeft(encoderSize);
-    colorEncoder_->setBounds(colorArea.removeFromBottom(encoderSize));
+    if (colorEncoder_) {
+        colorEncoder_->setBounds(colorArea.removeFromBottom(encoderSize));
+    }
     colorLabel_.setBounds(colorArea);
     
     // Visualizer at bottom
     bounds.removeFromTop(15);  // Spacing
-    visualizer_->setBounds(bounds.reduced(10));
+    if (visualizer_) {
+        visualizer_->setBounds(bounds.reduced(10));
+    }
 }
 
 void BraidyAudioProcessorEditor::encoderValueChanged(braidy::BraidyEncoder* encoder, int delta) {
@@ -266,7 +280,7 @@ void BraidyAudioProcessorEditor::encoderClicked(braidy::BraidyEncoder* encoder) 
         updateDisplay();
     } else if (encoder == timbreEncoder_.get()) {
         // Toggle visualizer mode
-        if (visualizer_->isVisible()) {
+        if (visualizer_ && visualizer_->isVisible()) {
             auto currentMode = braidy::BraidyVisualizer::DisplayMode::Waveform;
             // Cycle through: Waveform -> Spectrum -> Oscilloscope -> Waveform
             visualizer_->setDisplayMode(currentMode);  // This would need proper cycling logic
@@ -312,34 +326,44 @@ void BraidyAudioProcessorEditor::updateParameterValues() {
     auto& apvts = processorRef.getAPVTS();
     
     // Update encoder positions
-    if (auto* algParam = apvts.getParameter("alg")) {
-        int algValue = static_cast<int>(algParam->getValue() * 47);
-        algorithmEncoder_->setValue(algValue, false);
+    if (algorithmEncoder_) {
+        if (auto* algParam = apvts.getParameter("alg")) {
+            int algValue = static_cast<int>(algParam->getValue() * 47);
+            algorithmEncoder_->setValue(algValue, false);
+        }
     }
     
-    if (auto* tmbParam = apvts.getParameter("tmb")) {
-        int tmbValue = static_cast<int>(tmbParam->getValue() * 127);
-        timbreEncoder_->setValue(tmbValue, false);
+    if (timbreEncoder_) {
+        if (auto* tmbParam = apvts.getParameter("tmb")) {
+            int tmbValue = static_cast<int>(tmbParam->getValue() * 127);
+            timbreEncoder_->setValue(tmbValue, false);
+        }
     }
     
-    if (auto* colParam = apvts.getParameter("col")) {
-        int colValue = static_cast<int>(colParam->getValue() * 127);
-        colorEncoder_->setValue(colValue, false);
+    if (colorEncoder_) {
+        if (auto* colParam = apvts.getParameter("col")) {
+            int colValue = static_cast<int>(colParam->getValue() * 127);
+            colorEncoder_->setValue(colValue, false);
+        }
     }
 }
 
 void BraidyAudioProcessorEditor::updateDisplay() {
+    if (!display_) {
+        return;  // Display not yet initialized
+    }
+    
     switch (currentDisplayState_) {
         case DisplayState::Algorithm: {
-            int algIndex = algorithmEncoder_->getValue();
+            int algIndex = algorithmEncoder_ ? algorithmEncoder_->getValue() : 0;
             display_->setText(getAlgorithmName(algIndex));
             break;
         }
         
         case DisplayState::Parameter: {
             // Show parameter values
-            int tmb = timbreEncoder_->getValue();
-            int col = colorEncoder_->getValue();
+            int tmb = timbreEncoder_ ? timbreEncoder_->getValue() : 0;
+            int col = colorEncoder_ ? colorEncoder_->getValue() : 0;
             juce::String paramText = juce::String(tmb).paddedLeft('0', 2) + 
                                    juce::String(col).paddedLeft('0', 2);
             display_->setText(paramText);
@@ -384,12 +408,14 @@ void BraidyAudioProcessorEditor::timerCallback() {
     // This would typically be fed from the processor's audio output
     
     // For now, generate some test audio for the visualizer
-    static float phase = 0.0f;
-    float testSamples[64];
-    for (int i = 0; i < 64; ++i) {
-        testSamples[i] = std::sin(phase) * 0.5f;
-        phase += 0.1f;
+    if (visualizer_) {
+        static float phase = 0.0f;
+        float testSamples[64];
+        for (int i = 0; i < 64; ++i) {
+            testSamples[i] = std::sin(phase) * 0.5f;
+            phase += 0.1f;
+        }
+        
+        visualizer_->processAudioBlock(testSamples, 64);
     }
-    
-    visualizer_->processAudioBlock(testSamples, 64);
 }
