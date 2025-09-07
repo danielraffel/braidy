@@ -12,15 +12,16 @@ const std::array<const char*, 48> BraidyAudioProcessorEditor::algorithmNames_ = 
     "BLOW", "FLUT", "BELL", "DRUM", "KICK",          // Physical modeling (30-34)
     "CYMB", "SNAR", "WTBL", "WMAP", "WLIN",          // Percussion & Wavetable (35-39)
     "WPAR", "NOIS", "TWLN", "CLKN", "CLDS",          // Wavetable & Noise (40-44)
-    "PART", "DIGI", "????"                           // Final algorithms (45-47)
+    "PART", "DIGI", "QPSK"                           // Final algorithms (45-47)
 };
 
 // Exact menu page names from Braids (4-character display)
-const std::array<const char*, 20> BraidyAudioProcessorEditor::menuPageNames_ = {
-    "META", "BITS", "RATE", "TSRC", "TDLY",          // 0-4
-    "|\\ATT", "|\\DEC", "|\\FM", "|\\TIM", "|\\COL",  // 5-9 (envelope settings)
-    "|\\VCA", "RANG", "OCTV", "QNTZ", "ROOT",        // 10-14
-    "FLAT", "DRFT", "SIGN", "CAL>", "VERS"           // 15-19
+const std::array<const char*, 24> BraidyAudioProcessorEditor::menuPageNames_ = {
+    "META", "BITS", "RATE", "BRIG", "TSRC",          // 0-4
+    "TDLY", "|\\ATT", "|\\DEC", "|\\FM", "|\\TIM",   // 5-9
+    "|\\COL", "|\\VCA", "RANG", "OCTV", "QNTZ",      // 10-14
+    "ROOT", "FLAT", "DRFT", "SIGN", "CV_T",          // 15-19
+    "MARQ", "CAL>", "VERS", ""                       // 20-23 (last one is empty)
 };
 
 //==============================================================================
@@ -30,7 +31,7 @@ BraidyAudioProcessorEditor::BraidsEncoder::BraidsEncoder() {
     setSize(60, 60);  // Large encoder like on Braids
     setInterceptsMouseClicks(true, false);  // Accept mouse clicks but don't intercept children
     setWantsKeyboardFocus(false);
-    DBG("BraidsEncoder constructed");
+    DBG("[ENCODER] BraidsEncoder constructed");
 }
 
 void BraidyAudioProcessorEditor::BraidsEncoder::paint(juce::Graphics& g) {
@@ -99,11 +100,31 @@ void BraidyAudioProcessorEditor::BraidsEncoder::mouseDrag(const juce::MouseEvent
     // Update visual angle
     angle_ += angleDiff;
     
-    // Convert angle change to encoder steps with higher sensitivity
-    int steps = static_cast<int>(angleDiff * 20.0f);  // Increased sensitivity
-    if (steps != 0 && onValueChange) {
+    // Convert angle change to encoder steps
+    // Use higher sensitivity and ensure we capture small movements
+    float sensitivity = 12.0f;  // Adjusted for better response
+    int steps = 0;
+    
+    // Accumulate fractional angle changes to avoid dead zones
+    static float accumulatedAngle = 0.0f;
+    accumulatedAngle += angleDiff * sensitivity;
+    
+    // Convert accumulated angle to steps
+    if (std::abs(accumulatedAngle) >= 1.0f) {
+        steps = static_cast<int>(accumulatedAngle);
+        accumulatedAngle -= steps;  // Keep fractional part
+    }
+    
+    if (steps != 0) {
         DBG("=== ENCODER DRAG: steps = " << steps);
-        onValueChange(steps);
+        
+        // Reset press start time and mark rotation to prevent long press
+        pressStartTime_ = juce::Time::currentTimeMillis();
+        longPressTriggered_ = true;
+        
+        if (onValueChange) {
+            onValueChange(steps);
+        }
     }
     
     lastAngle_ = currentAngle;
@@ -133,7 +154,7 @@ void BraidyAudioProcessorEditor::BraidsEncoder::mouseUp(const juce::MouseEvent& 
 //==============================================================================
 BraidyAudioProcessorEditor::BraidsKnob::BraidsKnob(bool isBipolar, uint32_t indicatorColor) 
     : isBipolar_(isBipolar), indicatorColor_(indicatorColor) {
-    setOpaque(true);  // Make component opaque for proper rendering
+    setOpaque(false);  // Make transparent to avoid gray background
     if (isBipolar_) {
         value_ = 0.5f;  // Center position for bipolar
     }
@@ -222,7 +243,7 @@ void BraidyAudioProcessorEditor::BraidsKnob::setValue(float value) {
 //==============================================================================
 BraidyAudioProcessorEditor::CvJack::CvJack(const juce::String& label, bool isOutput) 
     : label_(label), isOutput_(isOutput) {
-    setOpaque(true);  // Make component opaque for proper rendering
+    setOpaque(false);  // Make transparent to avoid gray background
     setSize(20, 30);  // Width for jack + label space
 }
 
@@ -306,15 +327,42 @@ private:
 BraidyAudioProcessorEditor::BraidyAudioProcessorEditor(BraidyAudioProcessor& p)
     : AudioProcessorEditor(&p), processorRef(p) {
     
+    // Enable debug logging to Documents folder for troubleshooting
+    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+    auto logFile = documentsDir.getChildFile("braidy_debug.log");
+    
+    // Create a file logger - must store the pointer
+    fileLogger_ = std::unique_ptr<juce::FileLogger>(
+        juce::FileLogger::createDateStampedLogger("braidy", "debug_", ".log", "=== Braidy Debug Log ===")
+    );
+    
+    if (fileLogger_) {
+        juce::Logger::setCurrentLogger(fileLogger_.get());
+        
+        // Force immediate write by logging directly
+        fileLogger_->logMessage("[STARTUP] Debug logging enabled to: " + fileLogger_->getLogFile().getFullPathName());
+        fileLogger_->logMessage("[STARTUP] Plugin version: " + juce::String(JucePlugin_VersionString));
+        fileLogger_->logMessage("[STARTUP] Build type: DEBUG");
+        fileLogger_->logMessage("[STARTUP] Initial display mode: Algorithm");
+        fileLogger_->logMessage("[STARTUP] Initial algorithm: CSAW (0)");
+    } else {
+        // Fallback to console if file logging fails
+        juce::Logger::setCurrentLogger(nullptr);
+        DBG("[STARTUP] WARNING: Could not create log file, using console output");
+    }
+    
     // Set size to match 16HP Eurorack module proportions (more compact)
     setSize(320, 480);  // Increased size for better component visibility
     
-    DBG("=== Braidy Editor Constructor ===");
-    DBG("Editor size set to: " + juce::String(getWidth()) + "x" + juce::String(getHeight()));
+    DBG("[STARTUP] Editor size: " + juce::String(getWidth()) + "x" + juce::String(getHeight()));
     
-    // Initialize display to show VOWL algorithm  
+    // Initialize display to show algorithm (not menu)  
     displayMode_ = DisplayMode::Algorithm;
-    currentAlgorithm_ = 22; // VOWL algorithm (index 22 in algorithmNames_ - "VOWL")
+    currentAlgorithm_ = 0; // Start with CSAW (index 0)
+    currentMenuPage_ = MenuPage::None;  // No menu page selected
+    inEditMode_ = false;  // Not editing any value
+    
+    DBG("[STARTUP] Initial algorithm: [" + juce::String(currentAlgorithm_) + "] " + juce::String(algorithmNames_[currentAlgorithm_]));
     
     setupComponents();
     updateDisplay();
@@ -326,11 +374,18 @@ BraidyAudioProcessorEditor::BraidyAudioProcessorEditor(BraidyAudioProcessor& p)
     // Start timer for parameter updates (reduce frequency to avoid issues)
     startTimer(100);
     
-    DBG("=== Constructor Complete ===");
+    DBG("[STARTUP] Constructor complete");
 }
 
 BraidyAudioProcessorEditor::~BraidyAudioProcessorEditor() {
     stopTimer();
+    
+    // Clean up logger
+    DBG("[SHUTDOWN] Editor closing");
+    if (fileLogger_) {
+        juce::Logger::setCurrentLogger(nullptr);
+        fileLogger_.reset();
+    }
 }
 
 void BraidyAudioProcessorEditor::setupComponents() {
@@ -421,21 +476,6 @@ void BraidyAudioProcessorEditor::paint(juce::Graphics& g) {
     
     // LEDs for TIMBRE and COLOR (draw last to ensure visibility)
     drawParameterLeds(g);
-    
-    // Debug: Draw component outlines to verify positioning
-    g.setColour(juce::Colours::yellow.withAlpha(0.3f));
-    if (oledDisplay_) g.drawRect(oledDisplay_->getBounds(), 2);
-    if (editEncoder_) g.drawRect(editEncoder_->getBounds(), 2);
-    
-    g.setColour(juce::Colours::blue.withAlpha(0.3f));
-    if (fineKnob_) g.drawRect(fineKnob_->getBounds(), 1);
-    if (coarseKnob_) g.drawRect(coarseKnob_->getBounds(), 1);
-    if (fmKnob_) g.drawRect(fmKnob_->getBounds(), 1);
-    
-    g.setColour(juce::Colours::green.withAlpha(0.3f));
-    if (timbreKnob_) g.drawRect(timbreKnob_->getBounds(), 1);
-    if (timbreModKnob_) g.drawRect(timbreModKnob_->getBounds(), 1);
-    if (colorKnob_) g.drawRect(colorKnob_->getBounds(), 1);
 }
 
 void BraidyAudioProcessorEditor::drawBraidsPanel(juce::Graphics& g) {
@@ -624,54 +664,51 @@ void BraidyAudioProcessorEditor::resized() {
     
     // Top row: FINE, COARSE, FM knobs (small knobs)
     auto topKnobY = titleArea.getBottom() + displayEncoderArea.getHeight() + 20;
-    auto smallKnobSize = 35;
+    auto knobSize = 42;  // Uniform size for all knobs
     auto knobSpacing = getWidth() / 3.0f;
     
     if (fineKnob_) {
-        auto x = static_cast<int>(knobSpacing * 0 + (knobSpacing - smallKnobSize) / 2);
-        fineKnob_->setBounds(x, topKnobY, smallKnobSize, smallKnobSize);
+        auto x = static_cast<int>(knobSpacing * 0 + (knobSpacing - knobSize) / 2);
+        fineKnob_->setBounds(x, topKnobY, knobSize, knobSize);
         fineKnob_->setVisible(true);
         fineKnob_->toFront(false);
     }
     if (coarseKnob_) {
-        auto x = static_cast<int>(knobSpacing * 1 + (knobSpacing - smallKnobSize) / 2);
-        coarseKnob_->setBounds(x, topKnobY, smallKnobSize, smallKnobSize);
+        auto x = static_cast<int>(knobSpacing * 1 + (knobSpacing - knobSize) / 2);
+        coarseKnob_->setBounds(x, topKnobY, knobSize, knobSize);
         coarseKnob_->setVisible(true);
         coarseKnob_->toFront(false);
     }
     if (fmKnob_) {
-        auto x = static_cast<int>(knobSpacing * 2 + (knobSpacing - smallKnobSize) / 2);
-        fmKnob_->setBounds(x, topKnobY, smallKnobSize, smallKnobSize);
+        auto x = static_cast<int>(knobSpacing * 2 + (knobSpacing - knobSize) / 2);
+        fmKnob_->setBounds(x, topKnobY, knobSize, knobSize);
         fmKnob_->setVisible(true);
         fmKnob_->toFront(false);
     }
     
     // Main row: TIMBRE (left), MODULATION (center), COLOR (right)
-    auto mainKnobY = topKnobY + smallKnobSize + 30;
-    auto mainKnobSize = 45;  // Large knobs for TIMBRE and COLOR
-    auto modKnobSize = 40;   // Slightly smaller for MODULATION
+    auto mainKnobY = topKnobY + knobSize + 30;
     
     // TIMBRE knob (left, large with teal indicator)
     if (timbreKnob_) {
-        auto x = static_cast<int>(knobSpacing * 0 + (knobSpacing - mainKnobSize) / 2);
-        timbreKnob_->setBounds(x, mainKnobY, mainKnobSize, mainKnobSize);
+        auto x = static_cast<int>(knobSpacing * 0 + (knobSpacing - knobSize) / 2);
+        timbreKnob_->setBounds(x, mainKnobY, knobSize, knobSize);
         timbreKnob_->setVisible(true);
         timbreKnob_->toFront(false);
     }
     
     // MODULATION knob in center (slightly smaller)
     if (timbreModKnob_) {
-        auto x = static_cast<int>(knobSpacing * 1 + (knobSpacing - modKnobSize) / 2);
-        auto adjustedY = mainKnobY + (mainKnobSize - modKnobSize) / 2;
-        timbreModKnob_->setBounds(x, adjustedY, modKnobSize, modKnobSize);
+        auto x = static_cast<int>(knobSpacing * 1 + (knobSpacing - knobSize) / 2);
+        timbreModKnob_->setBounds(x, mainKnobY, knobSize, knobSize);
         timbreModKnob_->setVisible(true);
         timbreModKnob_->toFront(false);
     }
     
     // COLOR knob (right, large with red indicator)
     if (colorKnob_) {
-        auto x = static_cast<int>(knobSpacing * 2 + (knobSpacing - mainKnobSize) / 2);
-        colorKnob_->setBounds(x, mainKnobY, mainKnobSize, mainKnobSize);
+        auto x = static_cast<int>(knobSpacing * 2 + (knobSpacing - knobSize) / 2);
+        colorKnob_->setBounds(x, mainKnobY, knobSize, knobSize);
         colorKnob_->setVisible(true);
         colorKnob_->toFront(false);
     }
@@ -709,7 +746,9 @@ void BraidyAudioProcessorEditor::resized() {
 //==============================================================================
 void BraidyAudioProcessorEditor::updateDisplay() {
     if (!oledDisplay_) {
-        DBG("updateDisplay: oledDisplay_ is null!");
+        if (fileLogger_) {
+            fileLogger_->logMessage("updateDisplay: oledDisplay_ is null!");
+        }
         return;
     }
     
@@ -717,27 +756,62 @@ void BraidyAudioProcessorEditor::updateDisplay() {
     
     switch (displayMode_) {
         case DisplayMode::Algorithm:
-            displayText = algorithmNames_[currentAlgorithm_];
-            static_cast<SimpleOLEDDisplay*>(oledDisplay_.get())->setText(displayText);
-            // DBG("Display updated to algorithm: " + displayText);  // Commented to reduce console spam
+            // Ensure we don't access out of bounds (limit to 0-47 for all algorithms)
+            if (currentAlgorithm_ >= 0 && currentAlgorithm_ < 48) {
+                displayText = algorithmNames_[currentAlgorithm_];
+                static_cast<SimpleOLEDDisplay*>(oledDisplay_.get())->setText(displayText);
+                if (fileLogger_) {
+                    fileLogger_->logMessage("[DISPLAY] Showing Algorithm [" + juce::String(currentAlgorithm_) + 
+                        "]: " + displayText);
+                }
+            } else {
+                if (fileLogger_) {
+                    fileLogger_->logMessage("[DISPLAY] ERROR: Algorithm index out of bounds: " + 
+                        juce::String(currentAlgorithm_));
+                }
+            }
             break;
             
         case DisplayMode::Value:
-            // Show parameter value being edited
+            // Show parameter value being edited with appropriate format
             if (inEditMode_) {
-                displayText = juce::String(menuValue_).paddedLeft('0', 3);
+                displayText = getFormattedMenuValue();
                 static_cast<SimpleOLEDDisplay*>(oledDisplay_.get())->setText(displayText);
-                DBG("Display updated to value: " + displayText);
+                
+                if (fileLogger_) {
+                    fileLogger_->logMessage("[DISPLAY] Value mode showing: " + displayText);
+                }
             }
             break;
             
         case DisplayMode::Menu:
-            if (currentMenuPage_ != MenuPage::None) {
-                int pageIndex = static_cast<int>(currentMenuPage_) - 1;
-                if (pageIndex >= 0 && pageIndex < menuPageNames_.size()) {
-                    displayText = menuPageNames_[pageIndex];
-                    static_cast<SimpleOLEDDisplay*>(oledDisplay_.get())->setText(displayText);
-                    DBG("Display updated to menu: " + displayText);
+            {
+                if (fileLogger_) {
+                    fileLogger_->logMessage("[MENU DISPLAY] currentMenuPage_: " + 
+                        juce::String(static_cast<int>(currentMenuPage_)) + 
+                        " (0=None, 1=META, 2=BITS, etc.)");
+                }
+                
+                if (currentMenuPage_ != MenuPage::None) {
+                    int pageIndex = static_cast<int>(currentMenuPage_) - 1;
+                    if (pageIndex >= 0 && pageIndex < 23) {  // We have 23 valid menu pages
+                        displayText = menuPageNames_[pageIndex];
+                        static_cast<SimpleOLEDDisplay*>(oledDisplay_.get())->setText(displayText);
+                        
+                        if (fileLogger_) {
+                            fileLogger_->logMessage("[DISPLAY] Menu page shown: " + displayText + 
+                                " (index " + juce::String(pageIndex) + ")");
+                        }
+                    } else {
+                        if (fileLogger_) {
+                            fileLogger_->logMessage("[DISPLAY] ERROR: Menu page index out of bounds: " + 
+                                juce::String(pageIndex));
+                        }
+                    }
+                } else {
+                    if (fileLogger_) {
+                        fileLogger_->logMessage("[DISPLAY] Menu page is None, not showing menu");
+                    }
                 }
             }
             break;
@@ -749,7 +823,7 @@ void BraidyAudioProcessorEditor::updateDisplay() {
             // After startup delay, switch to algorithm display
             juce::Timer::callAfterDelay(1000, [this]() {
                 displayMode_ = DisplayMode::Algorithm;
-                currentAlgorithm_ = 23; // VOWL algorithm index
+                currentAlgorithm_ = 22; // VOWL is at index 22, not 23 (VOW2 is at 23)
                 updateDisplay();
             });
             break;
@@ -775,22 +849,39 @@ void BraidyAudioProcessorEditor::updateParameterFromKnob(BraidsKnob* knob, const
 // Encoder Handling
 //==============================================================================
 void BraidyAudioProcessorEditor::handleEncoderRotation(int delta) {
-    DBG("=== ENCODER ROTATION DEBUG ===");
-    DBG("Delta: " + juce::String(delta));
-    DBG("Display Mode: " + juce::String(static_cast<int>(displayMode_)));
+    if (fileLogger_) {
+        fileLogger_->logMessage("=== ENCODER ROTATION DEBUG ===");
+        fileLogger_->logMessage("Delta: " + juce::String(delta));
+        fileLogger_->logMessage("Display Mode: " + juce::String(static_cast<int>(displayMode_)) + 
+            " (0=Algorithm, 1=Value, 2=Menu, 3=Startup)");
+    }
     
     switch (displayMode_) {
         case DisplayMode::Algorithm:
             {
                 int oldAlgorithm = currentAlgorithm_;
-                // Navigate algorithms
-                currentAlgorithm_ = juce::jlimit(0, 47, currentAlgorithm_ + delta);
+                // Navigate algorithms with wrapping (like original Braids)
+                currentAlgorithm_ += delta;
                 
-                DBG("Algorithm changed from " + juce::String(oldAlgorithm) + " to " + juce::String(currentAlgorithm_));
-                DBG("Algorithm name: " + juce::String(algorithmNames_[currentAlgorithm_]));
+                // Wrap around at the boundaries
+                if (currentAlgorithm_ < 0) {
+                    currentAlgorithm_ = 47;  // Wrap to last algorithm
+                } else if (currentAlgorithm_ > 47) {
+                    currentAlgorithm_ = 0;   // Wrap to first algorithm
+                }
+                
+                if (fileLogger_) {
+                    fileLogger_->logMessage("Algorithm changed from [" + juce::String(oldAlgorithm) + "] " + 
+                        juce::String(algorithmNames_[oldAlgorithm]) + " to [" + juce::String(currentAlgorithm_) + 
+                        "] " + juce::String(algorithmNames_[currentAlgorithm_]));
+                }
                 
                 // Update the audio parameter
                 updateAlgorithmParameter();
+                
+                // Stay in algorithm mode, don't jump to menu
+                displayMode_ = DisplayMode::Algorithm;
+                updateDisplay();  // Update display immediately after changing algorithm
                 break;
             }
             
@@ -804,7 +895,8 @@ void BraidyAudioProcessorEditor::handleEncoderRotation(int delta) {
             
         case DisplayMode::Value:
             if (inEditMode_) {
-                menuValue_ = juce::jlimit(0, 127, menuValue_ + delta);
+                editMenuValue(delta);
+                updateDisplay();  // Update display immediately to show new value
             }
             break;
             
@@ -816,23 +908,48 @@ void BraidyAudioProcessorEditor::handleEncoderRotation(int delta) {
 }
 
 void BraidyAudioProcessorEditor::handleEncoderClick() {
+    if (fileLogger_) {
+        fileLogger_->logMessage("[CLICK] Encoder clicked in display mode: " + 
+            juce::String(static_cast<int>(displayMode_)) + ", inEditMode: " + 
+            juce::String(inEditMode_ ? "true" : "false"));
+    }
+    
     switch (displayMode_) {
         case DisplayMode::Algorithm:
             // Short click in algorithm mode does nothing (authentic behavior)
             break;
             
         case DisplayMode::Menu:
-            // Toggle edit mode
-            inEditMode_ = !inEditMode_;
             if (!inEditMode_) {
-                // Apply the edited value
-                applyMenuValue();
+                // Enter edit mode - display should show value
+                inEditMode_ = true;
+                displayMode_ = DisplayMode::Value;
+                if (fileLogger_) {
+                    fileLogger_->logMessage("[MENU] Entering value edit mode for: " + 
+                        juce::String(menuPageNames_[static_cast<int>(currentMenuPage_) - 1]));
+                }
+            } else {
+                // Should not happen in menu mode
+                inEditMode_ = false;
             }
+            updateDisplay();
             break;
             
         case DisplayMode::Value:
-            // Exit value display mode
-            displayMode_ = DisplayMode::Algorithm;
+            // Save value and return to menu
+            if (inEditMode_) {
+                applyMenuValue();
+                inEditMode_ = false;
+                displayMode_ = DisplayMode::Menu;
+                if (fileLogger_) {
+                    fileLogger_->logMessage("[MENU] Saved value " + juce::String(menuValue_) + 
+                        ", returning to menu");
+                }
+            } else {
+                // Exit to algorithm mode
+                displayMode_ = DisplayMode::Algorithm;
+            }
+            updateDisplay();
             break;
             
         default:
@@ -843,12 +960,25 @@ void BraidyAudioProcessorEditor::handleEncoderClick() {
 }
 
 void BraidyAudioProcessorEditor::handleEncoderLongPress() {
-    if (displayMode_ == DisplayMode::Algorithm) {
-        // Enter settings menu
-        enterMenuMode();
-    } else if (displayMode_ == DisplayMode::Menu) {
-        // Exit settings menu
-        exitMenuMode();
+    if (fileLogger_) {
+        fileLogger_->logMessage("[LONG PRESS] Triggered! Current display mode: " + 
+            juce::String(static_cast<int>(displayMode_)));
+    }
+    
+    switch (displayMode_) {
+        case DisplayMode::Algorithm:
+            // Enter settings menu
+            enterMenuMode();
+            break;
+            
+        case DisplayMode::Menu:
+        case DisplayMode::Value:
+            // Exit settings menu from any menu-related mode
+            exitMenuMode();
+            break;
+            
+        default:
+            break;
     }
 }
 
@@ -856,13 +986,18 @@ void BraidyAudioProcessorEditor::handleEncoderLongPress() {
 // Menu System  
 //==============================================================================
 void BraidyAudioProcessorEditor::enterMenuMode() {
+    if (fileLogger_) {
+        fileLogger_->logMessage("[MENU] Entering menu mode from algorithm: " + 
+            juce::String(algorithmNames_[currentAlgorithm_]));
+    }
     displayMode_ = DisplayMode::Menu;
-    currentMenuPage_ = MenuPage::META;  // Start with first menu page
+    currentMenuPage_ = MenuPage::META;  // Start with META page
     inEditMode_ = false;
     updateDisplay();
 }
 
 void BraidyAudioProcessorEditor::exitMenuMode() {
+    DBG("[MENU] Exiting menu mode, returning to algorithm display");
     displayMode_ = DisplayMode::Algorithm;
     currentMenuPage_ = MenuPage::None;
     inEditMode_ = false;
@@ -871,24 +1006,316 @@ void BraidyAudioProcessorEditor::exitMenuMode() {
 
 void BraidyAudioProcessorEditor::navigateMenu(int delta) {
     int currentPage = static_cast<int>(currentMenuPage_);
-    int newPage = juce::jlimit(1, 20, currentPage + delta);  // 20 menu pages (1-20)
+    // Navigate through menu pages (1=META to 23=VERS)
+    int newPage = currentPage + delta;
+    
+    // Wrap around menu pages
+    if (newPage < 1) {
+        newPage = 23;  // Wrap to VERS
+    } else if (newPage > 23) {
+        newPage = 1;   // Wrap to META
+    }
+    
     currentMenuPage_ = static_cast<MenuPage>(newPage);
+    
+    // Initialize menu value based on current page
+    switch (currentMenuPage_) {
+        case MenuPage::META:
+            menuValue_ = 0;  // Meta mode off/on
+            break;
+        case MenuPage::BITS:
+            menuValue_ = 16;  // Bit depth (4-16)
+            break;
+        case MenuPage::RATE:
+            menuValue_ = 48;  // Sample rate (48kHz)
+            break;
+        case MenuPage::BRIG:
+            menuValue_ = 127;  // Display brightness (0-127)
+            break;
+        case MenuPage::VCA:
+            menuValue_ = processorRef.getBraidySettings().GetParameter(braidy::BraidyParameter::VCA_MODE) > 0.5f ? 1 : 0;
+            break;
+        default:
+            menuValue_ = 0;
+            break;
+    }
 }
 
 void BraidyAudioProcessorEditor::editMenuValue(int delta) {
-    // Menu value editing logic would go here
-    // This would depend on which menu page is active
-    menuValue_ = juce::jlimit(0, 127, menuValue_ + delta);
+    // Edit menu value based on current page
+    switch (currentMenuPage_) {
+        case MenuPage::META:
+            menuValue_ = (menuValue_ == 0) ? 1 : 0;  // Toggle
+            break;
+        case MenuPage::BITS:
+            menuValue_ = juce::jlimit(4, 16, menuValue_ + delta);
+            break;
+        case MenuPage::RATE:
+            menuValue_ = juce::jlimit(4, 96, menuValue_ + delta);
+            break;
+        case MenuPage::BRIG:
+            menuValue_ = juce::jlimit(0, 127, menuValue_ + delta);
+            break;
+        case MenuPage::TSRC:
+            menuValue_ = juce::jlimit(0, 2, menuValue_ + delta);  // 0=Off, 1=Gate, 2=Trigger
+            break;
+        case MenuPage::TDLY:
+            menuValue_ = juce::jlimit(0, 127, menuValue_ + delta);
+            break;
+        case MenuPage::ATK:
+        case MenuPage::DEC:
+        case MenuPage::FM:
+        case MenuPage::TIM:
+        case MenuPage::COL:
+            menuValue_ = juce::jlimit(0, 127, menuValue_ + delta);
+            break;
+        case MenuPage::VCA:
+            menuValue_ = (menuValue_ == 0) ? 1 : 0;  // Toggle VCA on/off
+            break;
+        case MenuPage::RANG:
+            menuValue_ = juce::jlimit(0, 4, menuValue_ + delta);  // Range settings
+            break;
+        case MenuPage::OCTV:
+            menuValue_ = juce::jlimit(-2, 2, menuValue_ + delta);  // Octave -2 to +2
+            break;
+        case MenuPage::QNTZ:
+            menuValue_ = juce::jlimit(0, 12, menuValue_ + delta);  // Quantizer modes
+            break;
+        case MenuPage::ROOT:
+            menuValue_ = juce::jlimit(0, 11, menuValue_ + delta);  // Root note C-B
+            break;
+        case MenuPage::FLAT:
+            menuValue_ = juce::jlimit(-99, 99, menuValue_ + delta);  // Detuning
+            break;
+        case MenuPage::DRFT:
+            menuValue_ = juce::jlimit(0, 127, menuValue_ + delta);  // Drift amount
+            break;
+        case MenuPage::SIGN:
+            menuValue_ = juce::jlimit(0, 127, menuValue_ + delta);  // Signature
+            break;
+        default:
+            menuValue_ = juce::jlimit(0, 127, menuValue_ + delta);
+            break;
+    }
+}
+
+juce::String BraidyAudioProcessorEditor::getFormattedMenuValue() const {
+    // Format the menu value appropriately for each setting type
+    switch (currentMenuPage_) {
+        case MenuPage::META:
+            return menuValue_ == 0 ? " OFF" : " ON ";
+            
+        case MenuPage::VCA:
+            return menuValue_ == 0 ? " OFF" : " ON ";
+            
+        case MenuPage::TSRC:
+            switch (menuValue_) {
+                case 0: return " OFF";
+                case 1: return "GATE";
+                case 2: return "TRIG";
+                default: return " OFF";
+            }
+            
+        case MenuPage::RANG:
+            // Frequency range names from Braids
+            switch (menuValue_) {
+                case 0: return "FLTR";  // Filter mode
+                case 1: return " LO ";  // Low range
+                case 2: return " MID";  // Mid range  
+                case 3: return " HI ";  // High range
+                case 4: return "FULL";  // Full range
+                default: return " MID";
+            }
+            
+        case MenuPage::OCTV:
+            // Show octave with sign
+            if (menuValue_ > 0) {
+                return " +" + juce::String(menuValue_);
+            } else if (menuValue_ < 0) {
+                return " " + juce::String(menuValue_);  // Negative sign included
+            } else {
+                return "  0 ";
+            }
+            
+        case MenuPage::ROOT:
+            // Musical note names
+            {
+                const char* notes[] = {"  C ", " C# ", "  D ", " D# ", "  E ", "  F ", 
+                                      " F# ", "  G ", " G# ", "  A ", " A# ", "  B "};
+                return juce::String(notes[menuValue_ % 12]);
+            }
+            
+        case MenuPage::QNTZ:
+            // Quantizer scale names
+            switch (menuValue_) {
+                case 0: return " OFF";
+                case 1: return "SEMI";  // Semitones
+                case 2: return "IONI";  // Ionian (Major)
+                case 3: return "DORI";  // Dorian
+                case 4: return "PHRY";  // Phrygian
+                case 5: return "LYDI";  // Lydian
+                case 6: return "MIXO";  // Mixolydian
+                case 7: return "AEOL";  // Aeolian (Minor)
+                case 8: return "LOCR";  // Locrian
+                case 9: return "BLU+";  // Blues major
+                case 10: return "BLU-";  // Blues minor
+                case 11: return "PEN+";  // Pentatonic major
+                case 12: return "PEN-";  // Pentatonic minor
+                default: return " OFF";
+            }
+            
+        case MenuPage::FLAT:
+            // Detuning with sign (cents)
+            if (menuValue_ > 0) {
+                return "+" + juce::String(menuValue_).paddedLeft('0', 2);
+            } else if (menuValue_ < 0) {
+                return juce::String(menuValue_).paddedLeft('0', 3);
+            } else {
+                return "  0 ";
+            }
+            
+        case MenuPage::BITS:
+            // Bit depth - show as number with "b" suffix
+            return juce::String(menuValue_).paddedLeft(' ', 2) + "b";
+            
+        case MenuPage::RATE:
+            // Sample rate in kHz
+            return juce::String(menuValue_).paddedLeft(' ', 2) + "k";
+            
+        case MenuPage::BRIG:
+            // Brightness as percentage
+            {
+                int percent = (menuValue_ * 100) / 127;
+                return juce::String(percent).paddedLeft(' ', 3) + "%";
+            }
+            
+        case MenuPage::CALI:
+            return "CAL>";  // Calibration mode indicator
+            
+        case MenuPage::VERS:
+            return "1.0 ";  // Version number
+            
+        default:
+            // For all other numeric values (envelopes, etc.), show as 0-127
+            return juce::String(menuValue_).paddedLeft(' ', 3);
+    }
 }
 
 void BraidyAudioProcessorEditor::applyMenuValue() {
     // Apply the edited menu value to the appropriate parameter
-    // This would depend on the current menu page
-    // For now, this is a placeholder
+    auto& apvts = processorRef.getAPVTS();
+    auto& settings = processorRef.getBraidySettings();
+    
+    switch (currentMenuPage_) {
+        case MenuPage::META:
+            settings.SetParameter(braidy::BraidyParameter::META_ENABLED, menuValue_ != 0 ? 1.0f : 0.0f);
+            break;
+        case MenuPage::BITS:
+            settings.SetParameter(braidy::BraidyParameter::BIT_CRUSHER_BITS, static_cast<float>(menuValue_));
+            if (auto* param = apvts.getParameter("bitDepth")) {
+                param->setValueNotifyingHost(menuValue_ / 16.0f);
+            }
+            break;
+        case MenuPage::RATE:
+            settings.SetParameter(braidy::BraidyParameter::BIT_CRUSHER_RATE, static_cast<float>(menuValue_));
+            if (auto* param = apvts.getParameter("sampleRate")) {
+                param->setValueNotifyingHost(menuValue_ / 96.0f);
+            }
+            break;
+        case MenuPage::BRIG:
+            // Display brightness - UI only
+            break;
+        case MenuPage::ATK:
+            if (auto* param = apvts.getParameter("attack")) {
+                param->setValueNotifyingHost(menuValue_ / 127.0f);
+            }
+            break;
+        case MenuPage::DEC:
+            if (auto* param = apvts.getParameter("decay")) {
+                param->setValueNotifyingHost(menuValue_ / 127.0f);
+            }
+            break;
+        case MenuPage::FM:
+            if (auto* param = apvts.getParameter("fm")) {
+                param->setValueNotifyingHost(menuValue_ / 127.0f);
+            }
+            break;
+        case MenuPage::TIM:
+            if (auto* param = apvts.getParameter("timbre")) {
+                param->setValueNotifyingHost(menuValue_ / 127.0f);
+            }
+            break;
+        case MenuPage::COL:
+            if (auto* param = apvts.getParameter("color")) {
+                param->setValueNotifyingHost(menuValue_ / 127.0f);
+            }
+            break;
+        case MenuPage::VCA:
+            settings.SetParameter(braidy::BraidyParameter::VCA_MODE, menuValue_ != 0 ? 1.0f : 0.0f);
+            if (auto* param = apvts.getParameter("vca")) {
+                param->setValueNotifyingHost(menuValue_);
+            }
+            break;
+        case MenuPage::RANG:
+            // Using pitch octave for frequency range
+            settings.SetParameter(braidy::BraidyParameter::PITCH_OCTAVE, static_cast<float>(menuValue_ - 2));
+            break;
+        case MenuPage::OCTV:
+            settings.SetParameter(braidy::BraidyParameter::PITCH_OCTAVE, static_cast<float>(menuValue_));
+            break;
+        case MenuPage::QNTZ:
+            settings.SetParameter(braidy::BraidyParameter::QUANTIZER_SCALE, static_cast<float>(menuValue_));
+            break;
+        case MenuPage::ROOT:
+            settings.SetParameter(braidy::BraidyParameter::QUANTIZER_ROOT, static_cast<float>(menuValue_));
+            break;
+        case MenuPage::FLAT:
+            // Using paraphony detune for detuning
+            settings.SetParameter(braidy::BraidyParameter::PARAPHONY_DETUNE, menuValue_ / 99.0f);
+            break;
+        case MenuPage::DRFT:
+            // Using meta speed for drift
+            settings.SetParameter(braidy::BraidyParameter::META_SPEED, menuValue_ / 127.0f);
+            break;
+        case MenuPage::SIGN:
+            // Signature - not directly mapped to a parameter yet
+            break;
+        default:
+            break;
+    }
+    
+    // Save the current waveform's state after any parameter change
+    auto& stateManager = processorRef.getWaveformStateManager();
+    braidy::MacroOscillatorShape currentShape = static_cast<braidy::MacroOscillatorShape>(currentAlgorithm_);
+    stateManager.SaveCurrentToWaveform(currentShape, settings);
+    DBG("Saved current parameters to waveform: " + juce::String(algorithmNames_[currentAlgorithm_]));
+    
+    // Parameters are updated directly, no need to call private update method
 }
 
 void BraidyAudioProcessorEditor::updateAlgorithmParameter() {
     DBG("=== UPDATE ALGORITHM PARAMETER DEBUG ===");
+    
+    // Get the previous algorithm shape for state management
+    static int previousAlgorithm = currentAlgorithm_;
+    braidy::MacroOscillatorShape previousShape = static_cast<braidy::MacroOscillatorShape>(previousAlgorithm);
+    braidy::MacroOscillatorShape currentShape = static_cast<braidy::MacroOscillatorShape>(currentAlgorithm_);
+    
+    // Save current waveform state and load new waveform state
+    if (previousAlgorithm != currentAlgorithm_) {
+        DBG("Switching waveform from " + juce::String(algorithmNames_[previousAlgorithm]) + 
+            " to " + juce::String(algorithmNames_[currentAlgorithm_]));
+        
+        // Use WaveformStateManager to switch between waveforms
+        auto& stateManager = processorRef.getWaveformStateManager();
+        auto& settings = processorRef.getBraidySettings();
+        
+        // This saves the previous waveform's state and loads the new one
+        stateManager.SwitchWaveform(previousShape, currentShape, settings);
+        
+        DBG("Loaded saved state for " + juce::String(algorithmNames_[currentAlgorithm_]));
+        previousAlgorithm = currentAlgorithm_;
+    }
     
     // Update the SHAPE parameter in APVTS based on current algorithm
     if (auto* shapeParam = processorRef.getAPVTS().getParameter("alg")) {
@@ -934,14 +1361,8 @@ void BraidyAudioProcessorEditor::timerCallback() {
     // Update parameter values from processor
     updateParameterValues();
     
-    // Only update display if algorithm changed (not every timer tick)
-    static int lastAlgorithm = -1;
-    if (currentAlgorithm_ != lastAlgorithm) {
-        lastAlgorithm = currentAlgorithm_;
-        if (displayMode_ == DisplayMode::Algorithm) {
-            updateDisplay();
-        }
-    }
+    // Don't update display from timer - let encoder events handle it
+    // This prevents duplicate display updates and lag
     
     // Repaint LEDs to show parameter activity (less frequent)
     static int repaintCounter = 0;

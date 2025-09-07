@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "BraidyCore/BraidySettings.h"
 #include "BraidyCore/PresetManager.h"
+#include "BraidyCore/WaveformStateManager.h"
 #include "BraidyVoice/VoiceManager.h"
 #include <memory>
 
@@ -51,12 +52,16 @@ public:
     
     // Preset management
     braidy::PresetManager& getPresetManager() { return *preset_manager_; }
+    
+    // Waveform state management
+    braidy::WaveformStateManager& getWaveformStateManager() { return *waveform_state_manager_; }
 
 private:
     // Braidy synthesizer components
     std::unique_ptr<braidy::BraidySettings> braidy_settings_;
     std::unique_ptr<braidy::VoiceManager> voice_manager_;
     std::unique_ptr<braidy::PresetManager> preset_manager_;
+    std::unique_ptr<braidy::WaveformStateManager> waveform_state_manager_;
     
     // JUCE parameter management
     juce::AudioProcessorValueTreeState apvts_;

@@ -45,9 +45,6 @@ The unified build system (`scripts/build.sh`) provides a completely project-agno
 # Build only the AU plugin
 ./scripts/build.sh au
 
-# Build AU plugin in Debug mode (for debugging with logging)
-CMAKE_BUILD_TYPE=Debug ./scripts/build.sh au
-
 # Build and sign all formats
 ./scripts/build.sh all sign
 
@@ -69,7 +66,7 @@ All configuration is read from `.env`:
 ### Optional Variables
 - `DEVELOPER_NAME` - Used as COMPANY_NAME if not specified
 - `BUILD_DIR` - Build directory (default: build)
-- `CMAKE_BUILD_TYPE` - Build type (default: Release, use Debug for debugging)
+- `CMAKE_BUILD_TYPE` - Build type (default: Release)
 
 ### Signing & Notarization
 - `APP_CERT` - Developer ID Application certificate

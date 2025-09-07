@@ -12,6 +12,7 @@ BraidyAudioProcessor::BraidyAudioProcessor()
     braidy_settings_ = std::make_unique<braidy::BraidySettings>();
     voice_manager_ = std::make_unique<braidy::VoiceManager>();
     preset_manager_ = std::make_unique<braidy::PresetManager>();
+    waveform_state_manager_ = std::make_unique<braidy::WaveformStateManager>();
     
     // Initialize performance optimization variables
     parameter_update_pending_ = false;
@@ -19,6 +20,7 @@ BraidyAudioProcessor::BraidyAudioProcessor()
     
     braidy_settings_->Init();
     voice_manager_->Init();
+    waveform_state_manager_->Init();
     
     // Set global settings pointer
     braidy::global_settings = braidy_settings_.get();
@@ -273,9 +275,19 @@ juce::AudioProcessorEditor* BraidyAudioProcessor::createEditor() {
 
 //==============================================================================
 void BraidyAudioProcessor::getStateInformation(juce::MemoryBlock& destData) {
+    // Create a combined state that includes both APVTS and waveform states
+    juce::MemoryOutputStream stream(destData, false);
+    
     // Save APVTS state
     auto state = apvts_.copyState();
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
+    
+    // Add waveform state data as a child element
+    juce::XmlElement* waveformStates = xml->createNewChildElement("WaveformStates");
+    juce::MemoryBlock waveformData;
+    waveform_state_manager_->SaveToMemoryBlock(waveformData);
+    waveformStates->setAttribute("data", waveformData.toBase64Encoding());
+    
     copyXmlToBinary(*xml, destData);
 }
 
@@ -286,7 +298,23 @@ void BraidyAudioProcessor::setStateInformation(const void* data, int sizeInBytes
     if (xmlState.get() != nullptr) {
         if (xmlState->hasTagName(apvts_.state.getType())) {
             apvts_.replaceState(juce::ValueTree::fromXml(*xmlState));
+            
+            // Restore waveform states if present
+            juce::XmlElement* waveformStates = xmlState->getChildByName("WaveformStates");
+            if (waveformStates != nullptr) {
+                juce::String base64Data = waveformStates->getStringAttribute("data");
+                if (base64Data.isNotEmpty()) {
+                    juce::MemoryBlock waveformData;
+                    waveformData.fromBase64Encoding(base64Data);
+                    waveform_state_manager_->LoadFromMemoryBlock(waveformData.getData(), waveformData.getSize());
+                }
+            }
         }
+    }
+    
+    // If no saved state, reset to defaults
+    if (xmlState.get() == nullptr) {
+        waveform_state_manager_->ResetAllToDefaults();
     }
 }
 

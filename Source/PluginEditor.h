@@ -114,6 +114,7 @@ private:
         META,  // Meta-oscillator settings
         BITS,  // Bit depth
         RATE,  // Sample rate
+        BRIG,  // Display brightness
         TSRC,  // Trigger source
         TDLY,  // Trigger delay
         ATK,   // Attack
@@ -129,6 +130,8 @@ private:
         FLAT,  // Detuning
         DRFT,  // Drift
         SIGN,  // Signature
+        CV_T,  // CV tester
+        MARQ,  // Marquee text
         CALI,  // Calibration
         VERS   // Version
     };
@@ -152,7 +155,7 @@ private:
     static const std::array<const char*, 48> algorithmNames_;
     
     // Menu page names
-    static const std::array<const char*, 20> menuPageNames_;
+    static const std::array<const char*, 24> menuPageNames_;
     
     // Visual style matching Braids panel
     struct BraidsColors {
@@ -189,6 +192,10 @@ private:
     void updateParameterFromKnob(BraidsKnob* knob, const juce::String& paramId);
     void updateAlgorithmParameter();
     void applyMenuValue();
+    juce::String getFormattedMenuValue() const;
+    
+    // File logger for debug output
+    std::unique_ptr<juce::FileLogger> fileLogger_;
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BraidyAudioProcessorEditor)
 };

@@ -172,7 +172,14 @@ private:
     int16_t current_timbre_;
     int16_t current_color_;
     float volume_;
-    bool use_adsr_envelope_;  // Switch between ADSR and AD envelope modes
+    bool use_adsr_envelope_;
+    bool vca_enabled_;  // When false, bypass envelope for full volume
+    
+    // Audio smoothing state for click prevention
+    float current_gain_;
+    float last_sample_;
+    float timbre_smooth_;
+    float color_smooth_;  // Switch between ADSR and AD envelope modes
     
     // Audio buffers for processing
     int16_t temp_buffer_[kBlockSize];
@@ -180,6 +187,7 @@ private:
     
     // Utility functions
     int16_t MidiNoteToInt16Pitch(int midi_note) const;
+    void ApplyWaveformSpecificSettings(MacroOscillatorShape shape, const BraidySettings& settings);
     
     DISALLOW_COPY_AND_ASSIGN(BraidyVoice);
 };

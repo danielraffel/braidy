@@ -226,8 +226,13 @@ BraidyVoice::BraidyVoice()
     , current_shape_(MacroOscillatorShape::CSAW)
     , current_timbre_(0)
     , current_color_(0)
-    , volume_(0.7f)
+    , volume_(1.0f)  // Full volume by default
     , use_adsr_envelope_(true)  // Default to ADSR envelope
+    , vca_enabled_(true)  // Enable VCA so envelopes work correctly
+    , current_gain_(0.0f)  // Start with zero gain for smooth fade-in
+    , last_sample_(0.0f)  // DC blocking filter state
+    , timbre_smooth_(0.0f)
+    , color_smooth_(0.0f)
 {
     Init();
 }
@@ -314,30 +319,33 @@ void BraidyVoice::AllNotesOff() {
 }
 
 void BraidyVoice::UpdateFromSettings(const BraidySettings& settings) {
-    DBG("=== BRAIDY VOICE UPDATE FROM SETTINGS DEBUG ===");
-    
     // Update oscillator parameters
     MacroOscillatorShape new_shape = settings.GetShape();
-    DBG("Voice " + juce::String(voice_id_) + " - Current shape: " + juce::String(static_cast<int>(current_shape_)));
-    DBG("Voice " + juce::String(voice_id_) + " - New shape: " + juce::String(static_cast<int>(new_shape)));
     
     if (new_shape != current_shape_) {
-        DBG("Voice " + juce::String(voice_id_) + " - Shape changed! Setting macro_oscillator shape to: " + juce::String(static_cast<int>(new_shape)));
         macro_oscillator_.set_shape(new_shape);
         current_shape_ = new_shape;
-        DBG("Voice " + juce::String(voice_id_) + " - macro_oscillator_.set_shape() called");
-    } else {
-        DBG("Voice " + juce::String(voice_id_) + " - Shape unchanged, skipping set_shape call");
+        
+        // Apply waveform-specific parameter scaling
+        ApplyWaveformSpecificSettings(new_shape, settings);
     }
     
-    // Update timbre and color
+    // Get raw parameters with smoothing
     int16_t new_timbre = settings.GetSmoothedTimbre();
     int16_t new_color = settings.GetSmoothedColor();
     
-    if (new_timbre != current_timbre_ || new_color != current_color_) {
-        macro_oscillator_.set_parameters(new_timbre, new_color);
-        current_timbre_ = new_timbre;
-        current_color_ = new_color;
+    // Apply additional smoothing to prevent clicks during parameter changes
+    const float smooth_rate = 0.1f;
+    timbre_smooth_ += (static_cast<float>(new_timbre) - timbre_smooth_) * smooth_rate;
+    color_smooth_ += (static_cast<float>(new_color) - color_smooth_) * smooth_rate;
+    
+    int16_t smoothed_timbre = static_cast<int16_t>(timbre_smooth_);
+    int16_t smoothed_color = static_cast<int16_t>(color_smooth_);
+    
+    if (smoothed_timbre != current_timbre_ || smoothed_color != current_color_) {
+        macro_oscillator_.set_parameters(smoothed_timbre, smoothed_color);
+        current_timbre_ = smoothed_timbre;
+        current_color_ = smoothed_color;
     }
     
     // Update envelope parameters
@@ -378,9 +386,14 @@ void BraidyVoice::UpdateFromSettings(const BraidySettings& settings) {
 
 void BraidyVoice::Process(float* output, int num_samples) {
     if (!IsActive()) {
-        // Voice is inactive - output silence
+        // Voice is inactive - fade out smoothly to prevent clicks
+        const float fade_rate = 0.99f;
         for (int i = 0; i < num_samples; ++i) {
+            current_gain_ *= fade_rate;
             output[i] = 0.0f;
+        }
+        if (current_gain_ < 0.0001f) {
+            current_gain_ = 0.0f;
         }
         return;
     }
@@ -395,23 +408,40 @@ void BraidyVoice::Process(float* output, int num_samples) {
         // Generate audio block using macro oscillator
         macro_oscillator_.Render(sync_buffer_, temp_buffer_, block_size);
         
-        // Apply envelope and convert to float
-        for (int i = 0; i < block_size; ++i) {
-            float env_level;
+        // Calculate envelope level ONCE per block to avoid clicks
+        float env_level = 1.0f;
+        if (vca_enabled_) {
             if (use_adsr_envelope_) {
                 env_level = adsr_envelope_.Process();
             } else {
                 env_level = envelope_.Process();
             }
+        }
+        
+        // Calculate target gain and smoothing increment
+        float target_gain = env_level * velocity_ * volume_;
+        const float smooth_factor = 0.001f;  // Smooth gain changes
+        
+        // Process audio with smoothing
+        for (int i = 0; i < block_size; ++i) {
+            // Smooth gain transition to prevent clicks
+            current_gain_ += (target_gain - current_gain_) * smooth_factor;
             
-            float sample = static_cast<float>(temp_buffer_[i]) / 32768.0f;  // Convert to float
-            sample *= env_level * velocity_ * volume_;
+            // Convert from 16-bit to float with proper scaling
+            float sample = static_cast<float>(temp_buffer_[i]) / 32767.0f;
+            
+            // Apply smoothed gain
+            sample *= current_gain_;
+            
+            // Apply DC blocking to prevent clicks and pops
+            float filtered = sample - last_sample_ * 0.995f;
+            last_sample_ = sample;
             
             // Apply effects processing
-            sample = bit_crusher_.Process(sample);
-            sample = wave_shaper_.Process(sample);
+            filtered = bit_crusher_.Process(filtered);
+            filtered = wave_shaper_.Process(filtered);
             
-            output[output_index + i] = sample;
+            output[output_index + i] = filtered;
         }
         
         samples_remaining -= block_size;
@@ -428,9 +458,13 @@ bool BraidyVoice::IsActive() const {
 }
 
 int16_t BraidyVoice::MidiNoteToInt16Pitch(int midi_note) const {
-    // Convert MIDI note to internal pitch format
-    // Internal format: semitone * 128 (7-bit fractional)
-    return static_cast<int16_t>(midi_note * 128);
+    // Convert MIDI note to internal pitch format used by Braids
+    // Braids uses 128 units per semitone for fine pitch control
+    // Center around C4 (MIDI note 60) for best range
+    // Add offset to match Braids' pitch scaling
+    const int center_note = 60;
+    const int pitch_offset = (midi_note - center_note) * 128;
+    return static_cast<int16_t>(pitch_offset + (60 << 7));  // Base pitch at C4
 }
 
 void BraidyVoice::SetPitchBend(float pitch_bend) {
@@ -583,6 +617,117 @@ void BraidyVoice::WaveShaper::SetType(Type new_type) {
 
 void BraidyVoice::WaveShaper::SetAmount(float drive) {
     amount = std::clamp(drive, 0.0f, 1.0f);
+}
+
+void BraidyVoice::ApplyWaveformSpecificSettings(MacroOscillatorShape shape, const BraidySettings& settings) {
+    // Apply waveform-specific parameter scaling based on original Braids implementation
+    // Each waveform has different parameter ranges and behaviors
+    
+    int16_t timbre = settings.GetTimbre();
+    int16_t color = settings.GetColor();
+    
+    switch (shape) {
+        case MacroOscillatorShape::CSAW:
+        case MacroOscillatorShape::MORPH:
+        case MacroOscillatorShape::SAW_SQUARE:
+        case MacroOscillatorShape::SINE_TRIANGLE:
+        case MacroOscillatorShape::BUZZ:
+            // These analog-style waveforms work well with full parameter range
+            macro_oscillator_.set_parameters(timbre, color);
+            break;
+            
+        case MacroOscillatorShape::TRIPLE_SAW:
+        case MacroOscillatorShape::TRIPLE_SQUARE:
+        case MacroOscillatorShape::TRIPLE_TRIANGLE:
+        case MacroOscillatorShape::TRIPLE_SINE:
+        case MacroOscillatorShape::TRIPLE_RING_MOD:
+            // Triple oscillators need specific detuning ranges
+            // Timbre controls detuning amount
+            macro_oscillator_.set_parameters(timbre >> 1, color);  // Reduce detuning range
+            break;
+            
+        case MacroOscillatorShape::SAW_SWARM:
+        case MacroOscillatorShape::SAW_COMB:
+            // Swarm and comb need careful filtering
+            // Color controls filter cutoff
+            macro_oscillator_.set_parameters(timbre, std::min(color, int16_t(28000)));
+            break;
+            
+        case MacroOscillatorShape::TOY:
+            // Toy mode needs specific bit reduction settings
+            // Timbre = sample rate reduction, Color = bit depth
+            macro_oscillator_.set_parameters(timbre >> 2, color >> 2);
+            break;
+            
+        case MacroOscillatorShape::DIGITAL_FILTER_LP:
+        case MacroOscillatorShape::DIGITAL_FILTER_BP:
+        case MacroOscillatorShape::DIGITAL_FILTER_HP:
+            // Filter modes need resonance limiting to prevent instability
+            macro_oscillator_.set_parameters(timbre, std::min(color, int16_t(30000)));
+            break;
+            
+        case MacroOscillatorShape::VOSIM:
+        case MacroOscillatorShape::VOWEL:
+        case MacroOscillatorShape::VOWEL_FOF:
+            // Vowel/formant modes need specific formant ranges
+            macro_oscillator_.set_parameters(timbre, color);
+            break;
+            
+        case MacroOscillatorShape::FM:
+        case MacroOscillatorShape::FEEDBACK_FM:
+        case MacroOscillatorShape::CHAOTIC_FEEDBACK_FM:
+            // FM modes need careful modulation index control
+            // Timbre = modulation index, Color = ratio
+            macro_oscillator_.set_parameters(std::min(timbre, int16_t(25000)), color >> 1);
+            break;
+            
+        case MacroOscillatorShape::PLUCKED:
+        case MacroOscillatorShape::BOWED:
+        case MacroOscillatorShape::BLOWN:
+        case MacroOscillatorShape::FLUTED:
+            // Physical modeling modes need damping control
+            macro_oscillator_.set_parameters(timbre, color);
+            macro_oscillator_.Strike();  // Retrigger excitation
+            break;
+            
+        case MacroOscillatorShape::STRUCK_BELL:
+        case MacroOscillatorShape::STRUCK_DRUM:
+        case MacroOscillatorShape::KICK:
+        case MacroOscillatorShape::SNARE:
+        case MacroOscillatorShape::CYMBAL:
+            // Percussion modes need specific decay settings
+            macro_oscillator_.set_parameters(timbre >> 1, color);
+            macro_oscillator_.Strike();  // Trigger percussion
+            break;
+            
+        case MacroOscillatorShape::WAVETABLES:
+        case MacroOscillatorShape::WAVE_MAP:
+        case MacroOscillatorShape::WAVE_LINE:
+        case MacroOscillatorShape::WAVE_PARAPHONIC:
+            // Wavetable modes need position/morph control
+            macro_oscillator_.set_parameters(timbre, color);
+            break;
+            
+        case MacroOscillatorShape::FILTERED_NOISE:
+        case MacroOscillatorShape::TWIN_PEAKS_NOISE:
+        case MacroOscillatorShape::CLOCKED_NOISE:
+        case MacroOscillatorShape::GRANULAR_CLOUD:
+        case MacroOscillatorShape::PARTICLE_NOISE:
+            // Noise modes need filtering/density control
+            macro_oscillator_.set_parameters(timbre, std::min(color, int16_t(30000)));
+            break;
+            
+        case MacroOscillatorShape::DIGITAL_MODULATION:
+        case MacroOscillatorShape::QUESTION_MARK:
+            // Special modes
+            macro_oscillator_.set_parameters(timbre, color);
+            break;
+            
+        default:
+            // Default scaling
+            macro_oscillator_.set_parameters(timbre, color);
+            break;
+    }
 }
 
 }  // namespace braidy
