@@ -13,6 +13,7 @@ BraidyAudioProcessor::BraidyAudioProcessor()
     voice_manager_ = std::make_unique<braidy::VoiceManager>();
     preset_manager_ = std::make_unique<braidy::PresetManager>();
     waveform_state_manager_ = std::make_unique<braidy::WaveformStateManager>();
+    modulation_matrix_ = std::make_unique<braidy::ModulationMatrix>();
     
     // Initialize performance optimization variables
     parameter_update_pending_ = false;
@@ -233,6 +234,52 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     // Clear any input (we're a synthesizer)
     buffer.clear();
     
+    // Update LFOs and apply modulation
+    if (auto* playHead = getPlayHead()) {
+        juce::AudioPlayHead::CurrentPositionInfo info;
+        if (playHead->getCurrentPosition(info)) {
+            double bpm = info.bpm > 0 ? info.bpm : 120.0;
+            
+            // Advance LFOs
+            modulation_matrix_->getLFO(0).advance(getSampleRate(), buffer.getNumSamples(), bpm);
+            modulation_matrix_->getLFO(1).advance(getSampleRate(), buffer.getNumSamples(), bpm);
+            
+            // Apply LFO modulation to parameters
+            for (int dest = 0; dest < braidy::ModulationMatrix::NUM_DESTINATIONS; ++dest) {
+                auto destination = static_cast<braidy::ModulationMatrix::Destination>(dest);
+                float modValue = modulation_matrix_->getModulation(destination);
+                
+                // Apply modulation based on destination
+                switch (destination) {
+                    case braidy::ModulationMatrix::TIMBRE:
+                        if (modValue != 0.0f) {
+                            float currentTimbre = braidy_settings_->GetParameter(braidy::BraidyParameter::TIMBRE);
+                            float modulatedTimbre = std::max(0.0f, std::min(32767.0f, currentTimbre + modValue * 16384.0f));
+                            braidy_settings_->SetParameter(braidy::BraidyParameter::TIMBRE, modulatedTimbre);
+                        }
+                        break;
+                    case braidy::ModulationMatrix::COLOR:
+                        if (modValue != 0.0f) {
+                            float currentColor = braidy_settings_->GetParameter(braidy::BraidyParameter::COLOR);
+                            float modulatedColor = std::max(0.0f, std::min(32767.0f, currentColor + modValue * 16384.0f));
+                            braidy_settings_->SetParameter(braidy::BraidyParameter::COLOR, modulatedColor);
+                        }
+                        break;
+                    case braidy::ModulationMatrix::ALGORITHM_SELECTION:
+                        if (modValue != 0.0f && braidy_settings_->GetParameter(braidy::BraidyParameter::META_ENABLED) > 0.5f) {
+                            // META mode: LFO controls algorithm position
+                            float metaPosition = (modValue + 1.0f) * 0.5f; // Convert -1..1 to 0..1
+                            braidy_settings_->SetParameter(braidy::BraidyParameter::META_SPEED, metaPosition);
+                        }
+                        break;
+                    // Add more destinations as needed
+                    default:
+                        break;
+                }
+            }
+        }
+    }
+    
     // Performance optimization: mark parameter update as pending
     parameter_update_pending_ = true;
     samples_since_parameter_update_ += buffer.getNumSamples();
@@ -288,6 +335,39 @@ void BraidyAudioProcessor::getStateInformation(juce::MemoryBlock& destData) {
     waveform_state_manager_->SaveToMemoryBlock(waveformData);
     waveformStates->setAttribute("data", waveformData.toBase64Encoding());
     
+    // Add modulation matrix state
+    juce::XmlElement* modulationState = xml->createNewChildElement("ModulationMatrix");
+    
+    // Save LFO states
+    for (int i = 0; i < 2; ++i) {
+        juce::XmlElement* lfoElement = modulationState->createNewChildElement("LFO" + juce::String(i));
+        const auto& lfo = modulation_matrix_->getLFO(i);
+        lfoElement->setAttribute("enabled", lfo.isEnabled());
+        lfoElement->setAttribute("shape", static_cast<int>(lfo.getShape()));
+        lfoElement->setAttribute("rate", lfo.getRate());
+        lfoElement->setAttribute("depth", lfo.getDepth());
+        lfoElement->setAttribute("phaseOffset", lfo.getPhaseOffset());
+        lfoElement->setAttribute("tempoSync", lfo.isTempoSynced());
+    }
+    
+    // Save routing information
+    for (int d = 0; d < braidy::ModulationMatrix::NUM_DESTINATIONS; ++d) {
+        auto dest = static_cast<braidy::ModulationMatrix::Destination>(d);
+        const auto& routing = modulation_matrix_->getRouting(dest);
+        if (routing.enabled) {
+            juce::XmlElement* routeElement = modulationState->createNewChildElement("Route");
+            routeElement->setAttribute("destination", d);
+            routeElement->setAttribute("sourceId", routing.sourceId);
+            routeElement->setAttribute("amount", routing.amount);
+            routeElement->setAttribute("bipolar", routing.bipolar);
+        }
+    }
+    
+    // Save global modulation settings
+    modulationState->setAttribute("metaModeEnabled", braidy_settings_->GetParameter(braidy::BraidyParameter::META_ENABLED));
+    modulationState->setAttribute("quantizerEnabled", braidy_settings_->GetParameter(braidy::BraidyParameter::QUANTIZER_SCALE) > 0);
+    modulationState->setAttribute("bitCrusherBits", braidy_settings_->GetParameter(braidy::BraidyParameter::BIT_CRUSHER_BITS));
+    
     copyXmlToBinary(*xml, destData);
 }
 
@@ -308,6 +388,54 @@ void BraidyAudioProcessor::setStateInformation(const void* data, int sizeInBytes
                     waveformData.fromBase64Encoding(base64Data);
                     waveform_state_manager_->LoadFromMemoryBlock(waveformData.getData(), waveformData.getSize());
                 }
+            }
+            
+            // Restore modulation matrix state if present
+            juce::XmlElement* modulationState = xmlState->getChildByName("ModulationMatrix");
+            if (modulationState != nullptr) {
+                // Restore LFO states
+                for (int i = 0; i < 2; ++i) {
+                    juce::XmlElement* lfoElement = modulationState->getChildByName("LFO" + juce::String(i));
+                    if (lfoElement != nullptr) {
+                        auto& lfo = modulation_matrix_->getLFO(i);
+                        lfo.setEnabled(lfoElement->getBoolAttribute("enabled", false));
+                        lfo.setShape(static_cast<braidy::LFO::Shape>(lfoElement->getIntAttribute("shape", 0)));
+                        lfo.setRate(static_cast<float>(lfoElement->getDoubleAttribute("rate", 1.0)));
+                        lfo.setDepth(static_cast<float>(lfoElement->getDoubleAttribute("depth", 0.5)));
+                        lfo.setPhaseOffset(static_cast<float>(lfoElement->getDoubleAttribute("phaseOffset", 0.0)));
+                        lfo.setTempoSync(lfoElement->getBoolAttribute("tempoSync", false));
+                    }
+                }
+                
+                // Clear existing routings first
+                for (int d = 0; d < braidy::ModulationMatrix::NUM_DESTINATIONS; ++d) {
+                    auto dest = static_cast<braidy::ModulationMatrix::Destination>(d);
+                    modulation_matrix_->clearRouting(dest);
+                }
+                
+                // Restore routing information
+                for (auto* routeElement : modulationState->getChildIterator()) {
+                    if (routeElement->hasTagName("Route")) {
+                        int destIndex = routeElement->getIntAttribute("destination", 0);
+                        auto dest = static_cast<braidy::ModulationMatrix::Destination>(destIndex);
+                        int sourceId = routeElement->getIntAttribute("sourceId", 0);
+                        float amount = static_cast<float>(routeElement->getDoubleAttribute("amount", 0.0));
+                        bool bipolar = routeElement->getBoolAttribute("bipolar", true);
+                        modulation_matrix_->setRouting(sourceId, dest, amount, bipolar);
+                    }
+                }
+                
+                // Restore global modulation settings
+                bool metaEnabled = modulationState->getBoolAttribute("metaModeEnabled", false);
+                bool quantizerEnabled = modulationState->getBoolAttribute("quantizerEnabled", false);
+                float bitCrusherBits = static_cast<float>(modulationState->getDoubleAttribute("bitCrusherBits", 16.0));
+                
+                braidy_settings_->SetParameter(braidy::BraidyParameter::META_ENABLED, metaEnabled ? 1.0f : 0.0f);
+                braidy_settings_->SetParameter(braidy::BraidyParameter::QUANTIZER_SCALE, quantizerEnabled ? 1.0f : 0.0f);
+                braidy_settings_->SetParameter(braidy::BraidyParameter::BIT_CRUSHER_BITS, bitCrusherBits);
+                
+                // Update voices with new settings
+                voice_manager_->UpdateFromSettings(*braidy_settings_);
             }
         }
     }
@@ -357,6 +485,25 @@ void BraidyAudioProcessor::optimizeForRealtime() {
     prepareToPlay(getSampleRate(), getBlockSize());
     
     // Note: Thread priority and denormal optimization are handled automatically by JUCE's audio thread
+}
+
+void BraidyAudioProcessor::setMetaModeEnabled(bool enabled) {
+    // Store the setting for when voices are updated
+    // The actual enabling happens through UpdateFromSettings
+    braidy_settings_->SetParameter(braidy::BraidyParameter::META_ENABLED, enabled ? 1.0f : 0.0f);
+    voice_manager_->UpdateFromSettings(*braidy_settings_);
+}
+
+void BraidyAudioProcessor::setQuantizerEnabled(bool enabled) {
+    // Store the setting for when voices are updated
+    braidy_settings_->SetParameter(braidy::BraidyParameter::QUANTIZER_SCALE, enabled ? 1.0f : 0.0f);
+    voice_manager_->UpdateFromSettings(*braidy_settings_);
+}
+
+void BraidyAudioProcessor::setBitCrusherEnabled(bool enabled) {
+    // Store the setting for when voices are updated
+    braidy_settings_->SetParameter(braidy::BraidyParameter::BIT_CRUSHER_BITS, enabled ? 8.0f : 16.0f);
+    voice_manager_->UpdateFromSettings(*braidy_settings_);
 }
 
 //==============================================================================

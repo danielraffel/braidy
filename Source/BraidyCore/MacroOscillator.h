@@ -5,6 +5,8 @@
 #include "BraidySettings.h"
 #include "AnalogOscillator.h"
 #include "ParameterInterpolation.h"
+#include "Quantizer.h"
+#include "BitCrusher.h"
 #include <cstdio>
 
 namespace braidy {
@@ -51,6 +53,19 @@ public:
     // Main rendering function
     void Render(const uint8_t* sync_buffer, int16_t* buffer, size_t size);
     
+    // META mode - smooth morphing between algorithms
+    void SetMetaMode(bool enabled) { meta_mode_enabled_ = enabled; }
+    bool IsMetaModeEnabled() const { return meta_mode_enabled_; }
+    void SetMetaPosition(float position);  // 0.0 to 1.0, morphs through all algorithms
+    
+    // Quantizer access
+    Quantizer& GetQuantizer() { return quantizer_; }
+    const Quantizer& GetQuantizer() const { return quantizer_; }
+    
+    // Bit crusher access
+    BitCrusher& GetBitCrusher() { return bit_crusher_; }
+    const BitCrusher& GetBitCrusher() const { return bit_crusher_; }
+    
 private:
     // Rendering functions for each synthesis model
     void RenderCSaw(const uint8_t* sync, int16_t* buffer, size_t size);
@@ -93,6 +108,19 @@ private:
     
     // Function table for algorithm dispatch
     static const RenderFn fn_table_[];
+    
+    // Quantizer for pitch quantization
+    Quantizer quantizer_;
+    
+    // Bit crusher for lo-fi effects
+    BitCrusher bit_crusher_;
+    
+    // META mode state
+    bool meta_mode_enabled_;
+    float meta_position_;
+    MacroOscillatorShape meta_shape_a_;
+    MacroOscillatorShape meta_shape_b_;
+    float meta_morph_;
     
     DISALLOW_COPY_AND_ASSIGN(MacroOscillator);
 };

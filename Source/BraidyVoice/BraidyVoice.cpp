@@ -259,6 +259,11 @@ void BraidyVoice::Init() {
     wave_shaper_.SetAmount(0.0f);
     wave_shaper_.SetType(WaveShaper::SOFT_CLIP);
     
+    // Initialize envelope modulation amounts
+    envelope_fm_amount_ = 0.0f;
+    envelope_timbre_amount_ = 0.0f;
+    envelope_color_amount_ = 0.0f;
+    
     // Initialize buffers
     for (int i = 0; i < kBlockSize; ++i) {
         temp_buffer_[i] = 0;
@@ -405,9 +410,6 @@ void BraidyVoice::Process(float* output, int num_samples) {
     while (samples_remaining > 0) {
         int block_size = std::min(samples_remaining, kBlockSize);
         
-        // Generate audio block using macro oscillator
-        macro_oscillator_.Render(sync_buffer_, temp_buffer_, block_size);
-        
         // Calculate envelope level ONCE per block to avoid clicks
         float env_level = 1.0f;
         if (vca_enabled_) {
@@ -417,6 +419,40 @@ void BraidyVoice::Process(float* output, int num_samples) {
                 env_level = envelope_.Process();
             }
         }
+        
+        // Apply envelope modulation to parameters
+        int16_t modulated_timbre = current_timbre_;
+        int16_t modulated_color = current_color_;
+        
+        if (envelope_timbre_amount_ > 0.0f) {
+            // Envelope modulates timbre
+            int16_t timbre_mod = static_cast<int16_t>(env_level * envelope_timbre_amount_ * 32767.0f);
+            int32_t modulated = current_timbre_ + timbre_mod;
+            if (modulated < 0) modulated = 0;
+            if (modulated > 32767) modulated = 32767;
+            modulated_timbre = static_cast<int16_t>(modulated);
+        }
+        
+        if (envelope_color_amount_ > 0.0f) {
+            // Envelope modulates color
+            int16_t color_mod = static_cast<int16_t>(env_level * envelope_color_amount_ * 32767.0f);
+            int32_t modulated = current_color_ + color_mod;
+            if (modulated < 0) modulated = 0;
+            if (modulated > 32767) modulated = 32767;
+            modulated_color = static_cast<int16_t>(modulated);
+        }
+        
+        // Set modulated parameters
+        macro_oscillator_.set_parameters(modulated_timbre, modulated_color);
+        
+        // TODO: Add FM modulation when FM input is implemented
+        // if (envelope_fm_amount_ > 0.0f) {
+        //     int16_t fm_mod = static_cast<int16_t>(env_level * envelope_fm_amount_ * 32767.0f);
+        //     // Apply to FM input
+        // }
+        
+        // Generate audio block using macro oscillator
+        macro_oscillator_.Render(sync_buffer_, temp_buffer_, block_size);
         
         // Calculate target gain and smoothing increment
         float target_gain = env_level * velocity_ * volume_;
@@ -728,6 +764,18 @@ void BraidyVoice::ApplyWaveformSpecificSettings(MacroOscillatorShape shape, cons
             macro_oscillator_.set_parameters(timbre, color);
             break;
     }
+}
+
+void BraidyVoice::SetMetaModeEnabled(bool enabled) {
+    macro_oscillator_.SetMetaMode(enabled);
+}
+
+void BraidyVoice::SetQuantizerEnabled(bool enabled) {
+    macro_oscillator_.GetQuantizer().setEnabled(enabled);
+}
+
+void BraidyVoice::SetBitCrusherEnabled(bool enabled) {
+    macro_oscillator_.GetBitCrusher().setEnabled(enabled);
 }
 
 }  // namespace braidy

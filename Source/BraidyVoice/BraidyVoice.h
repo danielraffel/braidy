@@ -124,6 +124,11 @@ public:
     void SetModWheel(float mod_wheel);    // 0.0 to 1.0
     void SetCC(int cc_number, float value);  // Generic CC handler
     
+    // Feature toggles
+    void SetMetaModeEnabled(bool enabled);
+    void SetQuantizerEnabled(bool enabled);
+    void SetBitCrusherEnabled(bool enabled);
+    
 private:
     // Voice identification
     int voice_id_;
@@ -174,6 +179,11 @@ private:
     float volume_;
     bool use_adsr_envelope_;
     bool vca_enabled_;  // When false, bypass envelope for full volume
+    
+    // Envelope modulation amounts
+    float envelope_fm_amount_;     // |\FM setting
+    float envelope_timbre_amount_; // |\TIM setting  
+    float envelope_color_amount_;  // |\COL setting
     
     // Audio smoothing state for click prevention
     float current_gain_;

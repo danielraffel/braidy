@@ -17,11 +17,11 @@ const std::array<const char*, 48> BraidyAudioProcessorEditor::algorithmNames_ = 
 
 // Exact menu page names from Braids (4-character display)
 const std::array<const char*, 24> BraidyAudioProcessorEditor::menuPageNames_ = {
-    "META", "BITS", "RATE", "BRIG", "TSRC",          // 0-4
-    "TDLY", "|\\ATT", "|\\DEC", "|\\FM", "|\\TIM",   // 5-9
-    "|\\COL", "|\\VCA", "RANG", "OCTV", "QNTZ",      // 10-14
-    "ROOT", "FLAT", "DRFT", "SIGN", "CV_T",          // 15-19
-    "MARQ", "CAL>", "VERS", ""                       // 20-23 (last one is empty)
+    "WAVE", "META", "BITS", "RATE", "BRIG",          // 0-4 (WAVE added as first option)
+    "TSRC", "TDLY", "|\\ATT", "|\\DEC", "|\\FM",     // 5-9
+    "|\\TIM", "|\\COL", "|\\VCA", "RANG", "OCTV",    // 10-14
+    "QNTZ", "ROOT", "FLAT", "DRFT", "SIGN",          // 15-19
+    "CV_T", "MARQ", "CAL>", "VERS"                   // 20-23
 };
 
 //==============================================================================
@@ -157,6 +157,10 @@ BraidyAudioProcessorEditor::BraidsKnob::BraidsKnob(bool isBipolar, uint32_t indi
     setOpaque(false);  // Make transparent to avoid gray background
     if (isBipolar_) {
         value_ = 0.5f;  // Center position for bipolar
+        defaultValue_ = 0.5f;
+    } else {
+        value_ = 0.0f;  // Start at minimum for unipolar
+        defaultValue_ = 0.0f;
     }
 }
 
@@ -187,11 +191,12 @@ void BraidyAudioProcessorEditor::BraidsKnob::paint(juce::Graphics& g) {
     
     float angle;
     if (isBipolar_) {
-        // Bipolar: -135° to +135° (270° total range)
-        angle = (value_ - 0.5f) * juce::MathConstants<float>::pi * 1.5f;
+        // Bipolar: 12 o'clock is center (0.5), -135° to +135° from top
+        // Subtract pi/2 to start at top (12 o'clock) instead of right (3 o'clock)
+        angle = (value_ - 0.5f) * juce::MathConstants<float>::pi * 1.5f - juce::MathConstants<float>::halfPi;
     } else {
-        // Unipolar: -135° to +135° (270° total range)  
-        angle = (value_ * 1.5f - 0.75f) * juce::MathConstants<float>::pi;
+        // Unipolar: starts at -135° from top (about 7 o'clock), ends at +135° (about 5 o'clock)
+        angle = (value_ * 1.5f - 0.75f) * juce::MathConstants<float>::pi - juce::MathConstants<float>::halfPi;
     }
     
     g.setColour(indicatorColor);
@@ -235,6 +240,19 @@ void BraidyAudioProcessorEditor::BraidsKnob::mouseDrag(const juce::MouseEvent& e
 
 void BraidyAudioProcessorEditor::BraidsKnob::setValue(float value) {
     value_ = juce::jlimit(0.0f, 1.0f, value);
+    repaint();
+}
+
+void BraidyAudioProcessorEditor::BraidsKnob::mouseDoubleClick(const juce::MouseEvent& e) {
+    // Reset to default value on double-click
+    resetToDefault();
+}
+
+void BraidyAudioProcessorEditor::BraidsKnob::resetToDefault() {
+    value_ = defaultValue_;
+    if (onValueChange) {
+        onValueChange(value_);
+    }
     repaint();
 }
 
@@ -362,6 +380,28 @@ BraidyAudioProcessorEditor::BraidyAudioProcessorEditor(BraidyAudioProcessor& p)
     currentMenuPage_ = MenuPage::None;  // No menu page selected
     inEditMode_ = false;  // Not editing any value
     
+    // Create modulation overlay (initially hidden)
+    modulationOverlay_ = std::make_unique<braidy::ModulationSettingsOverlay>(processorRef.getModulationMatrix());
+    modulationOverlay_->setVisible(false);
+    addChildComponent(modulationOverlay_.get());
+    
+    // Set up overlay callbacks
+    modulationOverlay_->onClose = [this]() {
+        modulationOverlay_->hideOverlay();
+    };
+    
+    modulationOverlay_->onMetaModeChanged = [this](bool enabled) {
+        processorRef.setMetaModeEnabled(enabled);
+    };
+    
+    modulationOverlay_->onQuantizerChanged = [this](bool enabled) {
+        processorRef.setQuantizerEnabled(enabled);
+    };
+    
+    modulationOverlay_->onBitCrusherChanged = [this](bool enabled) {
+        processorRef.setBitCrusherEnabled(enabled);
+    };
+    
     DBG("[STARTUP] Initial algorithm: [" + juce::String(currentAlgorithm_) + "] " + juce::String(algorithmNames_[currentAlgorithm_]));
     
     setupComponents();
@@ -451,6 +491,16 @@ void BraidyAudioProcessorEditor::setupComponents() {
         cvJacks_[i]->setVisible(true);
         DBG("Created CV Jack: " + jackLabels[i]);
     }
+    
+    // Settings button (modern addition for accessing LFO modulation)
+    settingsButton_ = std::make_unique<juce::TextButton>("MOD");
+    settingsButton_->setButtonText("MOD");
+    settingsButton_->setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF2A2A2A));
+    settingsButton_->setColour(juce::TextButton::textColourOnId, juce::Colour(0xFF00FF00));
+    settingsButton_->setColour(juce::TextButton::textColourOffId, juce::Colour(0xFF00AA00));
+    settingsButton_->addListener(this);
+    addAndMakeVisible(*settingsButton_);
+    DBG("Created Settings Button");
     
     DBG("=== All Components Created ===");
 }
@@ -713,6 +763,17 @@ void BraidyAudioProcessorEditor::resized() {
         colorKnob_->toFront(false);
     }
     
+    // Settings button (top right corner for easy access)
+    if (settingsButton_) {
+        settingsButton_->setBounds(getWidth() - 50, 5, 45, 20);
+        settingsButton_->setVisible(true);
+    }
+    
+    // Modulation overlay (full screen when visible)
+    if (modulationOverlay_) {
+        modulationOverlay_->setBounds(0, 0, getWidth(), getHeight());
+    }
+    
     // CV Jacks at bottom (6 jacks in a row)
     auto jackY = getHeight() - 50;
     auto jackWidth = 20;
@@ -921,12 +982,21 @@ void BraidyAudioProcessorEditor::handleEncoderClick() {
             
         case DisplayMode::Menu:
             if (!inEditMode_) {
-                // Enter edit mode - display should show value
-                inEditMode_ = true;
-                displayMode_ = DisplayMode::Value;
-                if (fileLogger_) {
-                    fileLogger_->logMessage("[MENU] Entering value edit mode for: " + 
-                        juce::String(menuPageNames_[static_cast<int>(currentMenuPage_) - 1]));
+                // Check if WAVE is selected - save and exit
+                if (currentMenuPage_ == MenuPage::WAVE) {
+                    if (fileLogger_) {
+                        fileLogger_->logMessage("[MENU] WAVE selected - saving settings and exiting menu");
+                    }
+                    // TODO: Save current settings to persistent storage
+                    exitMenuMode();
+                } else {
+                    // Enter edit mode for other menu items
+                    inEditMode_ = true;
+                    displayMode_ = DisplayMode::Value;
+                    if (fileLogger_) {
+                        fileLogger_->logMessage("[MENU] Entering value edit mode for: " + 
+                            juce::String(menuPageNames_[static_cast<int>(currentMenuPage_) - 1]));
+                    }
                 }
             } else {
                 // Should not happen in menu mode
@@ -991,7 +1061,7 @@ void BraidyAudioProcessorEditor::enterMenuMode() {
             juce::String(algorithmNames_[currentAlgorithm_]));
     }
     displayMode_ = DisplayMode::Menu;
-    currentMenuPage_ = MenuPage::META;  // Start with META page
+    currentMenuPage_ = MenuPage::WAVE;  // Start with WAVE option (save and exit)
     inEditMode_ = false;
     updateDisplay();
 }
@@ -1006,20 +1076,24 @@ void BraidyAudioProcessorEditor::exitMenuMode() {
 
 void BraidyAudioProcessorEditor::navigateMenu(int delta) {
     int currentPage = static_cast<int>(currentMenuPage_);
-    // Navigate through menu pages (1=META to 23=VERS)
+    // Navigate through menu pages (1=WAVE to 24=VERS)
     int newPage = currentPage + delta;
     
     // Wrap around menu pages
     if (newPage < 1) {
-        newPage = 23;  // Wrap to VERS
-    } else if (newPage > 23) {
-        newPage = 1;   // Wrap to META
+        newPage = 24;  // Wrap to VERS
+    } else if (newPage > 24) {
+        newPage = 1;   // Wrap to WAVE
     }
     
     currentMenuPage_ = static_cast<MenuPage>(newPage);
     
     // Initialize menu value based on current page
     switch (currentMenuPage_) {
+        case MenuPage::WAVE:
+            // WAVE doesn't have a value, it's just a save/exit option
+            menuValue_ = 0;
+            break;
         case MenuPage::META:
             menuValue_ = 0;  // Meta mode off/on
             break;
@@ -1044,6 +1118,9 @@ void BraidyAudioProcessorEditor::navigateMenu(int delta) {
 void BraidyAudioProcessorEditor::editMenuValue(int delta) {
     // Edit menu value based on current page
     switch (currentMenuPage_) {
+        case MenuPage::WAVE:
+            // WAVE doesn't have editable values - it's just save/exit
+            break;
         case MenuPage::META:
             menuValue_ = (menuValue_ == 0) ? 1 : 0;  // Toggle
             break;
@@ -1102,6 +1179,9 @@ void BraidyAudioProcessorEditor::editMenuValue(int delta) {
 juce::String BraidyAudioProcessorEditor::getFormattedMenuValue() const {
     // Format the menu value appropriately for each setting type
     switch (currentMenuPage_) {
+        case MenuPage::WAVE:
+            return "SAVE";  // Show SAVE when in WAVE mode
+            
         case MenuPage::META:
             return menuValue_ == 0 ? " OFF" : " ON ";
             
@@ -1207,6 +1287,10 @@ void BraidyAudioProcessorEditor::applyMenuValue() {
     auto& settings = processorRef.getBraidySettings();
     
     switch (currentMenuPage_) {
+        case MenuPage::WAVE:
+            // WAVE saves settings and exits - handled in click handler
+            break;
+            
         case MenuPage::META:
             settings.SetParameter(braidy::BraidyParameter::META_ENABLED, menuValue_ != 0 ? 1.0f : 0.0f);
             break;
@@ -1354,7 +1438,17 @@ void BraidyAudioProcessorEditor::sliderValueChanged(juce::Slider* slider) {
 }
 
 void BraidyAudioProcessorEditor::buttonClicked(juce::Button* button) {
-    // Not used - we use custom encoder
+    if (button == settingsButton_.get()) {
+        // Toggle modulation overlay visibility
+        if (modulationOverlay_) {
+            if (modulationOverlay_->isOverlayVisible()) {
+                modulationOverlay_->hideOverlay();
+            } else {
+                modulationOverlay_->showOverlay();
+                modulationOverlay_->toFront(true);
+            }
+        }
+    }
 }
 
 void BraidyAudioProcessorEditor::timerCallback() {

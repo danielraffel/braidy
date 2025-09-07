@@ -1051,58 +1051,87 @@ void DigitalOscillator::RenderStruckDrum(const uint8_t* sync, int16_t* buffer, s
 }
 
 void DigitalOscillator::RenderKick(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Kick drum with pitch envelope and punch
+    // KICK: TR-808 kick drum synthesis
+    // TIMBRE: controls the amount of click at the beginning of the sound
+    // COLOR: controls the punch/overdrive, gives more bass
+    
     if (struck_) {
         state_.kick.punch_phase = 0;
         state_.kick.tone_phase = 0;
         state_.kick.svf_state[0] = 0;
         state_.kick.svf_state[1] = 0;
+        strike_level_ = 32767;
         struck_ = false;
     }
     
-    float punch_amount = static_cast<float>(parameter_[0]) / 32767.0f;
-    float tone_amount = static_cast<float>(parameter_[1]) / 32767.0f;
+    int16_t click_amount = parameter_[0];  // TIMBRE: click amount
+    int16_t punch_amount = parameter_[1];  // COLOR: punch/overdrive
     
+    // Base pitch from pitch_ parameter
     uint32_t base_increment = ComputePhaseIncrement(pitch_);
     
     while (size--) {
         if (*sync++) {
             state_.kick.punch_phase = 0;
             state_.kick.tone_phase = 0;
+            strike_level_ = 32767;
         }
         
-        // Punch component - fast decaying click
-        uint32_t punch_increment = base_increment * 8;  // High frequency click
-        state_.kick.punch_phase += punch_increment;
-        int16_t punch = (state_.kick.punch_phase >> 16) - 32768;  // Sawtooth
-        punch = static_cast<int16_t>(punch * punch_amount * std::exp(-punch_amount * 0.1f));
+        // Envelope decay
+        strike_level_ = (strike_level_ * 250) >> 8;  // Fast exponential decay
         
-        // Tone component - sine wave with pitch envelope
-        float pitch_env = std::exp(-tone_amount * 0.05f);  // Pitch drops over time
-        uint32_t tone_increment = static_cast<uint32_t>(base_increment * pitch_env);
+        // Click component (high frequency transient)
+        int32_t click = 0;
+        if (strike_level_ > 16384 && click_amount > 0) {
+            // Brief click at the start
+            state_.kick.punch_phase += base_increment * 16;  // Very high frequency
+            int32_t click_osc = (state_.kick.punch_phase >> 16) - 32768;
+            click = (click_osc * click_amount * strike_level_) >> 30;
+        }
+        
+        // Tone component with pitch envelope
+        // Pitch drops rapidly for classic 808 sound
+        uint32_t pitch_mod = strike_level_ >> 1;  // Pitch envelope amount
+        uint32_t tone_increment = base_increment + ((base_increment * pitch_mod) >> 15);
         state_.kick.tone_phase += tone_increment;
+        
+        // Sine wave for body
         int16_t tone = InterpolateWaveform(wav_sine, state_.kick.tone_phase, 1024);
+        tone = (tone * strike_level_) >> 15;
         
-        // Mix punch and tone
-        int32_t result = punch + ((tone * static_cast<int32_t>(tone_amount)) >> 8);
+        // Apply punch/overdrive (COLOR parameter)
+        if (punch_amount > 0) {
+            // Soft overdrive for more bass
+            int32_t driven = (tone * (32768 + punch_amount)) >> 15;
+            tone = SoftLimit(driven);
+        }
         
-        // Low-pass filter for body
-        state_.kick.svf_state[0] += ((result - state_.kick.svf_state[0]) * 8192) >> 15;
-        state_.kick.svf_state[1] += ((state_.kick.svf_state[0] - state_.kick.svf_state[1]) * 4096) >> 15;
+        // Mix click and tone
+        int32_t result = click + tone;
         
-        *buffer++ = SoftLimit(state_.kick.svf_state[1]);
+        // Low-pass filter for smoothing
+        int32_t cutoff = 8192 - (strike_level_ >> 2);  // Filter opens with envelope
+        state_.kick.svf_state[0] += ((result - state_.kick.svf_state[0]) * cutoff) >> 15;
+        
+        *buffer++ = ClipS16(state_.kick.svf_state[0]);
     }
 }
 
 void DigitalOscillator::RenderCymbal(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Cymbal synthesis using filtered noise and resonant modes
+    // CYMB: TR-808 style metallic cymbal  
+    // TIMBRE: decay time
+    // COLOR: brightness/tone of the metallic sound
+    
     if (struck_) {
+        // Initialize 6 metallic partials with inharmonic ratios
+        static const uint16_t ratios[6] = { 205, 369, 522, 800, 1265, 1654 };
         for (int i = 0; i < 6; ++i) {
             state_.cymb.hihat_phase[i] = Rng();
-            state_.cymb.hihat_amplitude[i] = 16384 / (i + 1);
+            state_.cymb.hihat_amplitude[i] = 8192 / (i/2 + 1);  // Amplitude distribution
         }
         state_.cymb.click_phase = 0;
         state_.cymb.filter_state = 0;
+        strike_level_ = 32767;
         struck_ = false;
     }
     
@@ -1152,70 +1181,99 @@ void DigitalOscillator::RenderCymbal(const uint8_t* sync, int16_t* buffer, size_
 }
 
 void DigitalOscillator::RenderSnare(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Snare drum with noise and tonal components
+    // SNAR: TR-808 style snare drum
+    // TIMBRE: snappiness (amount of noise relative to tone)
+    // COLOR: brightness/tone of the snare
+    
     if (struck_) {
         state_.snar.noise_phase = Rng();
         state_.snar.tone_phase = 0;
         state_.snar.filter_state_1 = 0;
         state_.snar.filter_state_2 = 0;
-        state_.snar.decay = 65000;
+        state_.snar.decay = 65535;
+        strike_level_ = 32767;
         struck_ = false;
     }
     
-    float snare_tension = static_cast<float>(parameter_[0]) / 32767.0f;
-    float snare_brightness = static_cast<float>(parameter_[1]) / 32767.0f;
+    int16_t snappiness = parameter_[0];  // TIMBRE: noise amount
+    int16_t brightness = parameter_[1];  // COLOR: filter cutoff/brightness
     
     while (size--) {
         if (*sync++) {
             state_.snar.noise_phase = Rng();
             state_.snar.tone_phase = 0;
+            state_.snar.decay = 65535;
+            strike_level_ = 32767;
         }
         
-        // Noise component (snare buzz)
+        // Envelope decay
+        state_.snar.decay = (state_.snar.decay * 65300) >> 16;  // Medium decay
+        strike_level_ = (strike_level_ * 254) >> 8;  // Faster initial transient
+        
+        // Noise component (snare wires)
         state_.snar.noise_phase = Rng();
-        int16_t noise = static_cast<int16_t>(state_.snar.noise_phase >> 16) - 32768;
+        int32_t noise = (state_.snar.noise_phase >> 16) - 32768;
         
         // Band-pass filter for snare character
-        state_.snar.filter_state_1 += ((noise - state_.snar.filter_state_1) * 12288) >> 15;
-        state_.snar.filter_state_2 += ((state_.snar.filter_state_1 - state_.snar.filter_state_2) * 8192) >> 15;
-        int16_t filtered_noise = state_.snar.filter_state_1 - state_.snar.filter_state_2;
+        // Cutoff frequency modulated by COLOR parameter
+        int32_t cutoff = 8192 + ((brightness * 16384) >> 15);
+        state_.snar.filter_state_1 += ((noise - state_.snar.filter_state_1) * cutoff) >> 15;
+        state_.snar.filter_state_2 += ((state_.snar.filter_state_1 - state_.snar.filter_state_2) * (cutoff >> 1)) >> 15;
+        int32_t filtered_noise = state_.snar.filter_state_1 - state_.snar.filter_state_2;
         
-        // Tonal component (drum head)
-        uint32_t tone_increment = ComputePhaseIncrement(pitch_) * (1.0f + snare_tension);
-        state_.snar.tone_phase += tone_increment;
-        int16_t tone = InterpolateWaveform(wav_sine, state_.snar.tone_phase, 1024);
+        // Apply envelope to noise
+        filtered_noise = (filtered_noise * state_.snar.decay) >> 16;
         
-        // Mix noise and tone with brightness control
-        int32_t result = (filtered_noise * snare_brightness) + (tone * (1.0f - snare_brightness * 0.5f));
+        // Tonal component (drum membrane) - two modes for snare sound
+        uint32_t tone_increment_1 = ComputePhaseIncrement(pitch_);
+        uint32_t tone_increment_2 = ComputePhaseIncrement(pitch_ + (200 << 7));  // Slightly detuned
         
-        // Exponential decay
-        uint16_t decay = state_.snar.decay;
-        decay = (decay * 65400) >> 16;  // Slow decay
-        state_.snar.decay = decay;
+        state_.snar.tone_phase += tone_increment_1;
+        int32_t tone1 = InterpolateWaveform(wav_sine, state_.snar.tone_phase, 1024);
         
-        result = (result * decay) >> 16;
+        // Second mode (higher pitch for snap)
+        uint32_t phase2 = state_.snar.tone_phase * 3;  // 3rd harmonic
+        int32_t tone2 = InterpolateWaveform(wav_sine, phase2, 1024);
         
-        *buffer++ = SoftLimit(result);
+        // Mix two tonal components
+        int32_t tone = (tone1 + (tone2 >> 2));
+        tone = (tone * strike_level_) >> 15;
+        
+        // Mix noise and tone based on TIMBRE (snappiness)
+        // Higher snappiness = more noise
+        int32_t noise_amount = (snappiness + 16384) >> 1;  // Range 0.5 to 1.0
+        int32_t tone_amount = 32767 - (snappiness >> 1);   // Range 1.0 to 0.5
+        
+        int32_t result = ((filtered_noise * noise_amount) >> 15) + 
+                        ((tone * tone_amount) >> 15);
+        
+        *buffer++ = ClipS16(result);
     }
 }
 
 void DigitalOscillator::RenderPlucked(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Karplus-Strong plucked string synthesis
+    // PLUK: Karplus-Strong plucked string synthesis
+    // TIMBRE: decay time (full CCW = short decay, full CW = long decay)
+    // COLOR: brightness/damping of the string
+    
     uint32_t delay_length = ComputeDelay(pitch_);
     if (delay_length < 4) delay_length = 4;
     if (delay_length > 1024) delay_length = 1024;
     
     if (struck_ || (sync && *sync)) {
         // Initialize delay line with noise burst for pluck excitation
+        // The initial noise character affects the pluck timbre
         for (uint32_t i = 0; i < delay_length; ++i) {
-            state_.pluk.string_1[i] = static_cast<int16_t>(Rng() >> 17) - 16384;
+            state_.pluk.string_1[i] = static_cast<int16_t>((Rng() >> 16) - 32768);
         }
         state_.pluk.ptr_1 = 0;
         state_.pluk.length_1 = delay_length;
         struck_ = false;
     }
     
-    float damping = 1.0f - (static_cast<float>(parameter_[0]) / 65534.0f);  // 0.5 to 1.0
+    // TIMBRE controls decay time (damping factor)
+    float damping = 0.994f + (static_cast<float>(parameter_[0]) / 32767.0f) * 0.005f;  // 0.994 to 0.999
+    // COLOR controls brightness (filter cutoff)
     float brightness = static_cast<float>(parameter_[1]) / 32767.0f;
     
     while (size--) {
@@ -1247,7 +1305,10 @@ void DigitalOscillator::RenderPlucked(const uint8_t* sync, int16_t* buffer, size
 }
 
 void DigitalOscillator::RenderBowed(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Bowed string using waveguide synthesis with bow-string interaction
+    // BOWD: Bowed string physical model
+    // TIMBRE: bow pressure and friction
+    // COLOR: bow position (distance from bridge)
+    
     uint32_t delay_length = ComputeDelay(pitch_);
     if (delay_length < 4) delay_length = 4;
     if (delay_length > 1024) delay_length = 1024;
@@ -1255,7 +1316,7 @@ void DigitalOscillator::RenderBowed(const uint8_t* sync, int16_t* buffer, size_t
     if (struck_) {
         // Initialize string with small excitation
         for (uint32_t i = 0; i < delay_length; ++i) {
-            state_.pluk.string_1[i] = static_cast<int16_t>(Rng() >> 20);  // Small initial excitation
+            state_.pluk.string_1[i] = static_cast<int16_t>((Rng() >> 24) - 128);  // Very small noise
         }
         state_.pluk.ptr_1 = 0;
         state_.pluk.length_1 = delay_length;
@@ -1263,8 +1324,10 @@ void DigitalOscillator::RenderBowed(const uint8_t* sync, int16_t* buffer, size_t
         struck_ = false;
     }
     
-    float bow_pressure = static_cast<float>(parameter_[0]) / 32767.0f;
-    float bow_position = static_cast<float>(parameter_[1]) / 32767.0f;
+    // TIMBRE controls bow pressure (affects stick-slip behavior)
+    float bow_pressure = 0.2f + (static_cast<float>(parameter_[0]) / 32767.0f) * 0.7f;
+    // COLOR controls bow position (0 = near bridge, 1 = center)
+    float bow_position = 0.1f + (static_cast<float>(parameter_[1]) / 32767.0f) * 0.4f;
     
     // Bow position affects where we inject energy
     uint32_t bow_pos = static_cast<uint32_t>(bow_position * delay_length);
@@ -1313,23 +1376,28 @@ void DigitalOscillator::RenderBowed(const uint8_t* sync, int16_t* buffer, size_t
 }
 
 void DigitalOscillator::RenderBlown(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Blown pipe synthesis using waveguide with reed/embouchure modeling
-    uint32_t delay_length = ComputeDelay(pitch_) >> 1;  // Half wavelength for open pipe
+    // BLOW: Reed instrument physical model (clarinet/saxophone)
+    // TIMBRE: breath pressure/reed stiffness
+    // COLOR: brightness/tone (affects harmonics)
+    
+    uint32_t delay_length = ComputeDelay(pitch_) >> 1;  // Half wavelength for closed pipe
     if (delay_length < 4) delay_length = 4;
     if (delay_length > 512) delay_length = 512;
     
     if (struck_) {
         // Initialize pipe with small noise
         for (uint32_t i = 0; i < delay_length; ++i) {
-            state_.pluk.string_1[i] = static_cast<int16_t>(Rng() >> 20);
+            state_.pluk.string_1[i] = static_cast<int16_t>((Rng() >> 24) - 128);
         }
         state_.pluk.ptr_1 = 0;
         state_.pluk.length_1 = delay_length;
         struck_ = false;
     }
     
-    float breath_pressure = static_cast<float>(parameter_[0]) / 32767.0f;
-    float embouchure = static_cast<float>(parameter_[1]) / 32767.0f;
+    // TIMBRE controls breath pressure (reed behavior)
+    float breath_pressure = 0.3f + (static_cast<float>(parameter_[0]) / 32767.0f) * 0.6f;
+    // COLOR controls embouchure/brightness
+    float embouchure = 0.2f + (static_cast<float>(parameter_[1]) / 32767.0f) * 0.7f;
     
     while (size--) {
         if (*sync++) {
@@ -1372,13 +1440,16 @@ void DigitalOscillator::RenderBlown(const uint8_t* sync, int16_t* buffer, size_t
 }
 
 void DigitalOscillator::RenderFluted(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // Flute synthesis using jet-edge interaction and bore modeling
-    uint32_t delay_length = ComputeDelay(pitch_) >> 1;  // Half wavelength
+    // FLUT: Flute physical model with jet-edge interaction
+    // TIMBRE: embouchure/air pressure
+    // COLOR: breath noise amount
+    
+    uint32_t delay_length = ComputeDelay(pitch_) >> 1;  // Half wavelength for open pipe
     if (delay_length < 8) delay_length = 8;
     if (delay_length > 512) delay_length = 512;
     
     if (struck_) {
-        // Initialize flute bore
+        // Initialize flute bore with minimal excitation
         for (uint32_t i = 0; i < delay_length; ++i) {
             state_.pluk.string_1[i] = 0;  // Clean start for flute
         }
@@ -1388,8 +1459,10 @@ void DigitalOscillator::RenderFluted(const uint8_t* sync, int16_t* buffer, size_
         struck_ = false;
     }
     
-    float jet_velocity = static_cast<float>(parameter_[0]) / 32767.0f;
-    float jet_offset = static_cast<float>(parameter_[1]) / 32767.0f;
+    // TIMBRE controls jet velocity (air stream speed)
+    float jet_velocity = 0.4f + (static_cast<float>(parameter_[0]) / 32767.0f) * 0.5f;
+    // COLOR controls breath noise amount
+    float breath_noise = static_cast<float>(parameter_[1]) / 32767.0f;
     
     while (size--) {
         if (*sync++) {
@@ -1402,6 +1475,8 @@ void DigitalOscillator::RenderFluted(const uint8_t* sync, int16_t* buffer, size_
         int16_t bore_pressure = state_.pluk.string_1[state_.pluk.ptr_1];
         
         // Jet-edge interaction (Verge's model simplified)
+        // Use phase as slow oscillation for jet offset
+        float jet_offset = std::sin(phase_ * 0.0001f) * 0.2f;
         float jet_displacement = jet_offset * 16384 + bore_pressure * 0.3f;  // Jet follows bore somewhat
         
         // Non-linear jet-edge interaction
@@ -1461,8 +1536,8 @@ void DigitalOscillator::RenderWavetables(const uint8_t* sync, int16_t* buffer, s
         uint32_t scan_phase = phase + scan_offset;
         
         // Get samples from two adjacent wavetables for morphing
-        auto wt_a = GetWavetable(wavetable_a);
-        auto wt_b = GetWavetable(wavetable_b);
+        auto wt_a = braidy::GetWavetable(wavetable_a);
+        auto wt_b = braidy::GetWavetable(wavetable_b);
         
         int16_t sample_a = wt_a.LookupInterpolated(scan_phase);
         int16_t sample_b = wt_b.LookupInterpolated(scan_phase);
@@ -1506,10 +1581,10 @@ void DigitalOscillator::RenderWaveMap(const uint8_t* sync, int16_t* buffer, size
         uint32_t wt_11 = (((bank_x + 1) & 7) * 8 + ((wave_y + 1) & 7)) & 63;
         
         // Get samples from all 4 corners
-        int16_t s00 = GetWavetable(wt_00).LookupInterpolated(phase);
-        int16_t s01 = GetWavetable(wt_01).LookupInterpolated(phase);
-        int16_t s10 = GetWavetable(wt_10).LookupInterpolated(phase);
-        int16_t s11 = GetWavetable(wt_11).LookupInterpolated(phase);
+        int16_t s00 = braidy::GetWavetable(wt_00).LookupInterpolated(phase);
+        int16_t s01 = braidy::GetWavetable(wt_01).LookupInterpolated(phase);
+        int16_t s10 = braidy::GetWavetable(wt_10).LookupInterpolated(phase);
+        int16_t s11 = braidy::GetWavetable(wt_11).LookupInterpolated(phase);
         
         // Bilinear interpolation
         int32_t s0 = s00 + (((s01 - s00) * wave_y_frac) >> 15);
@@ -1546,8 +1621,8 @@ void DigitalOscillator::RenderWaveLine(const uint8_t* sync, int16_t* buffer, siz
         uint32_t sweep_frac = (state_.wtbl.phase[0] >> 8) & 0xFF;
         
         // Get samples from current and next wavetable
-        int16_t sample_a = GetWavetable(sweep_pos).LookupInterpolated(phase);
-        int16_t sample_b = GetWavetable((sweep_pos + 1) % sweep_range).LookupInterpolated(phase);
+        int16_t sample_a = braidy::GetWavetable(sweep_pos).LookupInterpolated(phase);
+        int16_t sample_b = braidy::GetWavetable((sweep_pos + 1) % sweep_range).LookupInterpolated(phase);
         
         // Interpolate between wavetables
         int32_t result = sample_a + (((sample_b - sample_a) * sweep_frac) >> 8);
@@ -1589,7 +1664,7 @@ void DigitalOscillator::RenderWaveParaphonic(const uint8_t* sync, int16_t* buffe
             uint32_t wavetable_idx = (i * wt_spread) & 63;
             
             // Get sample from wavetable
-            int16_t sample = GetWavetable(wavetable_idx).LookupInterpolated(state_.wtbl.phase[i]);
+            int16_t sample = braidy::GetWavetable(wavetable_idx).LookupInterpolated(state_.wtbl.phase[i]);
             
             // Mix with level control
             result += (sample * state_.wtbl.level[i]) >> 15;
@@ -1778,7 +1853,7 @@ void DigitalOscillator::RenderGranularCloud(const uint8_t* sync, int16_t* buffer
                 
                 // Use different wavetables for different grains
                 uint32_t wavetable_index = (g * 8) & 63;  // Distribute across wavetables
-                auto wt = GetWavetable(wavetable_index);
+                auto wt = braidy::GetWavetable(wavetable_index);
                 int16_t grain_sample = wt.LookupInterpolated(grain_phase);
                 
                 // Apply envelope and pitch-dependent amplitude

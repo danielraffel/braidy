@@ -106,23 +106,50 @@ void AnalogOscillator::RenderVariableSaw(const uint8_t* sync, int16_t* buffer, u
 void AnalogOscillator::RenderCSaw(const uint8_t* sync, int16_t* buffer, uint8_t* aux, size_t size) {
     auto saw_wave = GetSawtoothWave();
     
+    // CS-80 style notch filter parameters
+    // parameter_ (TIMBRE) controls the width of the notch (0-32767)
+    // aux_parameter_ (COLOR) controls the depth and polarity (-32768 to 32767)
+    
+    // Notch frequency is modulated by parameter_
+    // Width: 0 = narrow notch, 32767 = wide notch
+    int32_t notch_freq = 2000 + ((parameter_ * 14000) >> 15); // 2kHz to 16kHz range
+    int32_t notch_q = 32767 - (parameter_ >> 1); // Higher Q for narrower notch
+    
+    // Depth and polarity from aux_parameter
+    // Negative values = inverted notch (peak), positive = normal notch
+    int32_t notch_depth = aux_parameter_;
+    
     for (size_t i = 0; i < size; ++i) {
         if (sync && sync[i]) {
             phase_ = 0;
         }
         
-        // Classic saw with parameter controlling brightness/harshness
+        // Generate base sawtooth
         int16_t raw_sample = saw_wave.LookupInterpolated(phase_);
         
-        // Apply parameter-controlled waveshaping
-        if (parameter_ > 0) {
-            int32_t shaped = raw_sample;
-            shaped = (shaped * (32767 + parameter_)) >> 15;
-            shaped = ClipS16(shaped);
-            buffer[i] = static_cast<int16_t>(shaped);
-        } else {
-            buffer[i] = raw_sample;
+        // Apply simple notch filter simulation
+        // This is a simplified version - full implementation would use proper biquad
+        int32_t filtered = raw_sample;
+        
+        if (notch_depth != 0) {
+            // Simple resonant filter approximation
+            int32_t phase_scaled = phase_ >> 16; // Scale to 0-65535
+            int32_t notch_response = 32767;
+            
+            // Calculate distance from notch frequency
+            int32_t freq_dist = abs(phase_scaled - notch_freq);
+            if (freq_dist < (32767 - notch_q)) {
+                // Within notch band
+                notch_response = (freq_dist * notch_q) >> 15;
+            }
+            
+            // Apply notch with depth and polarity
+            int32_t notch_effect = (notch_response * notch_depth) >> 15;
+            filtered = raw_sample + ((raw_sample * notch_effect) >> 15);
+            filtered = ClipS16(filtered);
         }
+        
+        buffer[i] = static_cast<int16_t>(filtered);
         
         if (aux) {
             aux[i] = (phase_ >> 24) > 127 ? 255 : 0;

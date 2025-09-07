@@ -125,6 +125,11 @@ target_sources(${PROJECT_NAME} PRIVATE
     Source/UI/BraidyEncoder.h
     Source/UI/BraidyVisualizer.cpp
     Source/UI/BraidyVisualizer.h
+    Source/UI/ModulationSettingsOverlay.h
+    Source/Modulation/LFO.h
+    Source/Modulation/ModulationMatrix.h
+    Source/BraidyCore/Quantizer.h
+    Source/BraidyCore/BitCrusher.h
 )
 
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)

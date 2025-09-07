@@ -3,6 +3,7 @@
 #include "PluginProcessor.h"
 #include "UI/BraidyDisplay.h"
 #include "UI/BraidyEncoder.h"
+#include "UI/ModulationSettingsOverlay.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <memory>
@@ -67,14 +68,17 @@ private:
         void paint(juce::Graphics& g) override;
         void mouseDown(const juce::MouseEvent& e) override;
         void mouseDrag(const juce::MouseEvent& e) override;
+        void mouseDoubleClick(const juce::MouseEvent& e) override;
         
         void setValue(float value);
         float getValue() const { return value_; }
+        void resetToDefault();
         
         std::function<void(float)> onValueChange;
         
     private:
         float value_ = 0.5f;
+        float defaultValue_ = 0.5f;
         bool isBipolar_;
         uint32_t indicatorColor_;
         float dragStartY_ = 0;
@@ -111,6 +115,7 @@ private:
     // Menu system state
     enum class MenuPage {
         None,
+        WAVE,  // Save settings and exit menu
         META,  // Meta-oscillator settings
         BITS,  // Bit depth
         RATE,  // Sample rate
@@ -196,6 +201,12 @@ private:
     
     // File logger for debug output
     std::unique_ptr<juce::FileLogger> fileLogger_;
+    
+    // Modulation settings overlay
+    std::unique_ptr<braidy::ModulationSettingsOverlay> modulationOverlay_;
+    
+    // Settings button (modern addition)
+    std::unique_ptr<juce::TextButton> settingsButton_;
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BraidyAudioProcessorEditor)
 };

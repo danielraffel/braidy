@@ -5,6 +5,7 @@
 #include "BraidyCore/PresetManager.h"
 #include "BraidyCore/WaveformStateManager.h"
 #include "BraidyVoice/VoiceManager.h"
+#include "Modulation/ModulationMatrix.h"
 #include <memory>
 
 //==============================================================================
@@ -55,6 +56,12 @@ public:
     
     // Waveform state management
     braidy::WaveformStateManager& getWaveformStateManager() { return *waveform_state_manager_; }
+    
+    // Modulation system
+    braidy::ModulationMatrix& getModulationMatrix() { return *modulation_matrix_; }
+    void setMetaModeEnabled(bool enabled);
+    void setQuantizerEnabled(bool enabled);
+    void setBitCrusherEnabled(bool enabled);
 
 private:
     // Braidy synthesizer components
@@ -62,6 +69,7 @@ private:
     std::unique_ptr<braidy::VoiceManager> voice_manager_;
     std::unique_ptr<braidy::PresetManager> preset_manager_;
     std::unique_ptr<braidy::WaveformStateManager> waveform_state_manager_;
+    std::unique_ptr<braidy::ModulationMatrix> modulation_matrix_;
     
     // JUCE parameter management
     juce::AudioProcessorValueTreeState apvts_;
