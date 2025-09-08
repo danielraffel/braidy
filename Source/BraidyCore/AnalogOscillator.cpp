@@ -1,4 +1,6 @@
 #include "AnalogOscillator.h"
+#include "BraidyMath.h"  // For Interpolate824
+#include "BraidyResources.h"  // For wav_sine
 
 namespace braidy {
 
@@ -45,38 +47,52 @@ void AnalogOscillator::ComputePhaseIncrement() {
 
 void AnalogOscillator::Render(const uint8_t* sync_buffer, int16_t* buffer, uint8_t* aux, size_t size) {
     int shape_index = static_cast<int>(shape_);
+    static int debug_render_count = 0;
+    if (debug_render_count < 5) {
+        printf("AnalogOscillator::Render DEBUG #%d: shape_=%d, shape_index=%d\n", 
+               debug_render_count, (int)shape_, shape_index);
+        debug_render_count++;
+    }
+    
     if (shape_index >= 0 && shape_index < 9) {
         (this->*fn_table_[shape_index])(sync_buffer, buffer, aux, size);
     } else {
+        if (debug_render_count <= 5) {
+            printf("  Fallback to RenderSaw (shape_index=%d out of range)\n", shape_index);
+        }
         RenderSaw(sync_buffer, buffer, aux, size);  // Fallback
     }
 }
 
 void AnalogOscillator::RenderSaw(const uint8_t* sync, int16_t* buffer, uint8_t* aux, size_t size) {
-    auto saw_wave = GetSawtoothWave();
+    // Sawtooth is generated directly from phase, not from a lookup table
+    // This matches the original Braids approach
     
-    for (size_t i = 0; i < size; ++i) {
-        // Handle sync
-        if (sync && sync[i]) {
+    while (size--) {
+        // Handle sync - per-sample edge detection
+        if (sync && *sync++) {
             phase_ = 0;
         }
         
-        // Generate sample using lookup table with interpolation
-        buffer[i] = saw_wave.LookupInterpolated(phase_);
+        // Generate sawtooth directly from phase (inverted ramp)
+        // phase_ ranges from 0 to 0xFFFFFFFF
+        // We want output from -32768 to 32767
+        *buffer = static_cast<int16_t>(~(phase_ >> 16));
         
         if (aux) {
-            aux[i] = (phase_ >> 24) > 127 ? 255 : 0;  // Square wave sync output
+            *aux = (phase_ >> 24) > 127 ? 255 : 0;  // Square wave sync output
+            aux++;
         }
         
         phase_ += phase_increment_;
+        buffer++;
     }
 }
 
 void AnalogOscillator::RenderVariableSaw(const uint8_t* sync, int16_t* buffer, uint8_t* aux, size_t size) {
-    auto saw_wave = GetSawtoothWave();
-    
-    for (size_t i = 0; i < size; ++i) {
-        if (sync && sync[i]) {
+    while (size--) {
+        // Handle sync - per-sample edge detection
+        if (sync && *sync++) {
             phase_ = 0;
         }
         
@@ -93,75 +109,74 @@ void AnalogOscillator::RenderVariableSaw(const uint8_t* sync, int16_t* buffer, u
             }
         }
         
-        buffer[i] = saw_wave.LookupInterpolated(shaped_phase);
+        // Generate sawtooth from shaped phase
+        *buffer = static_cast<int16_t>(~(shaped_phase >> 16));
         
         if (aux) {
-            aux[i] = (phase_ >> 24) > 127 ? 255 : 0;
+            *aux = (phase_ >> 24) > 127 ? 255 : 0;
+            aux++;
         }
         
         phase_ += phase_increment_;
+        buffer++;
     }
 }
 
 void AnalogOscillator::RenderCSaw(const uint8_t* sync, int16_t* buffer, uint8_t* aux, size_t size) {
-    auto saw_wave = GetSawtoothWave();
+    // CSAW: Bandlimited sawtooth with phase randomization
+    // parameter_ (TIMBRE) controls the phase randomization amount (0-32767)
+    // aux_parameter_ (COLOR) controls filtering/brightness (not used for DC offset)
     
-    // CS-80 style notch filter parameters
-    // parameter_ (TIMBRE) controls the width of the notch (0-32767)
-    // aux_parameter_ (COLOR) controls the depth and polarity (-32768 to 32767)
+    // Debug output for first few samples
+    static int debug_count = 0;
+    if (debug_count < 10) {
+        printf("CSAW DEBUG #%d: phase_increment_=%u, parameter_=%d, aux_parameter_=%d\n", 
+               debug_count, phase_increment_, parameter_, aux_parameter_);
+    }
     
-    // Notch frequency is modulated by parameter_
-    // Width: 0 = narrow notch, 32767 = wide notch
-    int32_t notch_freq = 2000 + ((parameter_ * 14000) >> 15); // 2kHz to 16kHz range
-    int32_t notch_q = 32767 - (parameter_ >> 1); // Higher Q for narrower notch
-    
-    // Depth and polarity from aux_parameter
-    // Negative values = inverted notch (peak), positive = normal notch
-    int32_t notch_depth = aux_parameter_;
-    
-    for (size_t i = 0; i < size; ++i) {
-        if (sync && sync[i]) {
+    while (size--) {
+        // Handle sync - per-sample edge detection
+        if (sync && *sync++) {
             phase_ = 0;
         }
         
-        // Generate base sawtooth
-        int16_t raw_sample = saw_wave.LookupInterpolated(phase_);
-        
-        // Apply simple notch filter simulation
-        // This is a simplified version - full implementation would use proper biquad
-        int32_t filtered = raw_sample;
-        
-        if (notch_depth != 0) {
-            // Simple resonant filter approximation
-            int32_t phase_scaled = phase_ >> 16; // Scale to 0-65535
-            int32_t notch_response = 32767;
+        // Apply phase randomization based on parameter_
+        uint32_t working_phase = phase_;
+        if (parameter_ > 0) {
+            // Create pseudo-random phase jitter
+            uint32_t jitter = (phase_ >> 8) ^ (phase_ >> 16); // Simple PRNG from phase
+            jitter = (jitter * 1103515245U + 12345U) & 0xFFFF; // Linear congruential generator
             
-            // Calculate distance from notch frequency
-            int32_t freq_dist = abs(phase_scaled - notch_freq);
-            if (freq_dist < (32767 - notch_q)) {
-                // Within notch band
-                notch_response = (freq_dist * notch_q) >> 15;
-            }
-            
-            // Apply notch with depth and polarity
-            int32_t notch_effect = (notch_response * notch_depth) >> 15;
-            filtered = raw_sample + ((raw_sample * notch_effect) >> 15);
-            filtered = ClipS16(filtered);
+            // Scale jitter by parameter strength
+            int32_t jitter_amount = (jitter * parameter_) >> 16;
+            working_phase += jitter_amount;
         }
         
-        buffer[i] = static_cast<int16_t>(filtered);
+        // Generate clean sawtooth directly from phase (no DC offset)
+        int16_t raw_sample = static_cast<int16_t>(~(working_phase >> 16));
+        
+        *buffer = raw_sample;
+        
+        if (debug_count < 10) {
+            printf("  Sample #%d: phase_=0x%08X, working_phase=0x%08X, raw_sample=%d\n",
+                   debug_count, phase_, working_phase, raw_sample);
+            debug_count++;
+        }
         
         if (aux) {
-            aux[i] = (phase_ >> 24) > 127 ? 255 : 0;
+            *aux = (phase_ >> 24) > 127 ? 255 : 0;
+            aux++;
         }
         
         phase_ += phase_increment_;
+        buffer++;
     }
 }
 
 void AnalogOscillator::RenderSquare(const uint8_t* sync, int16_t* buffer, uint8_t* aux, size_t size) {
-    for (size_t i = 0; i < size; ++i) {
-        if (sync && sync[i]) {
+    while (size--) {
+        // Handle sync - per-sample edge detection
+        if (sync && *sync++) {
             phase_ = 0;
         }
         
@@ -180,74 +195,81 @@ void AnalogOscillator::RenderSquare(const uint8_t* sync, int16_t* buffer, uint8_
             sample += static_cast<int16_t>(blep >> 4);
         }
         
-        buffer[i] = sample;
+        *buffer = sample;
         high_ = current_high;
         
         if (aux) {
-            aux[i] = current_high ? 255 : 0;
+            *aux = current_high ? 255 : 0;
+            aux++;
         }
         
         phase_ += phase_increment_;
+        buffer++;
     }
 }
 
 void AnalogOscillator::RenderTriangle(const uint8_t* sync, int16_t* buffer, uint8_t* aux, size_t size) {
-    auto tri_wave = GetTriangleWave();
-    
-    for (size_t i = 0; i < size; ++i) {
-        if (sync && sync[i]) {
+    while (size--) {
+        // Handle sync - per-sample edge detection
+        if (sync && *sync++) {
             phase_ = 0;
         }
         
-        // Basic triangle wave
-        buffer[i] = tri_wave.LookupInterpolated(phase_);
+        // Generate triangle directly from phase
+        // Triangle formula from original Braids
+        uint16_t triangle = (phase_ >> 15) ^ (phase_ & 0x80000000 ? 0xffff : 0x0000);
+        *buffer = static_cast<int16_t>(triangle);
         
         if (aux) {
-            aux[i] = (phase_ >> 24);  // Ramp output
+            *aux = (phase_ >> 24);  // Ramp output
+            aux++;
         }
         
         phase_ += phase_increment_;
+        buffer++;
     }
 }
 
 void AnalogOscillator::RenderSine(const uint8_t* sync, int16_t* buffer, uint8_t* aux, size_t size) {
-    auto sine_wave = GetSineWave();
-    
-    for (size_t i = 0; i < size; ++i) {
-        if (sync && sync[i]) {
+    while (size--) {
+        // Handle sync - per-sample edge detection
+        if (sync && *sync++) {
             phase_ = 0;
         }
         
-        // Sine wave with parameter controlling harmonics/distortion
-        int16_t sample = sine_wave.LookupInterpolated(phase_);
+        // Sine wave using Interpolate824 like original Braids
+        int16_t sample = Interpolate824(wav_sine, phase_);
         
         if (parameter_ > 0) {
             // Add harmonic content based on parameter
-            int16_t harmonic = sine_wave.LookupInterpolated(phase_ * 2);  // 2nd harmonic
+            int16_t harmonic = Interpolate824(wav_sine, phase_ * 2);  // 2nd harmonic
             sample = Mix(sample, harmonic, parameter_);
         }
         
-        buffer[i] = sample;
+        *buffer = sample;
         
         if (aux) {
-            aux[i] = static_cast<uint8_t>((sample >> 8) + 128);  // Bipolar to unipolar
+            *aux = static_cast<uint8_t>((sample >> 8) + 128);  // Bipolar to unipolar
+            aux++;
         }
         
         phase_ += phase_increment_;
+        buffer++;
     }
 }
 
 void AnalogOscillator::RenderTriangleFold(const uint8_t* sync, int16_t* buffer, uint8_t* aux, size_t size) {
-    auto tri_wave = GetTriangleWave();
     auto folder = GetWaveshaper(2);  // Sine fold waveshaper
     
-    for (size_t i = 0; i < size; ++i) {
-        if (sync && sync[i]) {
+    while (size--) {
+        // Handle sync - per-sample edge detection
+        if (sync && *sync++) {
             phase_ = 0;
         }
         
         // Triangle with folding distortion
-        int16_t raw = tri_wave.LookupInterpolated(phase_);
+        uint16_t triangle = (phase_ >> 15) ^ (phase_ & 0x80000000 ? 0xffff : 0x0000);
+        int16_t raw = static_cast<int16_t>(triangle);
         
         if (parameter_ > 0) {
             // Scale up for folding
@@ -255,51 +277,56 @@ void AnalogOscillator::RenderTriangleFold(const uint8_t* sync, int16_t* buffer, 
             scaled = ClipS16(scaled);
             
             // Apply wavefolder
-            buffer[i] = folder.LookupInterpolated(static_cast<uint32_t>(scaled + 32768) << 15);
+            *buffer = folder.LookupInterpolated(static_cast<uint32_t>(scaled + 32768) << 15);
         } else {
-            buffer[i] = raw;
+            *buffer = raw;
         }
         
         if (aux) {
-            aux[i] = (phase_ >> 24);
+            *aux = (phase_ >> 24);
+            aux++;
         }
         
         phase_ += phase_increment_;
+        buffer++;
     }
 }
 
 void AnalogOscillator::RenderSineFold(const uint8_t* sync, int16_t* buffer, uint8_t* aux, size_t size) {
-    auto sine_wave = GetSineWave();
     auto folder = GetWaveshaper(2);  // Sine fold waveshaper
     
-    for (size_t i = 0; i < size; ++i) {
-        if (sync && sync[i]) {
+    while (size--) {
+        // Handle sync - per-sample edge detection
+        if (sync && *sync++) {
             phase_ = 0;
         }
         
         // Sine with folding distortion
-        int16_t raw = sine_wave.LookupInterpolated(phase_);
+        int16_t raw = Interpolate824(wav_sine, phase_);
         
         if (parameter_ > 0) {
             // Scale and fold
             int32_t scaled = (raw * (32768 + parameter_)) >> 15;
             scaled = ClipS16(scaled);
-            buffer[i] = folder.LookupInterpolated(static_cast<uint32_t>(scaled + 32768) << 15);
+            *buffer = folder.LookupInterpolated(static_cast<uint32_t>(scaled + 32768) << 15);
         } else {
-            buffer[i] = raw;
+            *buffer = raw;
         }
         
         if (aux) {
-            aux[i] = static_cast<uint8_t>((raw >> 8) + 128);
+            *aux = static_cast<uint8_t>((raw >> 8) + 128);
+            aux++;
         }
         
         phase_ += phase_increment_;
+        buffer++;
     }
 }
 
 void AnalogOscillator::RenderBuzz(const uint8_t* sync, int16_t* buffer, uint8_t* aux, size_t size) {
-    for (size_t i = 0; i < size; ++i) {
-        if (sync && sync[i]) {
+    while (size--) {
+        // Handle sync - per-sample edge detection
+        if (sync && *sync++) {
             phase_ = 0;
         }
         
@@ -316,13 +343,15 @@ void AnalogOscillator::RenderBuzz(const uint8_t* sync, int16_t* buffer, uint8_t*
             harmonic_phase += phase_increment_;
         }
         
-        buffer[i] = ClipS16(sample);
+        *buffer = ClipS16(sample);
         
         if (aux) {
-            aux[i] = (phase_ >> 24);
+            *aux = (phase_ >> 24);
+            aux++;
         }
         
         phase_ += phase_increment_;
+        buffer++;
     }
 }
 

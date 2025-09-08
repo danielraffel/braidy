@@ -9,7 +9,9 @@ namespace braidy {
 enum class BraidyParameter {
     // Core synthesis parameters
     SHAPE = 0,              // Oscillator shape/algorithm
-    PITCH,                  // Fundamental pitch
+    PITCH,                  // Fundamental pitch (legacy - use COARSE + FINE instead)
+    COARSE,                 // Coarse pitch control (±5 octaves)
+    FINE,                   // Fine pitch control (±100 cents)
     TIMBRE,                 // Parameter 1 (varies by algorithm)
     COLOR,                  // Parameter 2 (varies by algorithm)
     
@@ -94,27 +96,52 @@ public:
     }
     
     int16_t GetPitch() const {
-        return static_cast<int16_t>(GetParameter(BraidyParameter::PITCH) * 128.0f);  // Convert to internal format
+        // Legacy method - combines coarse and fine pitch
+        float coarse = GetParameter(BraidyParameter::COARSE);
+        float fine = GetParameter(BraidyParameter::FINE);
+        return static_cast<int16_t>((coarse * 12.0f + fine) * 128.0f);  // Convert to internal format
     }
     
     void SetPitch(int16_t pitch) {
-        SetParameter(BraidyParameter::PITCH, static_cast<float>(pitch) / 128.0f);
+        // Legacy method - distributes to coarse and fine
+        float total_semitones = static_cast<float>(pitch) / 128.0f;
+        float coarse = std::floor(total_semitones / 12.0f);
+        float fine = total_semitones - (coarse * 12.0f);
+        SetParameter(BraidyParameter::COARSE, coarse);
+        SetParameter(BraidyParameter::FINE, fine);
+    }
+    
+    // New separate pitch controls
+    float GetCoarsePitch() const {
+        return GetParameter(BraidyParameter::COARSE);
+    }
+    
+    void SetCoarsePitch(float octaves) {
+        SetParameter(BraidyParameter::COARSE, octaves);
+    }
+    
+    float GetFinePitch() const {
+        return GetParameter(BraidyParameter::FINE);
+    }
+    
+    void SetFinePitch(float cents) {
+        SetParameter(BraidyParameter::FINE, cents);
     }
     
     int16_t GetTimbre() const {
-        return static_cast<int16_t>(GetParameter(BraidyParameter::TIMBRE) * kParameterMax);
+        return static_cast<int16_t>(GetParameter(BraidyParameter::TIMBRE));
     }
     
     void SetTimbre(int16_t timbre) {
-        SetParameter(BraidyParameter::TIMBRE, static_cast<float>(timbre) / kParameterMax);
+        SetParameter(BraidyParameter::TIMBRE, static_cast<float>(timbre));
     }
     
     int16_t GetColor() const {
-        return static_cast<int16_t>(GetParameter(BraidyParameter::COLOR) * kParameterMax);
+        return static_cast<int16_t>(GetParameter(BraidyParameter::COLOR));
     }
     
     void SetColor(int16_t color) {
-        SetParameter(BraidyParameter::COLOR, static_cast<float>(color) / kParameterMax);
+        SetParameter(BraidyParameter::COLOR, static_cast<float>(color));
     }
     
     // State management

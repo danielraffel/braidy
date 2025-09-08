@@ -3,6 +3,7 @@
 #include "BraidyTypes.h"
 #include "BraidyMath.h"
 #include "BraidyResources.h"
+#include "BraidsDigitalDSP.h"
 
 namespace braidy {
 
@@ -159,6 +160,24 @@ union OscillatorState {
         int32_t filter_state_2;
         uint16_t decay;
     } snar;
+    
+    struct {
+        uint32_t phase[4];
+        int16_t amplitude[4];
+        uint16_t decay[4];
+        int32_t filter_state;
+        uint32_t decimation_counter;
+        int16_t held_sample;
+    } toy;
+    
+    struct {
+        float state[4];
+        float frequency;
+        float resonance;
+        float cutoff;
+        int32_t output;
+        int32_t svf_state[256];  // State variable filter buffer for comb filter
+    } filter;
 };
 
 class DigitalOscillator {

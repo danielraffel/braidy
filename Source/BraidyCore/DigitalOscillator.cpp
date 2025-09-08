@@ -1,6 +1,8 @@
 #include "DigitalOscillator.h"
 #include "BraidyResources.h"
 #include "BraidyMath.h"
+#include "BraidsLookupTables.h"
+#include "BraidsConstants.h"
 #include <cstring>
 #include <algorithm>
 #include <cmath>
@@ -83,37 +85,56 @@ void DigitalOscillator::Strike() {
 }
 
 uint32_t DigitalOscillator::ComputePhaseIncrement(int16_t midi_pitch) {
-    // Convert MIDI pitch to phase increment
-    // This is a simplified version - in practice you'd use LUT tables
+    // Handle the exact same way as original Braids
+    // midi_pitch is in format: MIDI note << 7
+    // Use lut_oscillator_increments[] which is for 48kHz
     
-    if (midi_pitch >= 140 * 128) {
-        midi_pitch = 140 * 128 - 1;
-    }
-    if (midi_pitch < 0) {
-        midi_pitch = 0;
+    if (midi_pitch >= kHighestNote) {
+        midi_pitch = kHighestNote - 1;
     }
     
-    // Convert to frequency ratio
-    float frequency_ratio = std::pow(2.0f, (midi_pitch / 128.0f - 69.0f) / 12.0f);
-    float frequency = 440.0f * frequency_ratio;
+    int32_t ref_pitch = midi_pitch;
+    ref_pitch -= kPitchTableStart;
     
-    // Convert to phase increment (32-bit accumulator, 48kHz sample rate)
-    return static_cast<uint32_t>((frequency * 4294967296.0) / 48000.0);
+    size_t num_shifts = 0;
+    while (ref_pitch < 0) {
+        ref_pitch += kOctave;
+        ++num_shifts;
+    }
+    
+    uint32_t a = LUT_OSCILLATOR_INCREMENTS[ref_pitch >> 4];
+    uint32_t b = LUT_OSCILLATOR_INCREMENTS[(ref_pitch >> 4) + 1];
+    uint32_t phase_increment = a + 
+        (static_cast<int32_t>(b - a) * (ref_pitch & 0xf) >> 4);
+    phase_increment >>= num_shifts;
+    return phase_increment;
 }
 
 uint32_t DigitalOscillator::ComputeDelay(int16_t midi_pitch) {
-    // Convert pitch to delay length for Karplus-Strong and similar algorithms
-    if (midi_pitch >= 140 * 128) {
-        midi_pitch = 140 * 128 - 1;
-    }
-    if (midi_pitch < 0) {
-        midi_pitch = 0;
+    // Convert pitch to delay length for Karplus-Strong using phase increment
+    // This avoids runtime frequency calculations by using the LUT approach
+    
+    if (midi_pitch >= kHighestNote) {
+        midi_pitch = kHighestNote - 1;
     }
     
-    float frequency_ratio = std::pow(2.0f, (midi_pitch / 128.0f - 69.0f) / 12.0f);
-    float frequency = 440.0f * frequency_ratio;
+    // Get phase increment using existing LUT-based method
+    uint32_t phase_increment = ComputePhaseIncrement(midi_pitch);
     
-    uint32_t delay = static_cast<uint32_t>(48000.0f / frequency);
+    // Convert phase increment to delay samples
+    // phase_increment relates to: increment = (2^32 * frequency) / sample_rate
+    // So: delay = sample_rate / frequency = 2^32 / phase_increment
+    // But we need to be careful about overflow and precision
+    
+    if (phase_increment == 0) {
+        return 4096;  // Maximum delay for very low frequencies
+    }
+    
+    // Use 64-bit arithmetic to avoid overflow
+    uint64_t delay_64 = (1ULL << 32) / phase_increment;
+    uint32_t delay = static_cast<uint32_t>(delay_64);
+    
+    // Clamp to reasonable range for string/delay models
     return std::max(4U, std::min(delay, 4096U));
 }
 
@@ -268,166 +289,132 @@ void DigitalOscillator::Render(MacroOscillatorShape macro_shape, int16_t pitch,
 // Phase 2: Classic Digital Synthesis Models
 
 void DigitalOscillator::RenderTripleRingMod(const uint8_t* sync, int16_t* buffer, size_t size) {
-    uint32_t phase = phase_ + (1L << 30);
-    uint32_t increment = phase_increment_;
-    uint32_t modulator_phase = state_.vow.formant_phase[0];
-    uint32_t modulator_phase_2 = state_.vow.formant_phase[1];
-    uint32_t modulator_phase_increment = ComputePhaseIncrement(
-        pitch_ + ((parameter_[0] - 16384) >> 2)
-    );
-    uint32_t modulator_phase_increment_2 = ComputePhaseIncrement(
-        pitch_ + ((parameter_[1] - 16384) >> 2)
-    );
-    
+    // Triple ring modulation - three oscillators with complex modulation
     while (size--) {
-        phase += increment;
-        if (*sync++) {
-            phase = 0;
-            modulator_phase = 0;
-            modulator_phase_2 = 0;
+        // Handle sync - per-sample edge detection
+        if (sync && *sync++) {
+            phase_ = 0;
         }
-        modulator_phase += modulator_phase_increment;
-        modulator_phase_2 += modulator_phase_increment_2;
         
-        // Three sine waves ring modulated together
-        int16_t carrier = InterpolateWaveform(wav_sine, phase, 1024);
-        int16_t mod1 = InterpolateWaveform(wav_sine, modulator_phase, 1024);
-        int16_t mod2 = InterpolateWaveform(wav_sine, modulator_phase_2, 1024);
+        // Three oscillators at different frequency ratios
+        int32_t osc1 = Sin(phase_);
+        int32_t osc2 = Sin(phase_ * 3 / 2);
+        int32_t osc3 = Sin(phase_ * 5 / 4);
         
-        int32_t result = carrier;
-        result = (result * mod1) >> 15;
-        result = (result * mod2) >> 15;
+        // Ring modulation between oscillators
+        int32_t ring12 = (osc1 * osc2) >> 15;
+        int32_t ring23 = (osc2 * osc3) >> 15;
+        int32_t ring13 = (osc1 * osc3) >> 15;
         
-        // Apply soft clipping
-        result = SoftLimit(result);
-        *buffer++ = static_cast<int16_t>(result);
+        // Mix based on parameters
+        int32_t mix = ring12;
+        if (parameter_[0] > 10922) mix = (mix + ring23) >> 1;
+        if (parameter_[0] > 21845) mix = (mix + ring13) >> 1;
+        
+        *buffer++ = ClipS16(mix);
+        phase_ += phase_increment_;
     }
-    phase_ = phase - (1L << 30);
-    state_.vow.formant_phase[0] = modulator_phase;
-    state_.vow.formant_phase[1] = modulator_phase_2;
 }
 
 void DigitalOscillator::RenderSawSwarm(const uint8_t* sync, int16_t* buffer, size_t size) {
-    int32_t detune = parameter_[0] + 1024;
-    detune = (detune * detune) >> 9;
-    
-    int32_t spread = parameter_[1] + 512;
-    spread = (spread * spread) >> 10;
-    
-    uint32_t phase_1 = state_.vow.formant_phase[0];
-    uint32_t phase_2 = state_.vow.formant_phase[1];
-    uint32_t phase_3 = state_.vow.formant_phase[2];
-    uint32_t phase_4 = state_.vow.formant_phase[3];
-    
-    uint32_t increment = phase_increment_;
-    uint32_t increment_1 = increment + ((detune * spread) >> 8);
-    uint32_t increment_2 = increment - ((detune * spread) >> 9);
-    uint32_t increment_3 = increment + ((detune * spread) >> 9);
-    uint32_t increment_4 = increment - ((detune * spread) >> 10);
-    
+    // Saw swarm - multiple detuned saw waves
+    size_t sample_count = 0;
     while (size--) {
-        if (*sync++) {
-            phase_1 = phase_2 = phase_3 = phase_4 = 0;
+        // Handle sync - per-sample edge detection
+        if (sync && *sync++) {
+            phase_ = 0;
         }
         
-        phase_1 += increment_1;
-        phase_2 += increment_2;
-        phase_3 += increment_3;
-        phase_4 += increment_4;
+        // Generate 7 detuned saw waves
+        int32_t sample = 0;
+        int32_t detune = parameter_[0] >> 9;  // 0-64 detune amount
         
-        // Generate sawtooth waves
-        int32_t saw_1 = (phase_1 >> 16) - 32768;
-        int32_t saw_2 = (phase_2 >> 16) - 32768;
-        int32_t saw_3 = (phase_3 >> 16) - 32768;
-        int32_t saw_4 = (phase_4 >> 16) - 32768;
+        for (int j = 0; j < 7; ++j) {
+            uint32_t swarm_phase = phase_;
+            if (j > 0) {
+                // Apply detune
+                int32_t detune_amount = (j - 3) * detune;
+                uint32_t swarm_increment = phase_increment_ + (phase_increment_ * detune_amount >> 15);
+                swarm_phase += swarm_increment * sample_count;
+            }
+            
+            // Simple saw wave
+            int16_t saw = static_cast<int16_t>((swarm_phase >> 16) - 32768);
+            sample += saw / 7;
+        }
         
-        int32_t result = (saw_1 + saw_2 + saw_3 + saw_4) >> 2;
-        *buffer++ = SoftLimit(result);
+        *buffer++ = ClipS16(sample);
+        phase_ += phase_increment_;
+        sample_count++;
     }
-    
-    state_.vow.formant_phase[0] = phase_1;
-    state_.vow.formant_phase[1] = phase_2;
-    state_.vow.formant_phase[2] = phase_3;
-    state_.vow.formant_phase[3] = phase_4;
 }
 
 void DigitalOscillator::RenderCombFilter(const uint8_t* sync, int16_t* buffer, size_t size) {
-    uint32_t delay_length = ComputeDelay(pitch_);
-    uint32_t feedback = parameter_[0];
-    uint32_t resonance = parameter_[1];
-    
-    uint32_t phase = phase_;
-    uint32_t increment = phase_increment_;
-    
+    // Comb filter synthesis
     while (size--) {
-        if (*sync++) {
-            phase = 0;
-            // Clear delay line on sync
-            memset(state_.comb.delay_line, 0, sizeof(state_.comb.delay_line[0]) * delay_length);
-            state_.comb.delay_ptr = 0;
+        // Handle sync - per-sample edge detection
+        if (sync && *sync++) {
+            phase_ = 0;
+            // Clear delay line
+            for (int j = 0; j < 64; ++j) {
+                state_.filter.svf_state[j] = 0;
+            }
         }
         
-        phase += increment;
+        // Generate input signal (saw wave)
+        int16_t input = static_cast<int16_t>((phase_ >> 16) - 32768);
         
-        // Generate input signal (sawtooth)
-        int16_t input = (phase >> 16) - 32768;
+        // Comb filter with feedback
+        int32_t delay_samples = 1 + (parameter_[0] >> 9);  // 1-64 samples
+        delay_samples = Clip(delay_samples, 1, 63);
         
-        // Read from delay line
-        uint16_t read_ptr = (state_.comb.delay_ptr + delay_length - delay_length) % delay_length;
-        int32_t delayed = state_.comb.delay_line[read_ptr];
+        int32_t delayed = state_.filter.svf_state[delay_samples];
+        int32_t feedback = parameter_[1] >> 8;  // 0-127 feedback amount
         
-        // Apply feedback and resonance
-        int32_t feedback_amount = (feedback * delayed) >> 15;
-        int32_t resonance_amount = (resonance * state_.comb.lp_state) >> 15;
+        int32_t output = input + ((delayed * feedback) >> 7);
         
-        int32_t output = input + feedback_amount + resonance_amount;
+        // Shift delay line
+        for (int j = 63; j > 0; --j) {
+            state_.filter.svf_state[j] = state_.filter.svf_state[j-1];
+        }
+        state_.filter.svf_state[0] = ClipS16(output);
         
-        // Low-pass filter for resonance
-        state_.comb.lp_state += ((output - state_.comb.lp_state) * 2048) >> 15;
-        
-        // Write to delay line
-        state_.comb.delay_line[state_.comb.delay_ptr] = SoftLimit(output);
-        state_.comb.delay_ptr = (state_.comb.delay_ptr + 1) % delay_length;
-        
-        *buffer++ = SoftLimit(output);
+        *buffer++ = ClipS16(output);
+        phase_ += phase_increment_;
     }
-    
-    phase_ = phase;
 }
 
 void DigitalOscillator::RenderToy(const uint8_t* sync, int16_t* buffer, size_t size) {
-    // "Toy" circuit-bent sound - bit crushing and sample rate reduction
-    uint32_t phase = phase_;
-    uint32_t increment = phase_increment_;
-    
-    uint32_t bit_reduction = (parameter_[0] >> 11) + 1;  // 1-4 bits
-    uint32_t sample_rate_reduction = (parameter_[1] >> 8) + 1;  // 1-128 samples
-    
-    static uint32_t sample_counter = 0;
-    static int16_t held_sample = 0;
-    
+    // Toy/lo-fi synthesis with sample rate reduction and bit crushing
     while (size--) {
-        if (*sync++) {
-            phase = 0;
+        // Handle sync - per-sample edge detection
+        if (sync && *sync++) {
+            phase_ = 0;
+            state_.toy.decimation_counter = 0;
+            state_.toy.held_sample = 0;
         }
-        
-        phase += increment;
-        
-        // Generate base waveform (square wave)
-        int16_t square = (phase & 0x80000000) ? 16384 : -16384;
         
         // Sample rate reduction
-        if ((sample_counter++ % sample_rate_reduction) == 0) {
-            // Bit reduction
-            int32_t bits = 16 - bit_reduction;
-            int32_t mask = ~((1 << bits) - 1);
-            held_sample = square & mask;
+        int32_t decimation = 1 + (parameter_[0] >> 11);  // 1-16x decimation
+        
+        if (state_.toy.decimation_counter >= decimation) {
+            // Generate new sample
+            int16_t raw = Sin(phase_);
+            
+            // Bit crushing
+            int32_t bit_depth = 16 - (parameter_[1] >> 12);  // 16 to 1 bits
+            bit_depth = Clip(bit_depth, 1, 16);
+            int32_t quantization = 1 << (16 - bit_depth);
+            raw = (raw / quantization) * quantization;
+            
+            state_.toy.held_sample = raw;
+            state_.toy.decimation_counter = 0;
         }
         
-        *buffer++ = held_sample;
+        *buffer++ = state_.toy.held_sample;
+        state_.toy.decimation_counter++;
+        phase_ += phase_increment_;
     }
-    
-    phase_ = phase;
 }
 
 // Digital Filter Synthesis

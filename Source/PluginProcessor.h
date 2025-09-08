@@ -1,7 +1,9 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_dsp/juce_dsp.h>
 #include "BraidyCore/BraidySettings.h"
+#include "BraidyCore/BraidyTypes.h"
 #include "BraidyCore/PresetManager.h"
 #include "BraidyCore/WaveformStateManager.h"
 #include "BraidyVoice/VoiceManager.h"
@@ -62,6 +64,9 @@ public:
     void setMetaModeEnabled(bool enabled);
     void setQuantizerEnabled(bool enabled);
     void setBitCrusherEnabled(bool enabled);
+    
+    // MIDI processing (public for editor keyboard input)
+    void processMidiMessage(const juce::MidiMessage& message);
 
 private:
     // Braidy synthesizer components
@@ -80,8 +85,9 @@ private:
     // Parameter update handling
     void updateBraidyFromAPVTS();
     
-    // MIDI processing helpers
-    void processMidiMessage(const juce::MidiMessage& message);
+    // 48kHz core processing
+    void setupResamplerChain(double hostSampleRate);
+    void processWithFixedCore(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages);
     
     // Preset management helpers
     void loadPreset(size_t index);
@@ -91,6 +97,21 @@ private:
     void optimizeForRealtime();
     bool parameter_update_pending_;
     int samples_since_parameter_update_;
+    
+    // Fixed 48kHz core processing
+    static constexpr double kCoreSampleRate = 48000.0;
+    double host_sample_rate_;
+    bool needs_resampling_;
+    
+    // Resampler for non-48kHz hosts
+    std::unique_ptr<juce::dsp::Oversampling<float>> resampler_;
+    
+    // Internal 48kHz buffers
+    juce::AudioBuffer<float> core_input_buffer_;
+    juce::AudioBuffer<float> core_output_buffer_;
+    
+    // 24-sample micro-block processing (using kBlockSize from BraidyTypes.h)
+    std::vector<float> micro_block_buffer_;
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BraidyAudioProcessor)
 };

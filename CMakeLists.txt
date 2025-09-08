@@ -108,6 +108,10 @@ target_sources(${PROJECT_NAME} PRIVATE
     Source/BraidyCore/AnalogOscillator.h
     Source/BraidyCore/DigitalOscillator.cpp
     Source/BraidyCore/DigitalOscillator.h
+    Source/BraidyCore/BraidsDigitalDSP.cpp
+    Source/BraidyCore/BraidsDigitalDSP.h
+    Source/BraidyCore/DSPDispatcher.cpp
+    Source/BraidyCore/DSPDispatcher.h
     Source/BraidyCore/BraidyResources.cpp
     Source/BraidyCore/BraidyResources.h
     Source/BraidyCore/ParameterInterpolation.h
@@ -115,6 +119,9 @@ target_sources(${PROJECT_NAME} PRIVATE
     Source/BraidyCore/PresetManager.h
     Source/BraidyCore/WaveformStateManager.cpp
     Source/BraidyCore/WaveformStateManager.h
+    Source/BraidyCore/WavetableManager.cpp
+    Source/BraidyCore/WavetableManager.h
+    Source/BraidyCore/BraidsWavetableData.h
     Source/BraidyVoice/BraidyVoice.cpp
     Source/BraidyVoice/BraidyVoice.h
     Source/BraidyVoice/VoiceManager.cpp

@@ -51,6 +51,8 @@ public:
     
     // Get current phase for sync
     inline uint32_t phase() const { return phase_; }
+    inline void set_phase(uint32_t phase) { phase_ = phase; }
+    inline uint32_t phase_increment() const { return phase_increment_; }
     inline bool sync_edge_detected() const { return sync_edge_detected_; }
     
 private:

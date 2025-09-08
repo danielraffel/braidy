@@ -29,6 +29,13 @@ public:
     void sliderValueChanged(juce::Slider* slider) override;
     void buttonClicked(juce::Button* button) override;
     
+    // Keyboard input for computer keyboard to MIDI
+    bool keyPressed(const juce::KeyPress& key) override;
+    bool keyStateChanged(bool isKeyDown) override;
+    
+    // Mouse handling to grab keyboard focus
+    void mouseDown(const juce::MouseEvent& event) override;
+    
     // Timer for display updates
     void timerCallback() override;
 
@@ -207,6 +214,15 @@ private:
     
     // Settings button (modern addition)
     std::unique_ptr<juce::TextButton> settingsButton_;
+    
+    // Computer keyboard to MIDI functionality
+    std::map<int, int> keyToMidiNoteMap_;  // Map keyboard keycode to MIDI note
+    std::set<int> pressedKeys_;            // Track currently pressed keys
+    void initializeKeyboardMapping();
+    void sendMidiNoteOn(int midiNote, float velocity = 0.7f);
+    void sendMidiNoteOff(int midiNote);
+    void checkForReleasedKeys();
+    int getOctaveOffset() const { return 60; }  // C4 as base note
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BraidyAudioProcessorEditor)
 };

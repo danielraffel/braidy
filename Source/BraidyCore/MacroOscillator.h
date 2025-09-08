@@ -7,6 +7,7 @@
 #include "ParameterInterpolation.h"
 #include "Quantizer.h"
 #include "BitCrusher.h"
+#include "DSPDispatcher.h"
 #include <cstdio>
 
 namespace braidy {
@@ -26,18 +27,19 @@ public:
     // Main parameter setters
     inline void set_shape(MacroOscillatorShape shape) {
         if (shape != shape_) {
-            printf("=== MACRO OSCILLATOR SET_SHAPE DEBUG ===\n");
-            printf("Shape changing from %d to %d\n", static_cast<int>(shape_), static_cast<int>(shape));
             Strike();  // Trigger any percussion/strike elements
         }
         shape_ = shape;
-        printf("MacroOscillator shape set to: %d\n", static_cast<int>(shape_));
     }
     
     inline void set_pitch(int16_t pitch) { pitch_ = pitch; }
     inline void set_parameters(int16_t parameter_1, int16_t parameter_2) {
         parameter_[0] = parameter_1;
         parameter_[1] = parameter_2;
+    }
+    inline void set_fm_parameters(int16_t fm_amount, int16_t fm_ratio) {
+        fm_amount_ = fm_amount;
+        fm_ratio_ = fm_ratio;
     }
     
     // Accessors
@@ -82,6 +84,12 @@ private:
     // Digital synthesis (placeholder for now)
     void RenderDigital(const uint8_t* sync, int16_t* buffer, size_t size);
     
+    // Wavetable synthesis
+    void RenderWavetables(const uint8_t* sync, int16_t* buffer, size_t size);
+    void RenderWaveMap(const uint8_t* sync, int16_t* buffer, size_t size);
+    void RenderWaveLine(const uint8_t* sync, int16_t* buffer, size_t size);
+    void RenderWaveParaphonic(const uint8_t* sync, int16_t* buffer, size_t size);
+    
     // Utility functions
     void ConfigureTriple(AnalogOscillatorShape shape);
     void UpdateParameters();
@@ -91,10 +99,13 @@ private:
     int16_t pitch_;
     int16_t parameter_[2];
     int16_t previous_parameter_[2];
+    int16_t fm_amount_;
+    int16_t fm_ratio_;
     
     // Oscillators
     AnalogOscillator analog_oscillator_[3];  // Up to 3 analog oscillators for complex algorithms
-    DigitalOscillator* digital_oscillator_;   // Digital synthesis engine
+    DigitalOscillator* digital_oscillator_;   // Digital synthesis engine (deprecated - use DSPDispatcher)
+    DSPDispatcher* dsp_dispatcher_;            // Unified DSP dispatcher to eliminate duplicate code
     
     // Parameter interpolation for smooth changes
     MacroParameterInterpolation parameter_interpolation_;
@@ -105,6 +116,12 @@ private:
     
     // Low-pass filter state for some algorithms
     int32_t lp_state_;
+    
+    // Wavetable synthesis state
+    uint32_t wavetable_phase_;
+    uint32_t wavetable_phase_increment_;
+    uint32_t paraphonic_phases_[8];      // For paraphonic wavetables
+    uint32_t paraphonic_increments_[8];  // Phase increments for each voice
     
     // Function table for algorithm dispatch
     static const RenderFn fn_table_[];

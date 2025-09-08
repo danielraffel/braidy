@@ -1,5 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include <map>
+#include <set>
 
 // Exact algorithm names from Mutable Instruments Braids (4-character display)
 const std::array<const char*, 48> BraidyAudioProcessorEditor::algorithmNames_ = {
@@ -30,7 +32,7 @@ const std::array<const char*, 24> BraidyAudioProcessorEditor::menuPageNames_ = {
 BraidyAudioProcessorEditor::BraidsEncoder::BraidsEncoder() {
     setSize(60, 60);  // Large encoder like on Braids
     setInterceptsMouseClicks(true, false);  // Accept mouse clicks but don't intercept children
-    setWantsKeyboardFocus(false);
+    setWantsKeyboardFocus(false);  // Encoder doesn't need focus, parent editor handles it
     DBG("[ENCODER] BraidsEncoder constructed");
 }
 
@@ -372,7 +374,12 @@ BraidyAudioProcessorEditor::BraidyAudioProcessorEditor(BraidyAudioProcessor& p)
     // Set size to match 16HP Eurorack module proportions (more compact)
     setSize(320, 480);  // Increased size for better component visibility
     
+    // Enable keyboard input for computer keyboard to MIDI functionality
+    setWantsKeyboardFocus(true);
+    grabKeyboardFocus();  // Actually grab focus so keyboard works
+    
     DBG("[STARTUP] Editor size: " + juce::String(getWidth()) + "x" + juce::String(getHeight()));
+    DBG("[STARTUP] Keyboard focus enabled");
     
     // Initialize display to show algorithm (not menu)  
     displayMode_ = DisplayMode::Algorithm;
@@ -411,10 +418,24 @@ BraidyAudioProcessorEditor::BraidyAudioProcessorEditor(BraidyAudioProcessor& p)
     resized();
     repaint();
     
+    // Initialize computer keyboard to MIDI mapping
+    initializeKeyboardMapping();
+    
+    // CRITICAL: Ensure this editor has keyboard focus after all components are created
+    grabKeyboardFocus();
+    DBG("[FOCUS] Editor grabbed keyboard focus after component setup");
+    
+    // Verify focus state
+    if (hasKeyboardFocus(true)) {
+        DBG("[FOCUS] SUCCESS: Editor has keyboard focus");
+    } else {
+        DBG("[FOCUS] WARNING: Editor does not have keyboard focus");
+    }
+    
     // Start timer for parameter updates (reduce frequency to avoid issues)
     startTimer(100);
     
-    DBG("[STARTUP] Constructor complete");
+    DBG("[STARTUP] Constructor complete with MIDI keyboard support");
 }
 
 BraidyAudioProcessorEditor::~BraidyAudioProcessorEditor() {
@@ -431,12 +452,14 @@ BraidyAudioProcessorEditor::~BraidyAudioProcessorEditor() {
 void BraidyAudioProcessorEditor::setupComponents() {
     // Simple OLED Display (4-character green) - using inline class
     oledDisplay_ = std::make_unique<SimpleOLEDDisplay>();
+    oledDisplay_->setWantsKeyboardFocus(false);  // Prevent display from stealing focus
     addAndMakeVisible(*oledDisplay_);
     oledDisplay_->setVisible(true);
     DBG("Created OLED Display");
     
     // Main EDIT encoder (large)
     editEncoder_ = std::make_unique<BraidsEncoder>();
+    editEncoder_->setWantsKeyboardFocus(false);  // Ensure encoder doesn't steal focus
     editEncoder_->onValueChange = [this](int delta) { handleEncoderRotation(delta); };
     editEncoder_->onClick = [this]() { handleEncoderClick(); };
     editEncoder_->onLongPress = [this]() { handleEncoderLongPress(); };
@@ -446,18 +469,21 @@ void BraidyAudioProcessorEditor::setupComponents() {
     
     // Top row knobs (FINE, COARSE, FM)
     fineKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar
+    fineKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     fineKnob_->onValueChange = [this](float value) { /* Parameter handling */ };
     addAndMakeVisible(*fineKnob_);
     fineKnob_->setVisible(true);
     DBG("Created Fine Knob");
     
     coarseKnob_ = std::make_unique<BraidsKnob>();
+    coarseKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     coarseKnob_->onValueChange = [this](float value) { /* Parameter handling */ };
     addAndMakeVisible(*coarseKnob_);
     coarseKnob_->setVisible(true);
     DBG("Created Coarse Knob");
     
     fmKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar attenuverter
+    fmKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     fmKnob_->onValueChange = [this](float value) { /* Parameter handling */ };
     addAndMakeVisible(*fmKnob_);
     fmKnob_->setVisible(true);
@@ -465,12 +491,14 @@ void BraidyAudioProcessorEditor::setupComponents() {
     
     // Main parameter knobs with colored indicators (matching hardware)
     timbreKnob_ = std::make_unique<BraidsKnob>(false, 0xFF00CCA3);  // Teal indicator
+    timbreKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     timbreKnob_->onValueChange = [this](float value) { /* Parameter handling */ };
     addAndMakeVisible(*timbreKnob_);
     timbreKnob_->setVisible(true);
     DBG("Created Timbre Knob");
     
     colorKnob_ = std::make_unique<BraidsKnob>(false, 0xFFE74C3C);  // Red indicator
+    colorKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     colorKnob_->onValueChange = [this](float value) { /* Parameter handling */ };
     addAndMakeVisible(*colorKnob_);
     colorKnob_->setVisible(true);
@@ -478,6 +506,7 @@ void BraidyAudioProcessorEditor::setupComponents() {
     
     // Modulation attenuverter (center knob)
     timbreModKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar
+    timbreModKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     timbreModKnob_->onValueChange = [this](float value) { /* Parameter handling */ };
     addAndMakeVisible(*timbreModKnob_);
     timbreModKnob_->setVisible(true);
@@ -487,20 +516,23 @@ void BraidyAudioProcessorEditor::setupComponents() {
     const std::array<juce::String, 6> jackLabels = {"TRIG", "V/OCT", "FM", "TIMBRE", "COLOR", "OUT"};
     for (int i = 0; i < 6; ++i) {
         cvJacks_[i] = std::make_unique<CvJack>(jackLabels[i], i == 5);  // OUT is output
+        cvJacks_[i]->setWantsKeyboardFocus(false);  // Prevent jacks from stealing focus
         addAndMakeVisible(*cvJacks_[i]);
         cvJacks_[i]->setVisible(true);
         DBG("Created CV Jack: " + jackLabels[i]);
     }
     
-    // Settings button (modern addition for accessing LFO modulation)
+    // MOD button (hardware-style button for accessing modulation settings)
     settingsButton_ = std::make_unique<juce::TextButton>("MOD");
     settingsButton_->setButtonText("MOD");
-    settingsButton_->setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF2A2A2A));
-    settingsButton_->setColour(juce::TextButton::textColourOnId, juce::Colour(0xFF00FF00));
-    settingsButton_->setColour(juce::TextButton::textColourOffId, juce::Colour(0xFF00AA00));
+    settingsButton_->setWantsKeyboardFocus(false);  // Prevent button from stealing focus
+    settingsButton_->setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF4A4A4A));
+    settingsButton_->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xFF5A5A5A));
+    settingsButton_->setColour(juce::TextButton::textColourOffId, juce::Colour(0xFFE8E8E8));
+    settingsButton_->setColour(juce::TextButton::textColourOnId, juce::Colour(0xFF00CCA3));
     settingsButton_->addListener(this);
     addAndMakeVisible(*settingsButton_);
-    DBG("Created Settings Button");
+    DBG("Created MOD Button");
     
     DBG("=== All Components Created ===");
 }
@@ -763,10 +795,14 @@ void BraidyAudioProcessorEditor::resized() {
         colorKnob_->toFront(false);
     }
     
-    // Settings button (top right corner for easy access)
+    // MOD button (near display area - prominent position)
     if (settingsButton_) {
-        settingsButton_->setBounds(getWidth() - 50, 5, 45, 20);
+        // Position MOD button to the right of the encoder
+        auto modX = startX + displayWidth + gapBetween + encoderSize + 10;
+        auto modY = titleArea.getBottom() + 15;
+        settingsButton_->setBounds(modX, modY, 35, 30);
         settingsButton_->setVisible(true);
+        settingsButton_->toFront(false);
     }
     
     // Modulation overlay (full screen when visible)
@@ -1464,4 +1500,144 @@ void BraidyAudioProcessorEditor::timerCallback() {
         repaintCounter = 0;
         repaint();
     }
+}
+
+//==============================================================================
+// Computer Keyboard to MIDI Implementation
+//==============================================================================
+void BraidyAudioProcessorEditor::initializeKeyboardMapping() {
+    // Standard computer keyboard to MIDI note mapping
+    // Bottom row (white keys): A S D F G H J K L ; '
+    keyToMidiNoteMap_['a'] = 0;   // C
+    keyToMidiNoteMap_['s'] = 2;   // D
+    keyToMidiNoteMap_['d'] = 4;   // E
+    keyToMidiNoteMap_['f'] = 5;   // F
+    keyToMidiNoteMap_['g'] = 7;   // G
+    keyToMidiNoteMap_['h'] = 9;   // A
+    keyToMidiNoteMap_['j'] = 11;  // B
+    keyToMidiNoteMap_['k'] = 12;  // C (next octave)
+    keyToMidiNoteMap_['l'] = 14;  // D
+    keyToMidiNoteMap_[';'] = 16;  // E
+    keyToMidiNoteMap_['\''] = 17; // F
+    
+    // Top row (black keys): W E T Y U O P
+    keyToMidiNoteMap_['w'] = 1;   // C#
+    keyToMidiNoteMap_['e'] = 3;   // D#
+    keyToMidiNoteMap_['t'] = 6;   // F#
+    keyToMidiNoteMap_['y'] = 8;   // G#
+    keyToMidiNoteMap_['u'] = 10;  // A#
+    keyToMidiNoteMap_['o'] = 13;  // C#
+    keyToMidiNoteMap_['p'] = 15;  // D#
+    
+    // Lower octave with Z X C V B N M
+    keyToMidiNoteMap_['z'] = -12; // C (lower octave)
+    keyToMidiNoteMap_['x'] = -10; // D
+    keyToMidiNoteMap_['c'] = -8;  // E
+    keyToMidiNoteMap_['v'] = -7;  // F
+    keyToMidiNoteMap_['b'] = -5;  // G
+    keyToMidiNoteMap_['n'] = -3;  // A
+    keyToMidiNoteMap_['m'] = -1;  // B
+    
+    DBG("[MIDI KEYBOARD] Initialized keyboard mapping with " + juce::String(keyToMidiNoteMap_.size()) + " keys");
+}
+
+void BraidyAudioProcessorEditor::mouseDown(const juce::MouseEvent& event) {
+    // Grab keyboard focus when the window is clicked
+    grabKeyboardFocus();
+    DBG("[MOUSE] Window clicked - grabbing keyboard focus");
+}
+
+bool BraidyAudioProcessorEditor::keyPressed(const juce::KeyPress& key) {
+    auto keyChar = key.getKeyCode();
+    
+    DBG("[KEYBOARD] keyPressed called with keycode: " + juce::String(keyChar) + 
+        " (" + juce::String::charToString(keyChar) + ")");
+    
+    // Convert to lowercase for consistent mapping
+    if (keyChar >= 'A' && keyChar <= 'Z') {
+        keyChar = keyChar - 'A' + 'a';
+    }
+    
+    // Check if this key is in our MIDI mapping
+    auto it = keyToMidiNoteMap_.find(keyChar);
+    if (it != keyToMidiNoteMap_.end()) {
+        // Check if key is already pressed to avoid retriggering
+        if (pressedKeys_.find(keyChar) == pressedKeys_.end()) {
+            pressedKeys_.insert(keyChar);
+            
+            int relativeNote = it->second;
+            int midiNote = getOctaveOffset() + relativeNote;
+            
+            // Ensure MIDI note is in valid range (0-127)
+            if (midiNote >= 0 && midiNote <= 127) {
+                sendMidiNoteOn(midiNote, 0.7f);
+                DBG("[MIDI KEYBOARD] Key '" + juce::String::charToString(keyChar) + 
+                    "' pressed -> MIDI note " + juce::String(midiNote));
+            }
+        }
+        return true;
+    } else {
+        DBG("[KEYBOARD] Key not in MIDI mapping: " + juce::String::charToString(keyChar));
+    }
+    
+    return false;
+}
+
+bool BraidyAudioProcessorEditor::keyStateChanged(bool isKeyDown) {
+    // This is called when any key state changes
+    // We use a timer-based approach to detect key releases
+    if (!isKeyDown) {
+        // Start a timer to check for released keys
+        juce::Timer::callAfterDelay(10, [this]() {
+            this->checkForReleasedKeys();
+        });
+        return true;
+    }
+    return false;
+}
+
+void BraidyAudioProcessorEditor::sendMidiNoteOn(int midiNote, float velocity) {
+    if (auto* processor = dynamic_cast<BraidyAudioProcessor*>(&processorRef)) {
+        // Create MIDI note on message
+        juce::MidiMessage noteOn = juce::MidiMessage::noteOn(1, midiNote, velocity);
+        
+        // Send to processor for immediate processing
+        processor->processMidiMessage(noteOn);
+        
+        DBG("[MIDI SEND] Note ON: " + juce::String(midiNote) + " velocity: " + juce::String(velocity, 2));
+    }
+}
+
+void BraidyAudioProcessorEditor::sendMidiNoteOff(int midiNote) {
+    if (auto* processor = dynamic_cast<BraidyAudioProcessor*>(&processorRef)) {
+        // Create MIDI note off message
+        juce::MidiMessage noteOff = juce::MidiMessage::noteOff(1, midiNote, 0.0f);
+        
+        // Send to processor for immediate processing
+        processor->processMidiMessage(noteOff);
+        
+        DBG("[MIDI SEND] Note OFF: " + juce::String(midiNote));
+    }
+}
+
+void BraidyAudioProcessorEditor::checkForReleasedKeys() {
+    // Simple approach: clear all pressed keys and send note offs
+    // This is a fallback since JUCE doesn't provide easy key release detection
+    std::set<int> keysToRelease = pressedKeys_;
+    
+    for (int keyChar : keysToRelease) {
+        auto it = keyToMidiNoteMap_.find(keyChar);
+        if (it != keyToMidiNoteMap_.end()) {
+            int relativeNote = it->second;
+            int midiNote = getOctaveOffset() + relativeNote;
+            
+            if (midiNote >= 0 && midiNote <= 127) {
+                sendMidiNoteOff(midiNote);
+                DBG("[MIDI KEYBOARD] Auto-release key '" + juce::String::charToString(keyChar) + 
+                    "' -> MIDI note " + juce::String(midiNote) + " OFF");
+            }
+        }
+    }
+    
+    pressedKeys_.clear();
 }

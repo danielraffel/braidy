@@ -1,0 +1,19 @@
+CC_FILES = analog_oscillator.cc \
+           digital_oscillator.cc \
+           macro_oscillator.cc \
+           quantizer.cc \
+           resources.cc \
+           braids_wav_generator.cpp
+
+# Note: We need to provide random.cc since it's referenced
+# For now we'll make a simple stub
+
+TARGET = braids_wav_generator
+
+$(TARGET): $(CC_FILES)
+	g++ -DTEST -g -Wall -Wno-unused-variable -I. -I../../.. -o $(TARGET) $(CC_FILES)
+
+clean:
+	rm -f $(TARGET)
+
+.PHONY: clean

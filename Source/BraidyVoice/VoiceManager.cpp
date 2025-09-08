@@ -1,4 +1,5 @@
 #include "VoiceManager.h"
+#include "../BraidyCore/BraidyTypes.h"
 #include <algorithm>
 #include <cmath>
 
@@ -69,6 +70,11 @@ void VoiceManager::SetMaxPolyphony(int max_voices) {
 void VoiceManager::NoteOn(int midi_note, float velocity, int mpe_channel) {
     if (midi_note < 0 || midi_note > 127) return;
     
+    DBG("=== VOICE MANAGER NOTE ON ===");
+    DBG("MIDI Note: " + juce::String(midi_note));
+    DBG("Velocity: " + juce::String(velocity));
+    DBG("MPE Channel: " + juce::String(mpe_channel));
+    
     // Handle MPE channel assignment
     int channel = mpe_channel;
     if (mpe_settings_.enabled && mpe_channel == 0) {
@@ -81,6 +87,8 @@ void VoiceManager::NoteOn(int midi_note, float velocity, int mpe_channel) {
         voice_index = AllocateVoice();
     }
     
+    DBG("Assigned voice index: " + juce::String(voice_index));
+    
     if (voice_index != -1) {
         // Assign note to voice
         note_to_voice_[midi_note] = voice_index;
@@ -88,10 +96,15 @@ void VoiceManager::NoteOn(int midi_note, float velocity, int mpe_channel) {
         held_notes_[midi_note] = true;
         
         // Start the note
+        DBG("Starting note on voice " + juce::String(voice_index));
         voices_[voice_index].NoteOn(midi_note, velocity);
         
         // Apply current modulation state for this channel
         UpdateVoiceModulation(voice_index);
+        
+        DBG("Voice " + juce::String(voice_index) + " is now active: " + juce::String(voices_[voice_index].IsActive() ? "true" : "false"));
+    } else {
+        DBG("WARNING: No voice could be allocated!");
     }
 }
 
@@ -257,28 +270,64 @@ void VoiceManager::SetMPESettings(const MPESettings& settings) {
 }
 
 void VoiceManager::Process(juce::AudioBuffer<float>& buffer, int num_samples) {
+    static int processCounter = 0;
+    
+    int active_voice_count = 0;
+    for (int i = 0; i < max_polyphony_; ++i) {
+        if (voices_[i].IsActive()) {
+            active_voice_count++;
+        }
+    }
+    
+    // Only log when there are active voices or every 1000 calls
+    if (active_voice_count > 0 || processCounter++ % 1000 == 0) {
+        DBG("=== VOICE MANAGER: Active voices: " + juce::String(active_voice_count) + " ===");
+    }
+    
+    // Clear output buffer
     buffer.clear();
     
+    // Early exit if no voices are active
+    if (active_voice_count == 0) {
+        return;
+    }
+    
+    // Ensure voice buffer is large enough
     if (voice_output_buffer_.size() < static_cast<size_t>(num_samples)) {
         voice_output_buffer_.resize(num_samples);
     }
     
-    // Process each voice
-    for (int i = 0; i < max_polyphony_; ++i) {
-        if (voices_[i].IsActive()) {
-            // Clear the voice buffer
-            std::fill(voice_output_buffer_.begin(), 
-                     voice_output_buffer_.begin() + num_samples, 0.0f);
-            
-            // Process the voice
-            voices_[i].Process(voice_output_buffer_.data(), num_samples);
-            
-            // Add to output buffer
-            for (int ch = 0; ch < buffer.getNumChannels(); ++ch) {
-                buffer.addFrom(ch, 0, voice_output_buffer_.data(), num_samples);
+    // Process voices in optimal micro-block sizes
+    // This maintains phase coherency and parameter update consistency
+    const int kOptimalBlockSize = kBlockSize; // Use Braids standard block size
+    
+    int samples_processed = 0;
+    while (samples_processed < num_samples) {
+        const int block_size = std::min(kOptimalBlockSize, num_samples - samples_processed);
+        
+        // Process each active voice for this micro-block
+        for (int i = 0; i < max_polyphony_; ++i) {
+            if (voices_[i].IsActive()) {
+                DBG("Processing voice " + juce::String(i) + " (MIDI note: " + juce::String(voices_[i].GetMidiNote()) + ") - block size: " + juce::String(block_size));
+                
+                // Clear the voice buffer for this block
+                std::fill(voice_output_buffer_.begin(), 
+                         voice_output_buffer_.begin() + block_size, 0.0f);
+                
+                // Process the voice for this micro-block
+                voices_[i].Process(voice_output_buffer_.data(), block_size);
+                
+                // Add to output buffer (mix voices together)
+                for (int ch = 0; ch < buffer.getNumChannels(); ++ch) {
+                    buffer.addFrom(ch, samples_processed, voice_output_buffer_.data(), block_size);
+                }
             }
         }
+        
+        samples_processed += block_size;
     }
+    
+    DBG("=== VOICE MANAGER PROCESS END ===");
 }
 
 int VoiceManager::GetActiveVoiceCount() const {

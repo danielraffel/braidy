@@ -25,17 +25,25 @@ const ParameterInfo BraidySettings::parameter_info_[static_cast<int>(BraidyParam
     {"Algorithm", "ALG", "Synthesis algorithm/oscillator shape", 
      0.0f, static_cast<float>(static_cast<int>(MacroOscillatorShape::LAST) - 1), 0.0f, true, shape_names_},
     
-    // PITCH 
-    {"Pitch", "PIT", "Fundamental pitch in semitones", 
+    // PITCH (Legacy - for backward compatibility)
+    {"Pitch", "PIT", "Fundamental pitch in semitones (legacy)", 
      -48.0f, 48.0f, 0.0f, false, nullptr},
+     
+    // COARSE
+    {"Coarse", "CRS", "Coarse pitch control (±5 octaves)", 
+     -5.0f, 5.0f, 0.0f, false, nullptr},
+     
+    // FINE
+    {"Fine", "FIN", "Fine pitch control (±100 cents)", 
+     -100.0f, 100.0f, 0.0f, false, nullptr},
     
     // TIMBRE
     {"Timbre", "TMB", "Timbral parameter (varies by algorithm)", 
-     0.0f, 1.0f, 0.5f, false, nullptr},
+     0.0f, 32767.0f, 16384.0f, false, nullptr},
     
     // COLOR
     {"Color", "COL", "Color parameter (varies by algorithm)", 
-     0.0f, 1.0f, 0.5f, false, nullptr},
+     0.0f, 32767.0f, 16384.0f, false, nullptr},
     
     // FM_AMOUNT
     {"FM Amount", "FM", "FM modulation depth", 
@@ -159,8 +167,8 @@ void BraidySettings::ResetToDefaults() {
         parameters_[i] = parameter_info_[i].default_value;
     }
     
-    smoothed_timbre_ = static_cast<int16_t>(GetParameter(BraidyParameter::TIMBRE) * kParameterMax);
-    smoothed_color_ = static_cast<int16_t>(GetParameter(BraidyParameter::COLOR) * kParameterMax);
+    smoothed_timbre_ = static_cast<int16_t>(GetParameter(BraidyParameter::TIMBRE));
+    smoothed_color_ = static_cast<int16_t>(GetParameter(BraidyParameter::COLOR));
 }
 
 float BraidySettings::GetParameter(BraidyParameter param) const {
@@ -212,8 +220,8 @@ const char* BraidySettings::GetParameterName(BraidyParameter param) {
 
 void BraidySettings::UpdateSmoothers() {
     // Update parameter smoothing for audio-critical parameters
-    float target_timbre = GetParameter(BraidyParameter::TIMBRE) * kParameterMax;
-    float target_color = GetParameter(BraidyParameter::COLOR) * kParameterMax;
+    float target_timbre = GetParameter(BraidyParameter::TIMBRE);
+    float target_color = GetParameter(BraidyParameter::COLOR);
     
     smoothed_timbre_ = static_cast<int16_t>(timbre_smoother_.Process(target_timbre));
     smoothed_color_ = static_cast<int16_t>(color_smoother_.Process(target_color));
@@ -231,8 +239,8 @@ void BraidySettings::LoadState(const void* data, size_t size) {
         std::memcpy(parameters_, data, size);
         
         // Update smoothers with loaded values
-        smoothed_timbre_ = static_cast<int16_t>(GetParameter(BraidyParameter::TIMBRE) * kParameterMax);
-        smoothed_color_ = static_cast<int16_t>(GetParameter(BraidyParameter::COLOR) * kParameterMax);
+        smoothed_timbre_ = static_cast<int16_t>(GetParameter(BraidyParameter::TIMBRE));
+        smoothed_color_ = static_cast<int16_t>(GetParameter(BraidyParameter::COLOR));
     }
 }
 

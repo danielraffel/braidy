@@ -7,6 +7,8 @@ BraidyAudioProcessor::BraidyAudioProcessor()
     : AudioProcessor (BusesProperties()
                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true))
     , apvts_(*this, nullptr, "BraidyParameters", createParameterLayout())
+    , host_sample_rate_(44100.0)
+    , needs_resampling_(true)
 {
     // Initialize Braidy components
     braidy_settings_ = std::make_unique<braidy::BraidySettings>();
@@ -114,9 +116,23 @@ void BraidyAudioProcessor::changeProgramName(int index, const juce::String& newN
 
 //==============================================================================
 void BraidyAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
-    juce::ignoreUnused(samplesPerBlock);
+    host_sample_rate_ = sampleRate;
+    needs_resampling_ = (std::abs(sampleRate - kCoreSampleRate) > 1.0);
     
-    voice_manager_->SetSampleRate(static_cast<float>(sampleRate));
+    // Always set voice manager to 48kHz for consistent behavior
+    voice_manager_->SetSampleRate(static_cast<float>(kCoreSampleRate));
+    
+    if (needs_resampling_) {
+        setupResamplerChain(sampleRate);
+    }
+    
+    // Prepare internal buffers for 48kHz processing
+    int maxCoreBlockSize = static_cast<int>(samplesPerBlock * kCoreSampleRate / sampleRate) + 64; // Add padding
+    core_input_buffer_.setSize(2, maxCoreBlockSize);
+    core_output_buffer_.setSize(2, maxCoreBlockSize);
+    
+    // Initialize micro-block buffer
+    micro_block_buffer_.resize(braidy::kBlockSize * 2); // Stereo
 }
 
 void BraidyAudioProcessor::releaseResources() {
@@ -191,13 +207,19 @@ void BraidyAudioProcessor::updateBraidyFromAPVTS() {
 void BraidyAudioProcessor::processMidiMessage(const juce::MidiMessage& message) {
     int channel = message.getChannel() - 1;  // Convert to 0-based
     
+    DBG("=== MIDI MESSAGE PROCESSING ===");
+    DBG("Message type: " + message.getDescription());
+    DBG("Channel: " + juce::String(channel));
+    
     if (message.isNoteOn()) {
         int midiNote = message.getNoteNumber();
         float velocity = message.getFloatVelocity();
+        DBG("NOTE ON - Note: " + juce::String(midiNote) + ", Velocity: " + juce::String(velocity));
         voice_manager_->NoteOn(midiNote, velocity, channel);
     }
     else if (message.isNoteOff()) {
         int midiNote = message.getNoteNumber();
+        DBG("NOTE OFF - Note: " + juce::String(midiNote));
         voice_manager_->NoteOff(midiNote, channel);
     }
     else if (message.isAllNotesOff() || message.isAllSoundOff()) {
@@ -228,11 +250,155 @@ void BraidyAudioProcessor::processMidiMessage(const juce::MidiMessage& message) 
     }
 }
 
+void BraidyAudioProcessor::setupResamplerChain(double hostSampleRate) {
+    // Create high-quality resampler for non-48kHz hosts
+    double oversamplingFactor = kCoreSampleRate / hostSampleRate;
+    
+    // Use linear-phase oversampling for best quality
+    resampler_ = std::make_unique<juce::dsp::Oversampling<float>>(
+        2, // stereo
+        static_cast<int>(std::log2(oversamplingFactor) + 0.5), // log2 of oversampling factor
+        juce::dsp::Oversampling<float>::FilterType::filterHalfBandPolyphaseIIR,
+        true, // use linear phase
+        false // don't normalize
+    );
+    
+    juce::dsp::ProcessSpec spec;
+    spec.sampleRate = hostSampleRate;
+    spec.maximumBlockSize = static_cast<uint32_t>(getBlockSize());
+    spec.numChannels = 2;
+    
+    resampler_->initProcessing(spec.maximumBlockSize);
+    // Note: juce::dsp::Oversampling uses reset() instead of prepare()
+    resampler_->reset();
+}
+
+void BraidyAudioProcessor::processWithFixedCore(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages) {
+    // Process with fixed 48kHz core in 24-sample micro-blocks
+    const int numSamples = buffer.getNumSamples();
+    const int numChannels = buffer.getNumChannels();
+    
+    // Clear output buffer
+    buffer.clear();
+    
+    int samplesProcessed = 0;
+    while (samplesProcessed < numSamples) {
+        const int microBlockSamples = std::min(braidy::kBlockSize, numSamples - samplesProcessed);
+        
+        // Update parameters at the start of each 24-sample block
+        if (samplesProcessed % braidy::kBlockSize == 0) {
+            updateBraidyFromAPVTS();
+            voice_manager_->UpdateFromSettings(*braidy_settings_);
+        }
+        
+        // Process MIDI events in this micro-block
+        juce::MidiBuffer microBlockMidi;
+        for (const auto metadata : midiMessages) {
+            const auto message = metadata.getMessage();
+            const int samplePosition = metadata.samplePosition;
+            
+            if (samplePosition >= samplesProcessed && samplePosition < samplesProcessed + microBlockSamples) {
+                microBlockMidi.addEvent(message, samplePosition - samplesProcessed);
+            }
+        }
+        
+        // Process MIDI messages for this micro-block
+        for (const auto metadata : microBlockMidi) {
+            processMidiMessage(metadata.getMessage());
+        }
+        
+        // Create a view of the current micro-block
+        auto microBlockView = juce::AudioBuffer<float>(
+            buffer.getArrayOfWritePointers(),
+            numChannels,
+            samplesProcessed,
+            microBlockSamples
+        );
+        
+        // Generate audio for this micro-block
+        voice_manager_->Process(microBlockView, microBlockSamples);
+        
+        samplesProcessed += microBlockSamples;
+    }
+}
+
 void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages) {
     juce::ScopedNoDenormals noDenormals;
     
-    // Clear any input (we're a synthesizer)
-    buffer.clear();
+    static int debugCounter = 0;
+    if (debugCounter++ % 100 == 0) {  // Log every 100 blocks
+        DBG("=== AUDIO PROCESSOR PROCESS BLOCK ===");
+        DBG("Buffer channels: " + juce::String(buffer.getNumChannels()));
+        DBG("Buffer samples: " + juce::String(buffer.getNumSamples()));
+        DBG("Sample rate: " + juce::String(getSampleRate()));
+        DBG("MIDI messages: " + juce::String(midiMessages.getNumEvents()));
+    }
+    
+    if (!needs_resampling_) {
+        // Host is already at 48kHz, process directly with micro-blocks
+        processWithFixedCore(buffer, midiMessages);
+        return;
+    }
+    
+    // Host is not at 48kHz, use resampling path
+    const int hostSamples = buffer.getNumSamples();
+    const int coreSamples = static_cast<int>(hostSamples * kCoreSampleRate / host_sample_rate_);
+    
+    // Ensure core buffers are large enough
+    if (core_output_buffer_.getNumSamples() < coreSamples) {
+        core_output_buffer_.setSize(buffer.getNumChannels(), coreSamples);
+    }
+    
+    // Create a view for the core processing
+    auto coreView = juce::AudioBuffer<float>(
+        core_output_buffer_.getArrayOfWritePointers(),
+        buffer.getNumChannels(),
+        0,
+        coreSamples
+    );
+    
+    // Scale MIDI timestamps for 48kHz processing
+    juce::MidiBuffer scaledMidi;
+    for (const auto metadata : midiMessages) {
+        const auto message = metadata.getMessage();
+        const int scaledPosition = static_cast<int>(metadata.samplePosition * kCoreSampleRate / host_sample_rate_);
+        scaledMidi.addEvent(message, scaledPosition);
+    }
+    
+    // Process at 48kHz with micro-blocks
+    processWithFixedCore(coreView, scaledMidi);
+    
+    // Downsample back to host rate
+    if (resampler_) {
+        // For now, use simple linear interpolation
+        // TODO: Replace with proper high-quality resampling
+        const float ratio = static_cast<float>(hostSamples) / static_cast<float>(coreSamples);
+        
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch) {
+            auto* hostData = buffer.getWritePointer(ch);
+            const auto* coreData = coreView.getReadPointer(ch);
+            
+            for (int i = 0; i < hostSamples; ++i) {
+                const float pos = i / ratio;
+                const int index = static_cast<int>(pos);
+                const float frac = pos - index;
+                
+                if (index + 1 < coreSamples) {
+                    hostData[i] = coreData[index] * (1.0f - frac) + coreData[index + 1] * frac;
+                } else if (index < coreSamples) {
+                    hostData[i] = coreData[index];
+                } else {
+                    hostData[i] = 0.0f;
+                }
+            }
+        }
+    }
+    
+    DBG("=== AUDIO PROCESSOR PROCESS BLOCK END (RESAMPLED) ===");
+    return;
+    
+    // Legacy path - should not be reached with new implementation
+    DBG("WARNING: Using legacy processing path!");
     
     // Update LFOs and apply modulation
     if (auto* playHead = getPlayHead()) {
@@ -303,12 +469,17 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     }
     
     // Process MIDI messages
+    DBG("Processing " + juce::String(midiMessages.getNumEvents()) + " MIDI messages");
     for (const auto metadata : midiMessages) {
-        processMidiMessage(metadata.getMessage());
+        auto message = metadata.getMessage();
+        DBG("MIDI message: " + message.getDescription());
+        processMidiMessage(message);
     }
     
-    // Generate audio
-    voice_manager_->Process(buffer, buffer.getNumSamples());
+    // Legacy processing - should be replaced by new micro-block processing
+    processWithFixedCore(buffer, midiMessages);
+    
+    DBG("=== AUDIO PROCESSOR PROCESS BLOCK END (LEGACY) ===");
 }
 
 //==============================================================================

@@ -221,19 +221,32 @@ const int16_t kDrumPartialAmplitude[kNumDrumPartials] = {
 };
 
 void InitializeResources() {
-    // Generate sawtooth wave
+    // Generate sawtooth wave - FIXED: proper range for int16_t
+    // Sawtooth ramps from -32768 to +32767 over 256 samples
     for (int i = 0; i < 257; ++i) {
-        saw_temp[i] = static_cast<int16_t>((i * 65535 / 256) - 32767);
+        // Map 0-256 to -32768 to +32767
+        int32_t value = (i * 65536 / 256) - 32768;
+        // Ensure we don't overflow int16_t
+        if (value > 32767) value = 32767;
+        if (value < -32768) value = -32768;
+        saw_temp[i] = static_cast<int16_t>(value);
     }
     wav_sawtooth = saw_temp;
     
-    // Generate triangle wave
+    // Generate triangle wave - FIXED: proper range for int16_t
     for (int i = 0; i < 257; ++i) {
+        int32_t value;
         if (i < 128) {
-            tri_temp[i] = static_cast<int16_t>((i * 65535 / 128) - 32767);
+            // Rising edge: -32768 to +32767
+            value = (i * 65536 / 128) - 32768;
         } else {
-            tri_temp[i] = static_cast<int16_t>(32767 - ((i - 128) * 65535 / 128));
+            // Falling edge: +32767 to -32768
+            value = 32767 - ((i - 128) * 65536 / 128);
         }
+        // Clamp to int16_t range
+        if (value > 32767) value = 32767;
+        if (value < -32768) value = -32768;
+        tri_temp[i] = static_cast<int16_t>(value);
     }
     wav_triangle = tri_temp;
     

@@ -278,6 +278,11 @@ void BraidyVoice::SetSampleRate(float sample_rate) {
 }
 
 void BraidyVoice::NoteOn(int midi_note, float velocity) {
+    DBG("=== BRAIDY VOICE NOTE ON ===");
+    DBG("Voice ID: " + juce::String(voice_id_));
+    DBG("MIDI Note: " + juce::String(midi_note));
+    DBG("Velocity: " + juce::String(velocity));
+    
     midi_note_ = midi_note;
     velocity_ = std::clamp(velocity, 0.0f, 1.0f);
     note_active_ = true;
@@ -285,17 +290,23 @@ void BraidyVoice::NoteOn(int midi_note, float velocity) {
     
     // Set pitch for macro oscillator (including current pitch bend)
     int16_t pitch = MidiNoteToInt16Pitch(midi_note) + static_cast<int16_t>(pitch_bend_ * 128.0f);
+    DBG("Setting pitch: " + juce::String(pitch));
     macro_oscillator_.set_pitch(pitch);
     
     // Trigger appropriate envelope
     if (use_adsr_envelope_) {
+        DBG("Triggering ADSR envelope");
         adsr_envelope_.Trigger();
     } else {
+        DBG("Triggering AD envelope");
         envelope_.Trigger();
     }
     
     // Strike the macro oscillator for percussion sounds
+    DBG("Striking macro oscillator");
     macro_oscillator_.Strike();
+    
+    DBG("Voice is now active: " + juce::String(IsActive() ? "true" : "false"));
 }
 
 void BraidyVoice::NoteOff(int midi_note) {
@@ -353,6 +364,18 @@ void BraidyVoice::UpdateFromSettings(const BraidySettings& settings) {
         current_color_ = smoothed_color;
     }
     
+    // Update FM parameters
+    int16_t fm_amount = static_cast<int16_t>(settings.GetParameter(BraidyParameter::FM_AMOUNT) * kParameterMax);
+    int16_t fm_ratio = static_cast<int16_t>(settings.GetParameter(BraidyParameter::FM_RATIO) * kParameterMax / 8.0f);  // Scale 0.125-8 to 0-32767
+    macro_oscillator_.set_fm_parameters(fm_amount, fm_ratio);
+    
+    // Update pitch from coarse and fine controls
+    float coarse_pitch = settings.GetParameter(BraidyParameter::COARSE) * 12.0f;  // Convert octaves to semitones
+    float fine_pitch = settings.GetParameter(BraidyParameter::FINE) * 0.01f;      // Convert cents to semitones
+    float base_note = static_cast<float>(midi_note_ - 60);  // C4 = 60 = 0 semitones reference
+    int16_t total_pitch = static_cast<int16_t>((base_note + coarse_pitch + fine_pitch + pitch_bend_) * 128.0f);
+    macro_oscillator_.set_pitch(total_pitch);
+    
     // Update envelope parameters
     float attack = settings.GetParameter(BraidyParameter::ATTACK) * 1000.0f;  // Convert to ms
     float decay = settings.GetParameter(BraidyParameter::DECAY) * 2000.0f;   // Convert to ms
@@ -390,6 +413,17 @@ void BraidyVoice::UpdateFromSettings(const BraidySettings& settings) {
 }
 
 void BraidyVoice::Process(float* output, int num_samples) {
+    static int voiceProcessCounter = 0;
+    
+    // Only log first few calls or when note changes
+    static int lastLoggedNote = -1;
+    if (voiceProcessCounter++ < 10 || midi_note_ != lastLoggedNote) {
+        if (IsActive()) {
+            DBG("VOICE ACTIVE: Note=" + juce::String(midi_note_) + " samples=" + juce::String(num_samples));
+            lastLoggedNote = midi_note_;
+        }
+    }
+    
     if (!IsActive()) {
         // Voice is inactive - fade out smoothly to prevent clicks
         const float fade_rate = 0.99f;
@@ -454,9 +488,30 @@ void BraidyVoice::Process(float* output, int num_samples) {
         // Generate audio block using macro oscillator
         macro_oscillator_.Render(sync_buffer_, temp_buffer_, block_size);
         
+        // Debug: Check if oscillator is producing any output
+        static int osc_debug_counter = 0;
+        if (osc_debug_counter++ % 100 == 0) {
+            int16_t max_sample = 0;
+            for (int i = 0; i < block_size; ++i) {
+                int16_t abs_sample = std::abs(temp_buffer_[i]);
+                if (abs_sample > max_sample) max_sample = abs_sample;
+            }
+            DBG("[OSC OUTPUT] Max sample in block: " << max_sample << " (expected ~32767 for full scale)");
+        }
+        
         // Calculate target gain and smoothing increment
         float target_gain = env_level * velocity_ * volume_;
-        const float smooth_factor = 0.001f;  // Smooth gain changes
+        const float smooth_factor = 0.1f;  // Fast gain changes (was 0.001f - too slow!)
+        
+        // Debug logging for first sample of each block
+        static int debug_counter = 0;
+        if (debug_counter++ % 100 == 0) {  // Log every 100th block
+            DBG("[GAIN DEBUG] env_level=" << env_level 
+                << " velocity=" << velocity_ 
+                << " volume=" << volume_ 
+                << " target_gain=" << target_gain 
+                << " current_gain=" << current_gain_);
+        }
         
         // Process audio with smoothing
         for (int i = 0; i < block_size; ++i) {
