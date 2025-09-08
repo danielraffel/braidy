@@ -92,40 +92,48 @@ juce_add_plugin(${PROJECT_NAME}
 
 juce_generate_juce_header(${PROJECT_NAME})
 
+# Create Braids static library
+add_library(braids STATIC
+    eurorack/braids/macro_oscillator.cc
+    eurorack/braids/analog_oscillator.cc
+    eurorack/braids/digital_oscillator.cc
+    eurorack/braids/quantizer.cc
+    eurorack/braids/resources.cc
+    eurorack/braids/settings.cc
+    # Headers
+    eurorack/braids/macro_oscillator.h
+    eurorack/braids/analog_oscillator.h
+    eurorack/braids/digital_oscillator.h
+    eurorack/braids/quantizer.h
+    eurorack/braids/resources.h
+    eurorack/braids/settings.h
+    eurorack/braids/envelope.h
+    eurorack/braids/excitation.h
+    eurorack/braids/parameter_interpolation.h
+    eurorack/braids/quantizer_scales.h
+    eurorack/braids/signature_waveshaper.h
+    eurorack/braids/svf.h
+    eurorack/braids/vco_jitter_source.h
+)
+
+# Set include directories for Braids library
+target_include_directories(braids PUBLIC
+    eurorack
+    eurorack/braids
+    eurorack/stmlib
+)
+
+# Add TEST definition to disable hardware dependencies
+target_compile_definitions(braids PUBLIC TEST=1)
+
+# Set C++ standard for Braids library
+target_compile_features(braids PUBLIC cxx_std_17)
+
 target_sources(${PROJECT_NAME} PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginProcessor.h
     Source/PluginEditor.cpp
     Source/PluginEditor.h
-    Source/BraidyCore/BraidyTypes.h
-    Source/BraidyCore/BraidyMath.cpp
-    Source/BraidyCore/BraidyMath.h
-    Source/BraidyCore/BraidySettings.cpp
-    Source/BraidyCore/BraidySettings.h
-    Source/BraidyCore/MacroOscillator.cpp
-    Source/BraidyCore/MacroOscillator.h
-    Source/BraidyCore/AnalogOscillator.cpp
-    Source/BraidyCore/AnalogOscillator.h
-    Source/BraidyCore/DigitalOscillator.cpp
-    Source/BraidyCore/DigitalOscillator.h
-    Source/BraidyCore/BraidsDigitalDSP.cpp
-    Source/BraidyCore/BraidsDigitalDSP.h
-    Source/BraidyCore/DSPDispatcher.cpp
-    Source/BraidyCore/DSPDispatcher.h
-    Source/BraidyCore/BraidyResources.cpp
-    Source/BraidyCore/BraidyResources.h
-    Source/BraidyCore/ParameterInterpolation.h
-    Source/BraidyCore/PresetManager.cpp
-    Source/BraidyCore/PresetManager.h
-    Source/BraidyCore/WaveformStateManager.cpp
-    Source/BraidyCore/WaveformStateManager.h
-    Source/BraidyCore/WavetableManager.cpp
-    Source/BraidyCore/WavetableManager.h
-    Source/BraidyCore/BraidsWavetableData.h
-    Source/BraidyVoice/BraidyVoice.cpp
-    Source/BraidyVoice/BraidyVoice.h
-    Source/BraidyVoice/VoiceManager.cpp
-    Source/BraidyVoice/VoiceManager.h
     Source/UI/BraidyDisplay.cpp
     Source/UI/BraidyDisplay.h
     Source/UI/BraidyEncoder.cpp
@@ -135,13 +143,20 @@ target_sources(${PROJECT_NAME} PRIVATE
     Source/UI/ModulationSettingsOverlay.h
     Source/Modulation/LFO.h
     Source/Modulation/ModulationMatrix.h
-    Source/BraidyCore/Quantizer.h
-    Source/BraidyCore/BitCrusher.h
+    # Adapter files will be added here when created
+    # Source/adapters/BraidsAdapter.cpp
+    # Source/adapters/BraidsAdapter.h
 )
 
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
 
-# No additional include directories needed
+# Set include directories for main plugin target
+target_include_directories(${PROJECT_NAME} PRIVATE
+    eurorack
+    eurorack/braids
+    eurorack/stmlib
+    Source
+)
 
 # Feature flags
 option(BRAIDY_ENABLE_ALL_MODELS "Enable all 45 synthesis models" ON)
@@ -154,6 +169,7 @@ target_compile_definitions(${PROJECT_NAME} PUBLIC
     JUCE_USE_CURL=0
     JUCE_WEB_BROWSER=0
     JUCE_DISPLAY_SPLASH_SCREEN=0
+    TEST=1  # Disable hardware dependencies in Braids code
 )
 
 # Add feature flags
@@ -174,6 +190,7 @@ if(BRAIDY_ENABLE_PRESET_SYSTEM)
 endif()
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
+    braids
     juce::juce_audio_basics
     juce::juce_audio_devices
     juce::juce_audio_formats
