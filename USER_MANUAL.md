@@ -223,6 +223,118 @@ Controls the secondary characteristic:
 - COLOR controls damping/brightness
 - Velocity sensitivity via trigger input
 
+## Modulation System
+
+### Overview
+Braidy features a comprehensive modulation matrix with dual LFOs for dynamic sound design:
+- **2 independent LFOs** with multiple waveforms
+- **22+ modulation destinations** covering all synthesis parameters
+- **Tempo sync** for rhythmic modulation
+- **META mode** for algorithm morphing
+
+### LFO Configuration
+
+#### Available Waveforms
+- **Sine**: Smooth, classic modulation
+- **Triangle**: Linear sweep modulation
+- **Square**: On/off switching effects
+- **Saw Up**: Rising ramp modulation
+- **Saw Down**: Falling ramp modulation
+- **Sample & Hold**: Random stepped modulation
+- **Noise**: Continuous random modulation
+
+#### LFO Parameters
+- **Rate**: 0.01Hz to 50Hz (or tempo-synced divisions)
+- **Depth**: 0-100% modulation amount
+- **Tempo Sync**: Lock to DAW tempo (1/32 to 8 bars)
+- **Phase**: Starting phase offset
+
+### Modulation Destinations
+
+#### Synthesis Parameters
+- **TIMBRE**: Main synthesis parameter modulation
+- **COLOR**: Secondary parameter modulation
+- **ALGORITHM**: Algorithm selection (META mode)
+- **BIT_DEPTH**: Dynamic bit crushing
+- **SAMPLE_RATE**: Sample rate modulation
+
+#### Pitch & Tuning
+- **PITCH**: Overall pitch modulation (vibrato)
+- **FM_AMOUNT**: FM depth modulation
+- **VIBRATO_RATE**: Vibrato speed control
+- **VIBRATO_AMOUNT**: Vibrato depth control
+
+#### Envelope Parameters
+- **ATTACK**: Attack time modulation
+- **DECAY**: Decay time modulation
+- **ENVELOPE_AMOUNT**: Overall envelope depth
+
+#### Advanced Destinations
+- **QUANTIZE_SCALE**: Scale selection morphing
+- **QUANTIZE_ROOT**: Root note shifting
+- **DRIFT**: Oscillator drift amount
+- **SIGNATURE**: Time signature modulation
+
+### MOD Button & Overlay
+
+Press the **MOD** button to access the modulation settings overlay:
+
+1. **LFO Selection**: Choose LFO 1 or LFO 2
+2. **Shape**: Select waveform type
+3. **Rate**: Adjust modulation speed
+4. **Depth**: Set modulation amount
+5. **Destination**: Choose parameter to modulate
+6. **Tempo Sync**: Enable/disable DAW sync
+
+### META Mode - Algorithm Morphing
+
+META mode enables smooth morphing between synthesis algorithms:
+
+1. Enter menu system (long-press encoder)
+2. Navigate to **META** page
+3. Enable META mode
+4. Assign LFO to **ALGORITHM_SELECTION** destination
+5. The LFO will smoothly morph between adjacent algorithms
+
+**Tips for META Mode:**
+- Use slow LFO rates for evolving textures
+- Triangle wave creates smooth bidirectional sweeps
+- Square wave switches between two algorithms
+- Combine with parameter modulation for complex morphing
+
+### Modulation Matrix Routing
+
+Each LFO can be routed to any destination:
+
+1. **Single Routing**: One LFO to one destination
+2. **Multiple Destinations**: Route one LFO to multiple parameters
+3. **Crossmodulation**: Different LFOs to related parameters
+
+### Practical Examples
+
+**Vibrato Effect**
+- LFO 1 → PITCH
+- Shape: Sine
+- Rate: 5Hz
+- Depth: 10%
+
+**Rhythmic Filter**
+- LFO 1 → COLOR (filter cutoff)
+- Shape: Square
+- Tempo Sync: 1/8
+- Depth: 75%
+
+**Evolving Pad**
+- LFO 1 → TIMBRE (slow)
+- LFO 2 → COLOR (medium)
+- Both sine waves, different rates
+
+**Glitch Effects**
+- LFO 1 → BIT_DEPTH
+- Shape: Sample & Hold
+- Rate: 10Hz
+- Depth: 100%
+
 ## Polyphony & Voice Management
 
 Braidy supports up to 16-voice polyphony:
@@ -232,6 +344,7 @@ Braidy supports up to 16-voice polyphony:
   - Oscillator state
   - Envelope generators
   - Parameter interpolation
+  - Modulation routing
 
 ## MIDI Implementation
 
