@@ -553,6 +553,15 @@ void BraidyAudioProcessorEditor::setupComponents() {
     addAndMakeVisible(*settingsButton_);
     DBG("Created MOD Button");
     
+    // Create modulation overlay but keep it hidden initially
+    modulationOverlay_ = std::make_unique<braidy::ModulationSettingsOverlay>(modulationMatrix_);
+    modulationOverlay_->setVisible(false);
+    modulationOverlay_->onClose = [this]() {
+        modulationOverlay_->hideOverlay();
+    };
+    addAndMakeVisible(*modulationOverlay_);
+    DBG("Created Modulation Overlay");
+    
     DBG("=== All Components Created ===");
 }
 
@@ -824,10 +833,10 @@ void BraidyAudioProcessorEditor::resized() {
         settingsButton_->toFront(false);
     }
     
-    // Modulation overlay (full screen when visible) - disabled for now
-    // if (modulationOverlay_) {
-    //     modulationOverlay_->setBounds(0, 0, getWidth(), getHeight());
-    // }
+    // Modulation overlay (full screen when visible)
+    if (modulationOverlay_) {
+        modulationOverlay_->setBounds(0, 0, getWidth(), getHeight());
+    }
     
     // CV Jacks at bottom (6 jacks in a row)
     auto jackY = getHeight() - 50;
@@ -1012,7 +1021,9 @@ void BraidyAudioProcessorEditor::handleEncoderRotation(int delta) {
                     currentAlgorithm_ = 0;   // Wrap to first algorithm (index 0)
                 }
                 
-                if (fileLogger_) {
+                // Bounds check before accessing array
+                if (fileLogger_ && oldAlgorithm >= 0 && oldAlgorithm < 47 && 
+                    currentAlgorithm_ >= 0 && currentAlgorithm_ < 47) {
                     fileLogger_->logMessage("Algorithm changed from [" + juce::String(oldAlgorithm) + "] " + 
                         juce::String(algorithmNames_[oldAlgorithm]) + " to [" + juce::String(currentAlgorithm_) + 
                         "] " + juce::String(algorithmNames_[currentAlgorithm_]));
@@ -1467,9 +1478,14 @@ void BraidyAudioProcessorEditor::sliderValueChanged(juce::Slider* slider) {
 
 void BraidyAudioProcessorEditor::buttonClicked(juce::Button* button) {
     if (button == settingsButton_.get()) {
-        // For now, just log that the MOD button was pressed
-        DBG("MOD button pressed - settings functionality to be implemented");
-        // TODO: Implement modulation overlay when system is ready
+        DBG("MOD button pressed");
+        if (modulationOverlay_) {
+            if (modulationOverlay_->isOverlayVisible()) {
+                modulationOverlay_->hideOverlay();
+            } else {
+                modulationOverlay_->showOverlay();
+            }
+        }
     }
 }
 

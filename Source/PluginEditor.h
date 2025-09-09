@@ -3,7 +3,8 @@
 #include "PluginProcessor.h"
 // #include "UI/BraidyDisplay.h"
 // #include "UI/BraidyEncoder.h"
-// #include "UI/ModulationSettingsOverlay.h"
+#include "Modulation/ModulationMatrix.h"
+#include "UI/ModulationSettingsOverlay.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <memory>
@@ -210,8 +211,11 @@ private:
     // File logger for debug output
     std::unique_ptr<juce::FileLogger> fileLogger_;
     
-    // Modulation settings overlay - disabled for now
-    // std::unique_ptr<braidy::ModulationSettingsOverlay> modulationOverlay_;
+    // Modulation system
+    braidy::ModulationMatrix modulationMatrix_;
+    
+    // Modulation settings overlay
+    std::unique_ptr<braidy::ModulationSettingsOverlay> modulationOverlay_;
     
     // Settings button (modern addition)
     std::unique_ptr<juce::TextButton> settingsButton_;
