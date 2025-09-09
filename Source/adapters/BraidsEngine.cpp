@@ -95,6 +95,7 @@ public:
         targetParam2_ = 0.5f;
         currentParam1_ = 0.5f;
         currentParam2_ = 0.5f;
+        metaMode_ = false;
         
         // Initialize internal buffer
         internalBuffer_.resize(24); // Braids processes in 24-sample blocks
@@ -155,8 +156,30 @@ public:
 
     void setParameters(float param1, float param2) {
         std::lock_guard<std::mutex> lock(mutex_);
-        targetParam1_ = std::clamp(param1, 0.0f, 1.0f);
-        targetParam2_ = std::clamp(param2, 0.0f, 1.0f);
+        
+        if (metaMode_) {
+            // In meta mode, param2 controls algorithm selection
+            int algorithmRange = static_cast<int>(braids::MACRO_OSC_SHAPE_LAST_ACCESSIBLE_FROM_META);
+            int newAlgorithm = static_cast<int>(param2 * algorithmRange);
+            newAlgorithm = std::clamp(newAlgorithm, 0, algorithmRange);
+            
+            if (newAlgorithm != algorithm_) {
+                algorithm_ = newAlgorithm;
+                oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
+                
+                std::cout << "[DEBUG] Meta mode algorithm change: " << algorithm_ 
+                          << " (" << getAlgorithmName() << ")" << std::endl;
+            }
+            
+            // param1 still controls timbre
+            targetParam1_ = std::clamp(param1, 0.0f, 1.0f);
+            targetParam2_ = 0.5f; // Reset param2 since it's used for algorithm selection
+        } else {
+            // Normal mode - both params control timbre/color
+            targetParam1_ = std::clamp(param1, 0.0f, 1.0f);
+            targetParam2_ = std::clamp(param2, 0.0f, 1.0f);
+        }
+        
         updateParameters();
     }
 
@@ -251,6 +274,17 @@ public:
         return {"Parameter 1", "Parameter 2"};
     }
 
+    void setMetaMode(bool enabled) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        metaMode_ = enabled;
+        std::cout << "[DEBUG] Meta mode " << (enabled ? "enabled" : "disabled") << std::endl;
+    }
+
+    bool getMetaMode() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return metaMode_;
+    }
+
 private:
     void updatePitch() {
         // Convert MIDI note to Braids pitch format (MIDI << 7)
@@ -281,6 +315,7 @@ private:
     float currentPitch_;
     float targetParam1_, targetParam2_;
     float currentParam1_, currentParam2_;
+    bool metaMode_;
     
     std::vector<int16_t> internalBuffer_;
     std::vector<uint8_t> syncBuffer_;
@@ -341,6 +376,14 @@ std::pair<std::string, std::string> BraidsEngine::getParameterNames() const {
 
 bool BraidsEngine::isInitialized() const {
     return pImpl->isInitialized();
+}
+
+void BraidsEngine::setMetaMode(bool enabled) {
+    pImpl->setMetaMode(enabled);
+}
+
+bool BraidsEngine::getMetaMode() const {
+    return pImpl->getMetaMode();
 }
 
 } // namespace BraidyAdapter

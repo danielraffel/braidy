@@ -115,6 +115,19 @@ public:
      */
     bool isInitialized() const;
 
+    /**
+     * Enable/disable meta modulation mode.
+     * When enabled, parameter 2 controls algorithm selection instead of color.
+     * @param enabled true to enable meta mode, false for normal mode
+     */
+    void setMetaMode(bool enabled);
+
+    /**
+     * Get the current meta modulation mode state.
+     * @return true if meta mode is enabled
+     */
+    bool getMetaMode() const;
+
 private:
     class Impl;
     std::unique_ptr<Impl> pImpl;

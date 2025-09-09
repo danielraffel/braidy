@@ -233,7 +233,7 @@ void BraidsVoice::strike() {
     braidsEngine_.strike();
 }
 
-bool BraidsVoice::isVoiceActive() const {
+bool BraidsVoice::isActive() const {
     return isActive_;
 }
 
@@ -270,6 +270,22 @@ void BraidsVoice::updatePitch() {
 
 float BraidsVoice::midiNoteToFrequency(float midiNote) const {
     return 440.0f * std::pow(2.0f, (midiNote - 69.0f) / 12.0f);
+}
+
+void BraidsVoice::setMetaMode(bool enabled) { 
+    metaMode_ = enabled;
+    braidsEngine_.setMetaMode(enabled);
+}
+
+void BraidsVoice::setPitchOffset(float semitones) {
+    pitchOffset_ = semitones;
+    
+    // If voice is currently active, update pitch in real-time
+    if (isActive_ && currentMidiNote_ >= 0) {
+        float targetPitch = static_cast<float>(currentMidiNote_) + pitchBend_ * 2.0f + pitchOffset_;
+        smoothedPitch_.setTargetValue(targetPitch);
+        updatePitch();
+    }
 }
 
 } // namespace BraidyAdapter

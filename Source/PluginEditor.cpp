@@ -964,7 +964,7 @@ void BraidyAudioProcessorEditor::updateDisplay() {
                 
                 if (currentMenuPage_ != MenuPage::None) {
                     int pageIndex = static_cast<int>(currentMenuPage_) - 1;
-                    if (pageIndex >= 0 && pageIndex < 23) {  // We have 23 valid menu pages
+                    if (pageIndex >= 0 && pageIndex < 24) {  // We have 24 valid menu pages (0-23)
                         displayText = menuPageNames_[pageIndex];
                         static_cast<SimpleOLEDDisplay*>(oledDisplay_.get())->setText(displayText);
                         
@@ -1435,6 +1435,11 @@ void BraidyAudioProcessorEditor::applyMenuValue() {
     switch (currentMenuPage_) {
         case MenuPage::WAVE:
             // WAVE saves settings and exits - handled in click handler
+            break;
+        case MenuPage::META:
+            if (auto* param = apvts.getParameter("metaMode")) {
+                param->setValueNotifyingHost(menuValue_ > 0 ? 1.0f : 0.0f);
+            }
             break;
         case MenuPage::BITS:
             if (auto* param = apvts.getParameter("bitDepth")) {
