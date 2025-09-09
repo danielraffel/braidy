@@ -78,6 +78,7 @@ private:
     
     // Parameter update handling
     void updateSynthesiserFromParameters();
+    void updateModulationFromParameters();
     
     // Current state
     std::atomic<int> currentAlgorithm_{0};

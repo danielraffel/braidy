@@ -92,6 +92,89 @@ juce::AudioProcessorValueTreeState::ParameterLayout BraidyAudioProcessor::create
         false  // Default to off
     ));
     
+    // Item #7: Add modulation parameters to APVTS
+    // LFO 1 Parameters
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"lfo1Enable", 1},
+        "LFO 1 Enable",
+        false
+    ));
+    
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"lfo1Shape", 1},
+        "LFO 1 Shape",
+        juce::StringArray{"Sine", "Triangle", "Square", "Saw", "Random", "Sample & Hold"},
+        0  // Default to Sine
+    ));
+    
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"lfo1Rate", 1},
+        "LFO 1 Rate",
+        juce::NormalisableRange<float>(0.01f, 20.0f, 0.01f, 0.5f),  // Logarithmic skew
+        1.0f  // 1 Hz default
+    ));
+    
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"lfo1Depth", 1},
+        "LFO 1 Depth",
+        juce::NormalisableRange<float>(0.0f, 1.0f),
+        0.5f
+    ));
+    
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"lfo1TempoSync", 1},
+        "LFO 1 Tempo Sync",
+        false
+    ));
+    
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"lfo1Dest", 1},
+        "LFO 1 Destination",
+        juce::StringArray{"None", "Algorithm (META)", "Timbre", "Color", "Pitch", "Volume"},
+        0  // Default to None
+    ));
+    
+    // LFO 2 Parameters
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"lfo2Enable", 1},
+        "LFO 2 Enable",
+        false
+    ));
+    
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"lfo2Shape", 1},
+        "LFO 2 Shape",
+        juce::StringArray{"Sine", "Triangle", "Square", "Saw", "Random", "Sample & Hold"},
+        0  // Default to Sine
+    ));
+    
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"lfo2Rate", 1},
+        "LFO 2 Rate",
+        juce::NormalisableRange<float>(0.01f, 20.0f, 0.01f, 0.5f),  // Logarithmic skew
+        1.0f  // 1 Hz default
+    ));
+    
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"lfo2Depth", 1},
+        "LFO 2 Depth",
+        juce::NormalisableRange<float>(0.0f, 1.0f),
+        0.5f
+    ));
+    
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"lfo2TempoSync", 1},
+        "LFO 2 Tempo Sync",
+        false
+    ));
+    
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"lfo2Dest", 1},
+        "LFO 2 Destination",
+        juce::StringArray{"None", "Algorithm (META)", "Timbre", "Color", "Pitch", "Volume"},
+        0  // Default to None
+    ));
+    
     return layout;
 }
 
@@ -150,6 +233,9 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     
     // Update parameters if changed
     updateSynthesiserFromParameters();
+    
+    // Update modulation matrix from APVTS parameters
+    updateModulationFromParameters();
     
     // Process modulation LFOs (Item #2: Connect LFO processing to audio thread)
     double bpm = 120.0; // Default BPM
@@ -295,6 +381,131 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
     }
 }
 
+void BraidyAudioProcessor::updateModulationFromParameters()
+{
+    // Update LFO 1 settings from APVTS
+    if (auto* lfo1Enable = apvts_.getRawParameterValue("lfo1Enable")) {
+        bool enabled = lfo1Enable->load() > 0.5f;
+        
+        // Get LFO 1 reference
+        auto& lfo1 = modulationMatrix_.getLFO(0);
+        
+        if (enabled) {
+            // Get LFO 1 parameters
+            auto* lfo1Shape = apvts_.getRawParameterValue("lfo1Shape");
+            auto* lfo1Rate = apvts_.getRawParameterValue("lfo1Rate");
+            auto* lfo1Depth = apvts_.getRawParameterValue("lfo1Depth");
+            auto* lfo1TempoSync = apvts_.getRawParameterValue("lfo1TempoSync");
+            auto* lfo1Dest = apvts_.getRawParameterValue("lfo1Destination");
+            
+            if (lfo1Shape && lfo1Rate && lfo1Depth && lfo1TempoSync && lfo1Dest) {
+                // Configure LFO 1
+                int shapeIndex = static_cast<int>(lfo1Shape->load());
+                braidy::LFO::Shape shape = static_cast<braidy::LFO::Shape>(shapeIndex);
+                
+                float rate = lfo1Rate->load();
+                float depth = lfo1Depth->load();
+                bool tempoSync = lfo1TempoSync->load() > 0.5f;
+                
+                // Set LFO parameters
+                lfo1.setShape(shape);
+                lfo1.setRate(rate);
+                lfo1.setDepth(depth);
+                lfo1.setTempoSync(tempoSync);
+                lfo1.setEnabled(true);
+                
+                // Set routing
+                int destIndex = static_cast<int>(lfo1Dest->load());
+                braidy::ModulationMatrix::Destination dest = 
+                    static_cast<braidy::ModulationMatrix::Destination>(destIndex);
+                
+                // Clear all routings for LFO 1 first
+                for (int i = 0; i < static_cast<int>(braidy::ModulationMatrix::NUM_DESTINATIONS); ++i) {
+                    auto currentDest = static_cast<braidy::ModulationMatrix::Destination>(i);
+                    if (modulationMatrix_.getRouting(currentDest).sourceId == 0) {
+                        modulationMatrix_.clearRouting(currentDest);
+                    }
+                }
+                
+                // Set new routing
+                modulationMatrix_.setRouting(0, dest, depth);
+            }
+        } else {
+            // Disable LFO 1
+            lfo1.setEnabled(false);
+            
+            // Clear all routings for LFO 1
+            for (int i = 0; i < static_cast<int>(braidy::ModulationMatrix::NUM_DESTINATIONS); ++i) {
+                auto currentDest = static_cast<braidy::ModulationMatrix::Destination>(i);
+                if (modulationMatrix_.getRouting(currentDest).sourceId == 0) {
+                    modulationMatrix_.clearRouting(currentDest);
+                }
+            }
+        }
+    }
+    
+    // Update LFO 2 settings from APVTS
+    if (auto* lfo2Enable = apvts_.getRawParameterValue("lfo2Enable")) {
+        bool enabled = lfo2Enable->load() > 0.5f;
+        
+        // Get LFO 2 reference
+        auto& lfo2 = modulationMatrix_.getLFO(1);
+        
+        if (enabled) {
+            // Get LFO 2 parameters
+            auto* lfo2Shape = apvts_.getRawParameterValue("lfo2Shape");
+            auto* lfo2Rate = apvts_.getRawParameterValue("lfo2Rate");
+            auto* lfo2Depth = apvts_.getRawParameterValue("lfo2Depth");
+            auto* lfo2TempoSync = apvts_.getRawParameterValue("lfo2TempoSync");
+            auto* lfo2Dest = apvts_.getRawParameterValue("lfo2Destination");
+            
+            if (lfo2Shape && lfo2Rate && lfo2Depth && lfo2TempoSync && lfo2Dest) {
+                // Configure LFO 2
+                int shapeIndex = static_cast<int>(lfo2Shape->load());
+                braidy::LFO::Shape shape = static_cast<braidy::LFO::Shape>(shapeIndex);
+                
+                float rate = lfo2Rate->load();
+                float depth = lfo2Depth->load();
+                bool tempoSync = lfo2TempoSync->load() > 0.5f;
+                
+                // Set LFO parameters
+                lfo2.setShape(shape);
+                lfo2.setRate(rate);
+                lfo2.setDepth(depth);
+                lfo2.setTempoSync(tempoSync);
+                lfo2.setEnabled(true);
+                
+                // Set routing
+                int destIndex = static_cast<int>(lfo2Dest->load());
+                braidy::ModulationMatrix::Destination dest = 
+                    static_cast<braidy::ModulationMatrix::Destination>(destIndex);
+                
+                // Clear all routings for LFO 2 first
+                for (int i = 0; i < static_cast<int>(braidy::ModulationMatrix::NUM_DESTINATIONS); ++i) {
+                    auto currentDest = static_cast<braidy::ModulationMatrix::Destination>(i);
+                    if (modulationMatrix_.getRouting(currentDest).sourceId == 1) {
+                        modulationMatrix_.clearRouting(currentDest);
+                    }
+                }
+                
+                // Set new routing
+                modulationMatrix_.setRouting(1, dest, depth);
+            }
+        } else {
+            // Disable LFO 2
+            lfo2.setEnabled(false);
+            
+            // Clear all routings for LFO 2
+            for (int i = 0; i < static_cast<int>(braidy::ModulationMatrix::NUM_DESTINATIONS); ++i) {
+                auto currentDest = static_cast<braidy::ModulationMatrix::Destination>(i);
+                if (modulationMatrix_.getRouting(currentDest).sourceId == 1) {
+                    modulationMatrix_.clearRouting(currentDest);
+                }
+            }
+        }
+    }
+}
+
 juce::AudioProcessorEditor* BraidyAudioProcessor::createEditor()
 {
     return new BraidyAudioProcessorEditor(*this);
@@ -316,6 +527,7 @@ void BraidyAudioProcessor::setStateInformation(const void* data, int sizeInBytes
     if (xmlState && xmlState->hasTagName(apvts_.state.getType())) {
         apvts_.replaceState(juce::ValueTree::fromXml(*xmlState));
         updateSynthesiserFromParameters();
+        updateModulationFromParameters();
     }
 }
 
