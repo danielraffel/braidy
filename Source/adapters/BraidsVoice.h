@@ -54,7 +54,7 @@ public:
     void setFMAmount(float amount) { fmAmount_ = std::clamp(amount, 0.0f, 1.0f); }
     
     // Set meta modulation mode - enables algorithm modulation
-    void setMetaMode(bool enabled) { metaMode_ = enabled; }
+    void setMetaMode(bool enabled);
     
     // Voice state queries  
     bool isActive() const;
