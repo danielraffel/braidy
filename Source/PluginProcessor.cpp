@@ -515,6 +515,11 @@ void BraidyAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     // Save parameter state
     auto state = apvts_.copyState();
+    
+    // Add modulation matrix state
+    auto modulationTree = state.getOrCreateChildWithName("ModulationMatrix", nullptr);
+    modulationMatrix_.saveToValueTree(modulationTree);
+    
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
     copyXmlToBinary(*xml, destData);
 }
@@ -525,7 +530,15 @@ void BraidyAudioProcessor::setStateInformation(const void* data, int sizeInBytes
     std::unique_ptr<juce::XmlElement> xmlState(getXmlFromBinary(data, sizeInBytes));
     
     if (xmlState && xmlState->hasTagName(apvts_.state.getType())) {
-        apvts_.replaceState(juce::ValueTree::fromXml(*xmlState));
+        auto state = juce::ValueTree::fromXml(*xmlState);
+        apvts_.replaceState(state);
+        
+        // Restore modulation matrix state
+        auto modulationTree = state.getChildWithName("ModulationMatrix");
+        if (modulationTree.isValid()) {
+            modulationMatrix_.loadFromValueTree(modulationTree);
+        }
+        
         updateSynthesiserFromParameters();
         updateModulationFromParameters();
     }
