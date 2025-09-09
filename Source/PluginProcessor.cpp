@@ -214,6 +214,29 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
         float newParam2 = param2->load();
         float newVolume = volumeParam->load();
         
+        // Apply modulation to parameters (Item #3: Apply modulation to synthesis parameters)
+        // Timbre modulation
+        if (modulationMatrix_.isModulated(braidy::ModulationMatrix::TIMBRE)) {
+            newParam1 = modulationMatrix_.applyModulation(
+                braidy::ModulationMatrix::TIMBRE, newParam1, 0.0f, 1.0f);
+        }
+        
+        // Color modulation
+        if (modulationMatrix_.isModulated(braidy::ModulationMatrix::COLOR)) {
+            newParam2 = modulationMatrix_.applyModulation(
+                braidy::ModulationMatrix::COLOR, newParam2, 0.0f, 1.0f);
+        }
+        
+        // META mode algorithm modulation
+        auto* metaModeParam = apvts_.getRawParameterValue("metaMode");
+        bool metaMode = metaModeParam ? (metaModeParam->load() > 0.5f) : false;
+        
+        if (metaMode && modulationMatrix_.isModulated(braidy::ModulationMatrix::ALGORITHM_SELECTION)) {
+            // Apply algorithm modulation in META mode
+            newAlgorithm = modulationMatrix_.applyModulationInt(
+                braidy::ModulationMatrix::ALGORITHM_SELECTION, newAlgorithm, 0, 46);
+        }
+        
         // Update if changed
         if (newAlgorithm != currentAlgorithm_) {
             std::cout << "[DEBUG] PluginProcessor: Algorithm changed from " << currentAlgorithm_ 
