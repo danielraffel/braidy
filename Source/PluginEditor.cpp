@@ -1028,7 +1028,13 @@ void BraidyAudioProcessorEditor::updateParameterValues() {
         }
     }
     
-    // TODO: Update other knobs when their parameters are connected
+    // Update other knobs to reflect parameter changes
+    if (fmKnob_ && param) {
+        auto* fmParam = apvts.getParameter("fmAmount");
+        if (fmParam) {
+            fmKnob_->setValue(fmParam->getValue());
+        }
+    }
     // For now, Fine, Coarse, FM, and Modulation knobs are not connected to parameters
 }
 
@@ -1133,7 +1139,8 @@ void BraidyAudioProcessorEditor::handleEncoderClick() {
                     if (fileLogger_) {
                         fileLogger_->logMessage("[MENU] WAVE selected - saving settings and exiting menu");
                     }
-                    // TODO: Save current settings to persistent storage
+                    // Settings are automatically saved via APVTS getStateInformation
+                    // This happens when the DAW project is saved
                     exitMenuMode();
                 } else {
                     // Enter edit mode for other menu items
@@ -1656,15 +1663,21 @@ bool BraidyAudioProcessorEditor::keyStateChanged(bool isKeyDown) {
 }
 
 void BraidyAudioProcessorEditor::sendMidiNoteOn(int midiNote, float velocity) {
-    // MIDI processing method disabled for now
+    // Send MIDI note via the processor's MIDI collector
     DBG("[MIDI SEND] Note ON: " + juce::String(midiNote) + " velocity: " + juce::String(velocity, 2));
-    // TODO: Implement MIDI processing when processor supports it
+    
+    auto midiMessage = juce::MidiMessage::noteOn(1, midiNote, juce::uint8(velocity * 127.0f));
+    midiMessage.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
+    processorRef.getMidiCollector().addMessageToQueue(midiMessage);
 }
 
 void BraidyAudioProcessorEditor::sendMidiNoteOff(int midiNote) {
-    // MIDI processing method disabled for now
+    // Send MIDI note off via the processor's MIDI collector
     DBG("[MIDI SEND] Note OFF: " + juce::String(midiNote));
-    // TODO: Implement MIDI processing when processor supports it
+    
+    auto midiMessage = juce::MidiMessage::noteOff(1, midiNote);
+    midiMessage.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
+    processorRef.getMidiCollector().addMessageToQueue(midiMessage);
 }
 
 void BraidyAudioProcessorEditor::checkForReleasedKeys() {
@@ -1715,15 +1728,25 @@ void BraidyAudioProcessorEditor::loadModelDefaults(int algorithmIndex) {
         colorKnob_->setValue(defaults.color);
     }
     
-    // TODO: Set FM and modulation amounts when those parameters are connected
-    // if (fmKnob_) fmKnob_->setValue(0.5f + defaults.fm * 0.5f);  // Convert to bipolar
-    // if (timbreModKnob_) timbreModKnob_->setValue(0.5f + defaults.modulation * 0.5f);
+    // Set FM and modulation amounts
+    if (fmKnob_) {
+        fmKnob_->setValue(0.5f);  // Center position (no FM by default)
+    }
+    if (timbreModKnob_) {
+        timbreModKnob_->setValue(0.5f);  // Center position (no modulation)
+    }
+    if (colorModKnob_) {
+        colorModKnob_->setValue(0.5f);  // Center position (no modulation)
+    }
     
     // If this is a percussion model, trigger a strike
     if (defaults.isPercussive && processorRef.getSynthesiser()) {
-        // Send a trigger/strike to the synthesizer
-        auto* synth = processorRef.getSynthesiser();
-        // TODO: Implement strike/trigger for percussion models
+        // Send a trigger/strike to the synthesizer for percussion models
+        // This triggers a short C4 note to demonstrate the percussion sound
+        sendMidiNoteOn(60, 0.8f);  // C4 with velocity 0.8
+        juce::Timer::callAfterDelay(100, [this]() {
+            sendMidiNoteOff(60);
+        });
     }
     
     if (fileLogger_) {
