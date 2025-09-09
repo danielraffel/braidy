@@ -76,12 +76,16 @@ void BraidyAudioProcessorEditor::BraidsEncoder::mouseDown(const juce::MouseEvent
     DBG("=== ENCODER MOUSE DOWN ===");
     isPressed_ = true;
     longPressTriggered_ = false;
+    hasRotated_ = false;  // Reset rotation flag
     pressStartTime_ = juce::Time::currentTimeMillis();
     
     // Calculate initial angle from mouse position
     auto center = getLocalBounds().getCentre().toFloat();
     lastAngle_ = std::atan2(e.position.y - center.y, e.position.x - center.x);
     DBG("Mouse down at angle: " << lastAngle_);
+    
+    // Start timer for long press detection with unique ID
+    startTimer(1, 100);  // Timer ID 1, check every 100ms
     
     repaint();
 }
@@ -105,26 +109,43 @@ void BraidyAudioProcessorEditor::BraidsEncoder::mouseDrag(const juce::MouseEvent
     angle_ += angleDiff;
     
     // Convert angle change to encoder steps
-    // Use higher sensitivity and ensure we capture small movements
-    float sensitivity = 12.0f;  // Adjusted for better response
+    // Sensitivity controls how much mouse movement translates to rotation
+    float sensitivity = 0.5f;  // Reduced for 90-degree steps
+    
+    // Need larger threshold to prevent accidental movements
+    if (std::abs(angleDiff) < 0.05f) return;
+    
+    // Accumulate fractional angle changes
+    accumulatedAngle_ += angleDiff * sensitivity;
+    
+    // Debug output for angle tracking
+    static int debugCounter = 0;
+    if (++debugCounter % 10 == 0) {  // Log every 10th update
+        DBG("[ENCODER] Accumulated angle: " + juce::String(accumulatedAngle_, 2) + 
+            " radians (" + juce::String(accumulatedAngle_ * 180.0f / juce::MathConstants<float>::pi, 1) + "°)");
+    }
+    
+    // Convert accumulated angle to steps - more like original Braids
+    // Smaller steps for finer control (about 15 degrees per step)
     int steps = 0;
+    const float stepThreshold = juce::MathConstants<float>::pi / 12.0f;  // 15 degrees in radians
     
-    // Accumulate fractional angle changes to avoid dead zones
-    static float accumulatedAngle = 0.0f;
-    accumulatedAngle += angleDiff * sensitivity;
-    
-    // Convert accumulated angle to steps
-    if (std::abs(accumulatedAngle) >= 1.0f) {
-        steps = static_cast<int>(accumulatedAngle);
-        accumulatedAngle -= steps;  // Keep fractional part
+    if (std::abs(accumulatedAngle_) >= stepThreshold) {
+        steps = (accumulatedAngle_ > 0) ? 1 : -1;  // Single step per 90 degrees
+        
+        // Keep remainder for smooth rotation
+        float remainder = std::fmod(accumulatedAngle_, stepThreshold);
+        accumulatedAngle_ = (accumulatedAngle_ > 0) ? remainder : -remainder;
+        
+        DBG("[ENCODER] Step triggered! Direction: " + juce::String(steps > 0 ? "CW" : "CCW") + 
+            ", Remaining angle: " + juce::String(accumulatedAngle_, 2) + " radians");
     }
     
     if (steps != 0) {
         DBG("=== ENCODER DRAG: steps = " << steps);
         
-        // Reset press start time and mark rotation to prevent long press
-        pressStartTime_ = juce::Time::currentTimeMillis();
-        longPressTriggered_ = true;
+        // Mark that we've rotated - this should cancel any long press detection
+        hasRotated_ = true;
         
         if (onValueChange) {
             onValueChange(steps);
@@ -138,19 +159,44 @@ void BraidyAudioProcessorEditor::BraidsEncoder::mouseDrag(const juce::MouseEvent
 void BraidyAudioProcessorEditor::BraidsEncoder::mouseUp(const juce::MouseEvent& e) {
     if (!isPressed_) return;
     
+    stopTimer(1);  // Stop timer ID 1 for long press
+    
     auto pressDuration = juce::Time::currentTimeMillis() - pressStartTime_;
     
-    if (pressDuration > 500 && !longPressTriggered_) {
-        // Long press
-        longPressTriggered_ = true;
-        if (onLongPress) onLongPress();
-    } else if (pressDuration < 500) {
-        // Short click
-        if (onClick) onClick();
+    // Only trigger click if we haven't rotated and haven't already triggered long press
+    if (!hasRotated_ && !longPressTriggered_) {
+        if (pressDuration < 500) {
+            // Short click
+            if (onClick) onClick();
+        }
     }
     
     isPressed_ = false;
+    hasRotated_ = false;
+    longPressTriggered_ = false;
     repaint();
+}
+
+void BraidyAudioProcessorEditor::BraidsEncoder::timerCallback(int timerID) {
+    if (timerID != 1) return;  // Only handle our timer
+    
+    if (!isPressed_ || hasRotated_ || longPressTriggered_) {
+        stopTimer(1);
+        return;
+    }
+    
+    auto pressDuration = juce::Time::currentTimeMillis() - pressStartTime_;
+    
+    if (pressDuration >= 500) {
+        // Long press detected
+        longPressTriggered_ = true;
+        stopTimer(1);
+        
+        if (onLongPress) {
+            DBG("[ENCODER] Long press callback triggered");
+            onLongPress();
+        }
+    }
 }
 
 //==============================================================================
@@ -293,7 +339,7 @@ void BraidyAudioProcessorEditor::CvJack::paint(juce::Graphics& g) {
     
     // Label
     g.setColour(juce::Colour(BraidsColors::text));
-    g.setFont(juce::Font("Arial", 8.0f, juce::Font::plain));
+    g.setFont(8.0f);
     g.drawText(label_, bounds, juce::Justification::centred);
 }
 
@@ -376,9 +422,9 @@ BraidyAudioProcessorEditor::BraidyAudioProcessorEditor(BraidyAudioProcessor& p)
     // Set size to match 16HP Eurorack module proportions (more compact)
     setSize(320, 480);  // Increased size for better component visibility
     
-    // Enable keyboard input for computer keyboard to MIDI functionality
-    setWantsKeyboardFocus(true);
-    grabKeyboardFocus();  // Actually grab focus so keyboard works
+    // Don't want keyboard focus to prevent interfering with Logic's shortcuts
+    // The plugin should never grab keyboard focus automatically
+    setWantsKeyboardFocus(false);
     
     DBG("[STARTUP] Editor size: " + juce::String(getWidth()) + "x" + juce::String(getHeight()));
     DBG("[STARTUP] Keyboard focus enabled");
@@ -391,7 +437,7 @@ BraidyAudioProcessorEditor::BraidyAudioProcessorEditor(BraidyAudioProcessor& p)
     
     // Create modulation overlay (initially hidden) - simplified for now
     // modulationOverlay_ = std::make_unique<braidy::ModulationSettingsOverlay>(processorRef.getModulationMatrix());
-    // modulationOverlay_->setVisible(false);
+    // modulationOverlay_->setVisible(false);  // Start hidden
     // addChildComponent(modulationOverlay_.get());
     
     DBG("[STARTUP] Initial algorithm: [" + juce::String(currentAlgorithm_) + "] " + juce::String(algorithmNames_[currentAlgorithm_]));
@@ -406,16 +452,9 @@ BraidyAudioProcessorEditor::BraidyAudioProcessorEditor(BraidyAudioProcessor& p)
     // Initialize computer keyboard to MIDI mapping
     initializeKeyboardMapping();
     
-    // CRITICAL: Ensure this editor has keyboard focus after all components are created
-    grabKeyboardFocus();
-    DBG("[FOCUS] Editor grabbed keyboard focus after component setup");
-    
-    // Verify focus state
-    if (hasKeyboardFocus(true)) {
-        DBG("[FOCUS] SUCCESS: Editor has keyboard focus");
-    } else {
-        DBG("[FOCUS] WARNING: Editor does not have keyboard focus");
-    }
+    // Don't automatically grab keyboard focus - this interferes with host shortcuts
+    // User can click on the plugin to give it focus when needed
+    DBG("[FOCUS] Plugin ready - click to focus for keyboard input");
     
     // Start timer for parameter updates (reduce frequency to avoid issues)
     startTimer(100);
@@ -456,36 +495,37 @@ void BraidyAudioProcessorEditor::setupComponents() {
     fineKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar
     fineKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     fineKnob_->onValueChange = [this](float value) {
-        // Fine tuning: +/- 100 cents
-        if (auto* synth = processorRef.getSynthesiser()) {
-            float fineTune = (value - 0.5f) * 2.0f;  // -1 to +1
-            // TODO: Apply fine tuning to pitch
+        // Fine tuning: +/- 100 cents (1 semitone)
+        // Store as parameter that will be applied to all voices
+        if (auto* param = processorRef.getAPVTS().getParameter("fineTune")) {
+            param->setValueNotifyingHost(value);
         }
     };
     addAndMakeVisible(*fineKnob_);
     fineKnob_->setVisible(true);
     DBG("Created Fine Knob");
     
-    coarseKnob_ = std::make_unique<BraidsKnob>();
+    coarseKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar for +/- range
     coarseKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     coarseKnob_->onValueChange = [this](float value) {
-        // Coarse tuning: +/- 2 octaves
-        if (auto* synth = processorRef.getSynthesiser()) {
-            float coarseTune = (value - 0.5f) * 48.0f;  // -24 to +24 semitones
-            // TODO: Apply coarse tuning to pitch
+        // Coarse tuning: Braids hardware has 5 octave positions (-2, -1, 0, +1, +2)
+        // Convert continuous value to discrete octave selection
+        if (auto* param = processorRef.getAPVTS().getParameter("coarseTune")) {
+            // Map 0-1 to 5 discrete positions
+            float discreteValue = std::round(value * 4.0f) / 4.0f;
+            param->setValueNotifyingHost(discreteValue);
         }
     };
     addAndMakeVisible(*coarseKnob_);
     coarseKnob_->setVisible(true);
     DBG("Created Coarse Knob");
     
-    fmKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar attenuverter
+    fmKnob_ = std::make_unique<BraidsKnob>(false);  // Unipolar (0-100% FM depth)
     fmKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     fmKnob_->onValueChange = [this](float value) {
-        // FM amount: bipolar control
-        if (auto* synth = processorRef.getSynthesiser()) {
-            float fmAmount = (value - 0.5f) * 2.0f;  // -1 to +1
-            // TODO: Apply FM amount to synthesis
+        // FM amount: 0-100% modulation depth
+        if (auto* param = processorRef.getAPVTS().getParameter("fmAmount")) {
+            param->setValueNotifyingHost(value);
         }
     };
     addAndMakeVisible(*fmKnob_);
@@ -518,13 +558,15 @@ void BraidyAudioProcessorEditor::setupComponents() {
     DBG("Created Color Knob");
     
     // Modulation attenuverter (center knob)
-    timbreModKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar
+    timbreModKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar for attenuverter
     timbreModKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     timbreModKnob_->onValueChange = [this](float value) {
-        // Modulation amount: bipolar control for internal modulation
-        if (auto* synth = processorRef.getSynthesiser()) {
-            float modAmount = (value - 0.5f) * 2.0f;  // -1 to +1
-            // TODO: Apply modulation amount to timbre modulation
+        // Meta mode toggle: In Braids, the modulation knob position can enable meta mode
+        // For now, this acts as a placeholder - meta mode is controlled by a separate parameter
+        if (auto* param = processorRef.getAPVTS().getParameter("metaMode")) {
+            // Toggle meta mode when knob moves significantly from center
+            bool metaEnabled = std::abs(value - 0.5f) > 0.25f;
+            param->setValueNotifyingHost(metaEnabled ? 1.0f : 0.0f);
         }
     };
     addAndMakeVisible(*timbreModKnob_);
@@ -553,16 +595,18 @@ void BraidyAudioProcessorEditor::setupComponents() {
     addAndMakeVisible(*settingsButton_);
     DBG("Created MOD Button");
     
-    // Create modulation overlay but keep it hidden initially
+    DBG("=== All Components Created ===");
+    
+    // Create modulation overlay LAST so it's on top of everything
     modulationOverlay_ = std::make_unique<braidy::ModulationSettingsOverlay>(modulationMatrix_);
-    modulationOverlay_->setVisible(false);
+    modulationOverlay_->setVisible(false);  // Start hidden
     modulationOverlay_->onClose = [this]() {
         modulationOverlay_->hideOverlay();
     };
-    addAndMakeVisible(*modulationOverlay_);
+    addChildComponent(*modulationOverlay_);  // Use addChildComponent so it starts hidden
+    modulationOverlay_->setAlwaysOnTop(true);  // Ensure overlay stays on top
+    modulationOverlay_->toFront(true);  // Bring to front
     DBG("Created Modulation Overlay");
-    
-    DBG("=== All Components Created ===");
 }
 
 void BraidyAudioProcessorEditor::paint(juce::Graphics& g) {
@@ -575,10 +619,10 @@ void BraidyAudioProcessorEditor::paint(juce::Graphics& g) {
     // Panel title and subtitle (compact)
     auto titleBounds = bounds.removeFromTop(28);
     g.setColour(juce::Colour(BraidsColors::text));
-    g.setFont(juce::Font("Arial", 12.0f, juce::Font::bold));
+    g.setFont(12.0f);
     g.drawText("Braids", titleBounds.removeFromTop(16), juce::Justification::centred);
     
-    g.setFont(juce::Font("Arial", 8.0f, juce::Font::plain));
+    g.setFont(8.0f);
     g.drawText("macro oscillator", titleBounds, juce::Justification::centred);
     
     // Draw labels AFTER components are positioned (avoiding overlap)
@@ -631,7 +675,7 @@ void BraidyAudioProcessorEditor::drawScrewHoles(juce::Graphics& g) {
 
 void BraidyAudioProcessorEditor::drawControlLabels(juce::Graphics& g) {
     g.setColour(juce::Colour(BraidsColors::text));
-    g.setFont(juce::Font("Arial", 8.0f, juce::Font::plain));
+    g.setFont(8.0f);
     
     auto width = getWidth();
     auto knobSpacing = width / 3;
@@ -836,6 +880,7 @@ void BraidyAudioProcessorEditor::resized() {
     // Modulation overlay (full screen when visible)
     if (modulationOverlay_) {
         modulationOverlay_->setBounds(0, 0, getWidth(), getHeight());
+        modulationOverlay_->toFront(true);  // Keep it on top
     }
     
     // CV Jacks at bottom (6 jacks in a row)
@@ -964,14 +1009,10 @@ void BraidyAudioProcessorEditor::updateParameterValues() {
     // Sync knob positions with parameter values
     auto& apvts = processorRef.getAPVTS();
     
-    // Update algorithm display
-    if (auto* algParam = apvts.getRawParameterValue("algorithm")) {
-        int newAlgorithm = static_cast<int>(algParam->load() * 46.0f + 0.5f);
-        if (newAlgorithm != currentAlgorithm_ && displayMode_ == DisplayMode::Algorithm) {
-            currentAlgorithm_ = newAlgorithm;
-            updateDisplay();
-        }
-    }
+    // Don't update algorithm from parameter - let the encoder control it directly
+    // This was causing the algorithm to jump to DIGI constantly
+    // The encoder already updates currentAlgorithm_ directly and calls updateAlgorithmParameter()
+    // which syncs it to the processor
     
     // Update Timbre knob
     if (auto* param1 = apvts.getRawParameterValue("param1")) {
@@ -1005,6 +1046,16 @@ void BraidyAudioProcessorEditor::handleEncoderRotation(int delta) {
         fileLogger_->logMessage("Delta: " + juce::String(delta));
         fileLogger_->logMessage("Display Mode: " + juce::String(static_cast<int>(displayMode_)) + 
             " (0=Algorithm, 1=Value, 2=Menu, 3=Startup)");
+        fileLogger_->logMessage("Current Algorithm Index: " + juce::String(currentAlgorithm_));
+        
+        // Log the conceptual rotation position (treating 47 algorithms as positions on a dial)
+        // With 47 algorithms, each would be ~7.66 degrees apart for full 360 coverage
+        // But we're making it change every 90 degrees for easier control
+        int quadrant = (currentAlgorithm_ % 4);  // Which 90-degree quadrant
+        juce::String position = (quadrant == 0 ? "12 o'clock" :
+                                 quadrant == 1 ? "3 o'clock" :
+                                 quadrant == 2 ? "6 o'clock" : "9 o'clock");
+        fileLogger_->logMessage("Encoder Quadrant: " + position + " (Alg " + juce::String(currentAlgorithm_) + ")");
     }
     
     switch (displayMode_) {
@@ -1434,25 +1485,21 @@ void BraidyAudioProcessorEditor::updateAlgorithmParameter() {
     DBG("Algorithm: " + juce::String(algorithmNames_[currentAlgorithm_]));
     
     // Update the algorithm parameter in APVTS based on current algorithm
-    if (auto* shapeParam = dynamic_cast<juce::AudioParameterChoice*>(processorRef.getAPVTS().getParameter("algorithm"))) {
-        // For AudioParameterChoice, directly set the index
-        DBG("Found 'algorithm' parameter in APVTS (AudioParameterChoice)");
-        DBG("Setting index to: " + juce::String(currentAlgorithm_));
-        
-        int oldIndex = shapeParam->getIndex();
-        *shapeParam = currentAlgorithm_;  // Direct assignment for AudioParameterChoice
-        int newIndex = shapeParam->getIndex();
-        
-        DBG("Parameter index changed from " + juce::String(oldIndex) + " to " + juce::String(newIndex));
-    } else if (auto* param = processorRef.getAPVTS().getParameter("algorithm")) {
-        // Fallback: treat as normalized float parameter
+    if (auto* param = processorRef.getAPVTS().getParameter("algorithm")) {
+        // Always use normalized value for parameters
         float normalizedValue = static_cast<float>(currentAlgorithm_) / 46.0f;
         
-        DBG("Found 'algorithm' parameter in APVTS (generic)");
+        DBG("Found 'algorithm' parameter in APVTS");
+        DBG("Setting algorithm index: " + juce::String(currentAlgorithm_));
         DBG("Normalized value: " + juce::String(normalizedValue, 4));
         
         float oldValue = param->getValue();
+        
+        // Use proper change gesture for automation
+        param->beginChangeGesture();
         param->setValueNotifyingHost(normalizedValue);
+        param->endChangeGesture();
+        
         float newValue = param->getValue();
         
         DBG("Parameter value changed from " + juce::String(oldValue, 4) + " to " + juce::String(newValue, 4));
@@ -1484,6 +1531,7 @@ void BraidyAudioProcessorEditor::buttonClicked(juce::Button* button) {
                 modulationOverlay_->hideOverlay();
             } else {
                 modulationOverlay_->showOverlay();
+                modulationOverlay_->toFront(true);  // Bring to front when showing
             }
         }
     }
@@ -1492,6 +1540,9 @@ void BraidyAudioProcessorEditor::buttonClicked(juce::Button* button) {
 void BraidyAudioProcessorEditor::timerCallback() {
     // Update parameter values from processor
     updateParameterValues();
+    
+    // Don't automatically grab keyboard focus in timer
+    // This interferes with host (Logic) keyboard shortcuts like Cmd+K
     
     // Don't update display from timer - let encoder events handle it
     // This prevents duplicate display updates and lag
@@ -1544,9 +1595,10 @@ void BraidyAudioProcessorEditor::initializeKeyboardMapping() {
 }
 
 void BraidyAudioProcessorEditor::mouseDown(const juce::MouseEvent& event) {
-    // Grab keyboard focus when the window is clicked
-    grabKeyboardFocus();
-    DBG("[MOUSE] Window clicked - grabbing keyboard focus");
+    // Don't automatically grab keyboard focus - this interferes with Logic's keyboard shortcuts
+    // Users can still use the plugin's built-in keyboard support when the plugin is focused
+    // but we won't steal focus from the host
+    DBG("[MOUSE] Window clicked - not grabbing focus to preserve host shortcuts");
 }
 
 bool BraidyAudioProcessorEditor::keyPressed(const juce::KeyPress& key) {

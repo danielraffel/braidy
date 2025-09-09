@@ -47,6 +47,15 @@ public:
     
     void strike();
     
+    // Set global pitch offset (fine + coarse tuning in semitones)
+    void setPitchOffset(float semitones) { pitchOffset_ = semitones; }
+    
+    // Set FM amount (0.0 to 1.0) - controls internal envelope modulation of pitch
+    void setFMAmount(float amount) { fmAmount_ = std::clamp(amount, 0.0f, 1.0f); }
+    
+    // Set meta modulation mode - enables algorithm modulation
+    void setMetaMode(bool enabled) { metaMode_ = enabled; }
+    
     // Voice state queries
     bool isVoiceActive() const;
     int getCurrentMidiNote() const;
@@ -75,6 +84,9 @@ private:
     // Parameters
     float parameter1_;
     float parameter2_;
+    float pitchOffset_ = 0.0f;      // Global pitch offset in semitones
+    float fmAmount_ = 0.0f;         // FM envelope modulation depth (matches SETTING_AD_FM)
+    bool metaMode_ = false;         // Meta modulation mode (algorithm modulation)
     
     // Smoothing
     juce::SmoothedValue<float> smoothedPitch_;

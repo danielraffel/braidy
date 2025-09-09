@@ -57,6 +57,41 @@ juce::AudioProcessorValueTreeState::ParameterLayout BraidyAudioProcessor::create
         0.7f
     ));
     
+    // Fine Tune - Braids doesn't have a dedicated fine tune, but we can simulate it
+    // Using small pitch offset (-2 to +2 semitones for fine control)
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"fineTune", 1},
+        "Fine Tune",
+        juce::NormalisableRange<float>(0.0f, 1.0f),
+        0.5f  // Center position = no detuning
+    ));
+    
+    // Coarse Tune - Braids uses octave switching: -2, -1, 0, +1, +2
+    // Matching hardware: 5 discrete positions
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"coarseTune", 1},
+        "Coarse Tune",
+        juce::StringArray{"-2 Oct", "-1 Oct", "0", "+1 Oct", "+2 Oct"},
+        2  // Default to center (0 octaves)
+    ));
+    
+    // FM Amount - In Braids, this is the internal envelope modulation of pitch
+    // Range matches AD_FM setting (0-127 in hardware)
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"fmAmount", 1},
+        "FM Amount",
+        juce::NormalisableRange<float>(0.0f, 1.0f),
+        0.0f  // Default to no FM
+    ));
+    
+    // Meta Modulation - In Braids, enables algorithm modulation via FM input
+    // When enabled, FM CV controls algorithm selection
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"metaMode", 1},
+        "Meta Mode",
+        false  // Default to off
+    ));
+    
     return layout;
 }
 
@@ -146,9 +181,24 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
     auto* param1 = apvts_.getRawParameterValue(PARAM1_ID);
     auto* param2 = apvts_.getRawParameterValue(PARAM2_ID);
     auto* volumeParam = apvts_.getRawParameterValue(VOLUME_ID);
+    auto* fineTuneParam = apvts_.getRawParameterValue("fineTune");
+    auto* coarseTuneParam = apvts_.getRawParameterValue("coarseTune");
+    auto* fmAmountParam = apvts_.getRawParameterValue("fmAmount");
+    auto* modAmountParam = apvts_.getRawParameterValue("modAmount");
     
     if (algorithmParam && param1 && param2 && volumeParam) {
-        int newAlgorithm = static_cast<int>(algorithmParam->load());
+        // For AudioParameterChoice, the raw value is already the index (0-46)
+        // No conversion needed
+        float algorithmIndex = algorithmParam->load();
+        int newAlgorithm = static_cast<int>(std::round(algorithmIndex));
+        
+        // Debug output
+        static int debugCount = 0;
+        if (++debugCount % 50 == 0) {  // Log every 50th call to avoid flooding
+            std::cout << "[DEBUG] Algorithm index: raw=" << algorithmIndex 
+                      << " -> rounded=" << newAlgorithm << std::endl;
+        }
+        
         float newParam1 = param1->load();
         float newParam2 = param2->load();
         float newVolume = volumeParam->load();
@@ -162,12 +212,52 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
         }
         
         if (newParam1 != currentParam1_ || newParam2 != currentParam2_) {
+            std::cout << "[DEBUG] PluginProcessor: Parameters changed - param1: " 
+                      << currentParam1_ << " -> " << newParam1 
+                      << ", param2: " << currentParam2_ << " -> " << newParam2 << std::endl;
             currentParam1_ = newParam1;
             currentParam2_ = newParam2;
             synthesiser_->setParameters(newParam1, newParam2);
         }
         
         currentVolume_ = newVolume;
+        
+        // Apply tuning parameters to all voices
+        if (fineTuneParam && coarseTuneParam) {
+            // Fine tune: -2 to +2 semitones for fine control
+            float fineTune = (fineTuneParam->load() - 0.5f) * 4.0f;
+            
+            // Coarse tune: Braids hardware uses octave switching
+            // AudioParameterChoice returns the index directly (0-4), convert to octave offset
+            float octaveIndexFloat = coarseTuneParam->load();
+            int octaveIndex = static_cast<int>(std::round(octaveIndexFloat));
+            float coarseTune = (octaveIndex - 2) * 12.0f;  // -2 to +2 octaves in semitones
+            
+            float totalPitchOffset = fineTune + coarseTune;
+            
+            // Apply to all voices
+            for (int i = 0; i < synthesiser_->getNumVoices(); ++i) {
+                if (auto* voice = dynamic_cast<BraidyAdapter::BraidsVoice*>(synthesiser_->getVoice(i))) {
+                    voice->setPitchOffset(totalPitchOffset);
+                }
+            }
+        }
+        
+        // Apply FM amount and meta modulation mode
+        if (fmAmountParam) {
+            float fmAmount = fmAmountParam->load();
+            
+            // Meta mode (algorithm modulation)
+            auto* metaModeParam = apvts_.getRawParameterValue("metaMode");
+            bool metaMode = metaModeParam ? (metaModeParam->load() > 0.5f) : false;
+            
+            for (int i = 0; i < synthesiser_->getNumVoices(); ++i) {
+                if (auto* voice = dynamic_cast<BraidyAdapter::BraidsVoice*>(synthesiser_->getVoice(i))) {
+                    voice->setFMAmount(fmAmount);
+                    voice->setMetaMode(metaMode);
+                }
+            }
+        }
     }
 }
 

@@ -20,12 +20,16 @@ public:
         : modulationMatrix_(modMatrix), isVisible_(false)
     {
         // Close button (larger and more prominent)
-        closeButton_.setButtonText("X");
-        closeButton_.setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF444444));
-        closeButton_.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xFF666666));
+        closeButton_.setButtonText("X");  // Simple X that works everywhere
+        closeButton_.setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF555555));
+        closeButton_.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xFF777777));
         closeButton_.setColour(juce::TextButton::textColourOffId, juce::Colour(0xFFFFFFFF));
+        closeButton_.setColour(juce::TextButton::textColourOnId, juce::Colour(0xFFFF6666));
         closeButton_.addListener(this);
         addAndMakeVisible(closeButton_);
+        
+        // Make this component want keyboard focus for ESC key
+        setWantsKeyboardFocus(true);
         
         // Title
         titleLabel_.setText("Modulation Settings", juce::dontSendNotification);
@@ -148,13 +152,13 @@ public:
         
         // Set component properties
         setOpaque(true);
-        setAlpha(0.95f);
+        setAlpha(0.98f);  // Higher opacity to reduce transparency
     }
     
     void paint(juce::Graphics& g) override
     {
-        // Dark semi-transparent background
-        g.fillAll(juce::Colour(20, 20, 20).withAlpha(0.95f));
+        // Dark background with higher opacity (less transparent)
+        g.fillAll(juce::Colour(20, 20, 20).withAlpha(0.98f));
         
         // Border
         g.setColour(juce::Colour(100, 100, 100));
@@ -183,8 +187,9 @@ public:
     {
         auto bounds = getLocalBounds();
         
-        // Close button (made larger for easier tapping)
-        closeButton_.setBounds(bounds.getWidth() - 45, 5, 40, 35);
+        // Close button (reasonable size, fully clickable)
+        closeButton_.setBounds(bounds.getWidth() - 50, 10, 40, 35);
+        closeButton_.toFront(true);  // Ensure button is on top
         
         // Title
         titleLabel_.setBounds(0, 10, bounds.getWidth(), 30);
@@ -325,6 +330,7 @@ public:
     {
         setVisible(true);
         isVisible_ = true;
+        grabKeyboardFocus();  // Grab focus to receive ESC key
     }
     
     void hideOverlay()
@@ -334,6 +340,19 @@ public:
     }
     
     bool isOverlayVisible() const { return isVisible_; }
+    
+    // Handle ESC key to close overlay
+    bool keyPressed(const juce::KeyPress& key) override
+    {
+        if (key.getKeyCode() == juce::KeyPress::escapeKey)
+        {
+            hideOverlay();
+            if (onClose)
+                onClose();
+            return true;  // Key handled
+        }
+        return false;  // Key not handled
+    }
     
     // Callbacks
     std::function<void()> onClose;

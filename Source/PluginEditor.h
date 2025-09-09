@@ -47,13 +47,14 @@ private:
     std::unique_ptr<juce::Component> oledDisplay_;
     
     // Main EDIT encoder (large, with push button)
-    class BraidsEncoder : public juce::Component {
+    class BraidsEncoder : public juce::Component, public juce::MultiTimer {
     public:
         BraidsEncoder();
         void paint(juce::Graphics& g) override;
         void mouseDown(const juce::MouseEvent& e) override;
         void mouseDrag(const juce::MouseEvent& e) override;
         void mouseUp(const juce::MouseEvent& e) override;
+        void timerCallback(int timerID) override;
         
         std::function<void(int)> onValueChange;
         std::function<void()> onClick;
@@ -62,9 +63,11 @@ private:
     private:
         float angle_ = 0.0f;
         float lastAngle_ = 0.0f;
+        float accumulatedAngle_ = 0.0f;  // Track fractional angle changes
         bool isPressed_ = false;
         int64_t pressStartTime_ = 0;
         bool longPressTriggered_ = false;
+        bool hasRotated_ = false;  // Track if encoder has been rotated during press
     };
     
     std::unique_ptr<BraidsEncoder> editEncoder_;

@@ -106,7 +106,7 @@ public:
         
         // Initialize oscillator parameters properly
         oscillator_.set_parameters(32768, 32768); // Center position
-        oscillator_.set_pitch(8192); // ~60 MIDI note
+        oscillator_.set_pitch(60 << 7); // MIDI note 60 (middle C) in Braids format
     }
 
     void initialize(double sampleRate) {
@@ -254,6 +254,8 @@ public:
 private:
     void updatePitch() {
         // Convert MIDI note to Braids pitch format (MIDI << 7)
+        // This matches the original Braids implementation where pitch = MIDI_note << 7
+        // We preserve fractional MIDI notes for proper pitch bend support
         int16_t braidsPitch = static_cast<int16_t>(currentPitch_ * 128.0f);
         oscillator_.set_pitch(braidsPitch);
     }
