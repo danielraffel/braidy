@@ -50,8 +50,11 @@ void BraidsVoice::startNote(int midiNoteNumber, float velocity, juce::Synthesise
     // Handle pitch bend
     pitchBend_ = (currentPitchWheelPosition - 8192) / 8192.0f; // Convert to -1.0 to +1.0 range
     
-    // Set target pitch (MIDI note + pitch bend)
-    float targetPitch = static_cast<float>(midiNoteNumber) + pitchBend_ * 2.0f; // ±2 semitones pitch bend range
+    // Calculate base pitch with global offset
+    float basePitch = static_cast<float>(midiNoteNumber) + pitchOffset_;
+    
+    // Apply pitch bend (±2 semitones range)
+    float targetPitch = basePitch + pitchBend_ * 2.0f;
     smoothedPitch_.setTargetValue(targetPitch);
     
     // Initialize the Braids engine if not already done
@@ -89,7 +92,7 @@ void BraidsVoice::pitchWheelMoved(int newPitchWheelValue) {
     pitchBend_ = (newPitchWheelValue - 8192) / 8192.0f; // Convert to -1.0 to +1.0 range
     
     if (isActive_ && currentMidiNote_ >= 0) {
-        float targetPitch = static_cast<float>(currentMidiNote_) + pitchBend_ * 2.0f; // ±2 semitones
+        float targetPitch = static_cast<float>(currentMidiNote_) + pitchBend_ * 2.0f + pitchOffset_; // Include global tuning
         smoothedPitch_.setTargetValue(targetPitch);
         updatePitch();
     }
@@ -201,6 +204,11 @@ void BraidsVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer, int st
 
 void BraidsVoice::setAlgorithm(int algorithm) {
     braidsEngine_.setAlgorithm(algorithm);
+    
+    // For percussion algorithms, trigger a strike after algorithm change
+    if (algorithm >= 32 && algorithm <= 38 && isActive_) {
+        braidsEngine_.strike();
+    }
 }
 
 int BraidsVoice::getAlgorithm() const {
