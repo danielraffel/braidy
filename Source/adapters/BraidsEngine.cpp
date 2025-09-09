@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <mutex>
+#include <iostream>
 
 namespace BraidyAdapter {
 
@@ -131,8 +132,13 @@ public:
         algorithm = std::clamp(algorithm, 0, static_cast<int>(braids::MACRO_OSC_SHAPE_LAST_ACCESSIBLE_FROM_META));
         
         if (algorithm != algorithm_) {
+            std::cout << "[DEBUG] BraidsEngine::setAlgorithm changing from " << algorithm_ 
+                      << " to " << algorithm << " (name: " << kAlgorithmNames[algorithm] << ")" << std::endl;
             algorithm_ = algorithm;
             oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm));
+            
+            // Force parameter update when algorithm changes
+            updateParameters();
         }
     }
 
@@ -169,6 +175,7 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         
         int samplesProcessed = 0;
+        static int debugCounter = 0;
         
         while (samplesProcessed < numSamples) {
             int samplesToProcess = std::min(24, numSamples - samplesProcessed);
@@ -197,10 +204,18 @@ public:
             }
             
             // Convert int16_t to float and copy to output buffer with clipping
+            float maxSample = 0.0f;
             for (int i = 0; i < samplesToProcess; ++i) {
                 float sample = static_cast<float>(internalBuffer_[i]) / 32768.0f;
                 sample = std::clamp(sample, -1.0f, 1.0f);
                 outputBuffer[samplesProcessed + i] = sample;
+                maxSample = std::max(maxSample, std::abs(sample));
+            }
+            
+            // Debug output every 1000 blocks
+            if (++debugCounter % 1000 == 0) {
+                std::cout << "[DEBUG] BraidsEngine::processAudio algo=" << algorithm_ 
+                          << " maxSample=" << maxSample << std::endl;
             }
             
             samplesProcessed += samplesToProcess;

@@ -1423,16 +1423,26 @@ void BraidyAudioProcessorEditor::updateAlgorithmParameter() {
     DBG("Algorithm: " + juce::String(algorithmNames_[currentAlgorithm_]));
     
     // Update the algorithm parameter in APVTS based on current algorithm
-    if (auto* shapeParam = processorRef.getAPVTS().getParameter("algorithm")) {
-        // Convert algorithm index (0-46) to normalized value (0.0-1.0)
+    if (auto* shapeParam = dynamic_cast<juce::AudioParameterChoice*>(processorRef.getAPVTS().getParameter("algorithm"))) {
+        // For AudioParameterChoice, directly set the index
+        DBG("Found 'algorithm' parameter in APVTS (AudioParameterChoice)");
+        DBG("Setting index to: " + juce::String(currentAlgorithm_));
+        
+        int oldIndex = shapeParam->getIndex();
+        *shapeParam = currentAlgorithm_;  // Direct assignment for AudioParameterChoice
+        int newIndex = shapeParam->getIndex();
+        
+        DBG("Parameter index changed from " + juce::String(oldIndex) + " to " + juce::String(newIndex));
+    } else if (auto* param = processorRef.getAPVTS().getParameter("algorithm")) {
+        // Fallback: treat as normalized float parameter
         float normalizedValue = static_cast<float>(currentAlgorithm_) / 46.0f;
         
-        DBG("Found 'algorithm' parameter in APVTS");
+        DBG("Found 'algorithm' parameter in APVTS (generic)");
         DBG("Normalized value: " + juce::String(normalizedValue, 4));
         
-        float oldValue = shapeParam->getValue();
-        shapeParam->setValueNotifyingHost(normalizedValue);
-        float newValue = shapeParam->getValue();
+        float oldValue = param->getValue();
+        param->setValueNotifyingHost(normalizedValue);
+        float newValue = param->getValue();
         
         DBG("Parameter value changed from " + juce::String(oldValue, 4) + " to " + juce::String(newValue, 4));
     } else {

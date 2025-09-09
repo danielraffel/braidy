@@ -155,6 +155,8 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
         
         // Update if changed
         if (newAlgorithm != currentAlgorithm_) {
+            std::cout << "[DEBUG] PluginProcessor: Algorithm changed from " << currentAlgorithm_ 
+                      << " to " << newAlgorithm << std::endl;
             currentAlgorithm_ = newAlgorithm;
             synthesiser_->setAlgorithm(newAlgorithm);
         }
