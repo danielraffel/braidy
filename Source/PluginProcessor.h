@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "adapters/BraidsSynthesiser.h"
+#include "Modulation/ModulationMatrix.h"
 #include <memory>
 
 /**
@@ -48,6 +49,10 @@ public:
     
     // MIDI collector for keyboard input
     juce::MidiMessageCollector& getMidiCollector() { return midiCollector_; }
+    
+    // Modulation system access
+    braidy::ModulationMatrix& getModulationMatrix() { return modulationMatrix_; }
+    const braidy::ModulationMatrix& getModulationMatrix() const { return modulationMatrix_; }
 
 private:
     // Braids synthesiser
@@ -55,6 +60,9 @@ private:
     
     // MIDI collector for UI keyboard
     juce::MidiMessageCollector midiCollector_;
+    
+    // Modulation system
+    braidy::ModulationMatrix modulationMatrix_;
     
     // JUCE parameter management
     juce::AudioProcessorValueTreeState apvts_;

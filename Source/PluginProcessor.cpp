@@ -151,6 +151,17 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     // Update parameters if changed
     updateSynthesiserFromParameters();
     
+    // Process modulation LFOs (Item #2: Connect LFO processing to audio thread)
+    double bpm = 120.0; // Default BPM
+    if (auto* playHead = getPlayHead()) {
+        if (auto positionInfo = playHead->getPosition()) {
+            if (positionInfo->getBpm().hasValue()) {
+                bpm = *positionInfo->getBpm();
+            }
+        }
+    }
+    modulationMatrix_.processBlock(getSampleRate(), buffer.getNumSamples(), bpm);
+    
     // Process MIDI and generate audio using JUCE's built-in synthesiser renderNextBlock
     synthesiser_->renderNextBlock(buffer, midiMessages, 0, buffer.getNumSamples());
     
