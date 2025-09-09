@@ -872,7 +872,7 @@ void BraidyAudioProcessorEditor::updateDisplay() {
     switch (displayMode_) {
         case DisplayMode::Algorithm:
             // Ensure we don't access out of bounds (limit to 0-47 for all algorithms)
-            if (currentAlgorithm_ >= 0 && currentAlgorithm_ < 48) {
+            if (currentAlgorithm_ >= 0 && currentAlgorithm_ <= 47) {
                 displayText = algorithmNames_[currentAlgorithm_];
                 static_cast<SimpleOLEDDisplay*>(oledDisplay_.get())->setText(displayText);
                 if (fileLogger_) {
@@ -1004,11 +1004,11 @@ void BraidyAudioProcessorEditor::handleEncoderRotation(int delta) {
                 // Navigate algorithms with wrapping (like original Braids)
                 currentAlgorithm_ += delta;
                 
-                // Wrap around at the boundaries
+                // Wrap around at the boundaries (48 algorithms total, index 0-47)
                 if (currentAlgorithm_ < 0) {
-                    currentAlgorithm_ = 47;  // Wrap to last algorithm
+                    currentAlgorithm_ = 47;  // Wrap to last algorithm (index 47)
                 } else if (currentAlgorithm_ > 47) {
-                    currentAlgorithm_ = 0;   // Wrap to first algorithm
+                    currentAlgorithm_ = 0;   // Wrap to first algorithm (index 0)
                 }
                 
                 if (fileLogger_) {
@@ -1606,8 +1606,9 @@ void BraidyAudioProcessorEditor::checkForReleasedKeys() {
 }
 
 void BraidyAudioProcessorEditor::loadModelDefaults(int algorithmIndex) {
-    // Ensure algorithm index is valid
-    if (algorithmIndex < 0 || algorithmIndex >= 47) return;
+    // Ensure algorithm index is valid (0-47 for 48 algorithms, but only 47 in BraidsDefaults)
+    // Note: BraidsDefaults only has 47 algorithms, not 48
+    if (algorithmIndex < 0 || algorithmIndex > 46) return;
     
     // Get the model defaults for this algorithm
     const auto& defaults = BraidsDefaults::MODEL_DEFAULTS[algorithmIndex];
