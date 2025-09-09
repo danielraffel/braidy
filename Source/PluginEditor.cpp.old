@@ -1,6 +1,5 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
-#include "BraidsModelDefaults.h"
 #include <map>
 #include <set>
 
@@ -388,10 +387,27 @@ BraidyAudioProcessorEditor::BraidyAudioProcessorEditor(BraidyAudioProcessor& p)
     currentMenuPage_ = MenuPage::None;  // No menu page selected
     inEditMode_ = false;  // Not editing any value
     
-    // Create modulation overlay (initially hidden) - simplified for now
-    // modulationOverlay_ = std::make_unique<braidy::ModulationSettingsOverlay>(processorRef.getModulationMatrix());
-    // modulationOverlay_->setVisible(false);
-    // addChildComponent(modulationOverlay_.get());
+    // Create modulation overlay (initially hidden)
+    modulationOverlay_ = std::make_unique<braidy::ModulationSettingsOverlay>(processorRef.getModulationMatrix());
+    modulationOverlay_->setVisible(false);
+    addChildComponent(modulationOverlay_.get());
+    
+    // Set up overlay callbacks
+    modulationOverlay_->onClose = [this]() {
+        modulationOverlay_->hideOverlay();
+    };
+    
+    modulationOverlay_->onMetaModeChanged = [this](bool enabled) {
+        processorRef.setMetaModeEnabled(enabled);
+    };
+    
+    modulationOverlay_->onQuantizerChanged = [this](bool enabled) {
+        processorRef.setQuantizerEnabled(enabled);
+    };
+    
+    modulationOverlay_->onBitCrusherChanged = [this](bool enabled) {
+        processorRef.setBitCrusherEnabled(enabled);
+    };
     
     DBG("[STARTUP] Initial algorithm: [" + juce::String(currentAlgorithm_) + "] " + juce::String(algorithmNames_[currentAlgorithm_]));
     
@@ -454,39 +470,21 @@ void BraidyAudioProcessorEditor::setupComponents() {
     // Top row knobs (FINE, COARSE, FM)
     fineKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar
     fineKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
-    fineKnob_->onValueChange = [this](float value) {
-        // Fine tuning: +/- 100 cents
-        if (auto* synth = processorRef.getSynthesiser()) {
-            float fineTune = (value - 0.5f) * 2.0f;  // -1 to +1
-            // TODO: Apply fine tuning to pitch
-        }
-    };
+    fineKnob_->onValueChange = [this](float value) { /* Parameter handling */ };
     addAndMakeVisible(*fineKnob_);
     fineKnob_->setVisible(true);
     DBG("Created Fine Knob");
     
     coarseKnob_ = std::make_unique<BraidsKnob>();
     coarseKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
-    coarseKnob_->onValueChange = [this](float value) {
-        // Coarse tuning: +/- 2 octaves
-        if (auto* synth = processorRef.getSynthesiser()) {
-            float coarseTune = (value - 0.5f) * 48.0f;  // -24 to +24 semitones
-            // TODO: Apply coarse tuning to pitch
-        }
-    };
+    coarseKnob_->onValueChange = [this](float value) { /* Parameter handling */ };
     addAndMakeVisible(*coarseKnob_);
     coarseKnob_->setVisible(true);
     DBG("Created Coarse Knob");
     
     fmKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar attenuverter
     fmKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
-    fmKnob_->onValueChange = [this](float value) {
-        // FM amount: bipolar control
-        if (auto* synth = processorRef.getSynthesiser()) {
-            float fmAmount = (value - 0.5f) * 2.0f;  // -1 to +1
-            // TODO: Apply FM amount to synthesis
-        }
-    };
+    fmKnob_->onValueChange = [this](float value) { /* Parameter handling */ };
     addAndMakeVisible(*fmKnob_);
     fmKnob_->setVisible(true);
     DBG("Created FM Knob");
@@ -494,24 +492,14 @@ void BraidyAudioProcessorEditor::setupComponents() {
     // Main parameter knobs with colored indicators (matching hardware)
     timbreKnob_ = std::make_unique<BraidsKnob>(false, 0xFF00CCA3);  // Teal indicator
     timbreKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
-    timbreKnob_->onValueChange = [this](float value) {
-        // Update parameter 1 (timbre)
-        if (auto* param = processorRef.getAPVTS().getParameter("param1")) {
-            param->setValueNotifyingHost(value);
-        }
-    };
+    timbreKnob_->onValueChange = [this](float value) { /* Parameter handling */ };
     addAndMakeVisible(*timbreKnob_);
     timbreKnob_->setVisible(true);
     DBG("Created Timbre Knob");
     
     colorKnob_ = std::make_unique<BraidsKnob>(false, 0xFFE74C3C);  // Red indicator
     colorKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
-    colorKnob_->onValueChange = [this](float value) {
-        // Update parameter 2 (color) 
-        if (auto* param = processorRef.getAPVTS().getParameter("param2")) {
-            param->setValueNotifyingHost(value);
-        }
-    };
+    colorKnob_->onValueChange = [this](float value) { /* Parameter handling */ };
     addAndMakeVisible(*colorKnob_);
     colorKnob_->setVisible(true);
     DBG("Created Color Knob");
@@ -519,13 +507,7 @@ void BraidyAudioProcessorEditor::setupComponents() {
     // Modulation attenuverter (center knob)
     timbreModKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar
     timbreModKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
-    timbreModKnob_->onValueChange = [this](float value) {
-        // Modulation amount: bipolar control for internal modulation
-        if (auto* synth = processorRef.getSynthesiser()) {
-            float modAmount = (value - 0.5f) * 2.0f;  // -1 to +1
-            // TODO: Apply modulation amount to timbre modulation
-        }
-    };
+    timbreModKnob_->onValueChange = [this](float value) { /* Parameter handling */ };
     addAndMakeVisible(*timbreModKnob_);
     timbreModKnob_->setVisible(true);
     DBG("Created Modulation Knob");
@@ -823,10 +805,10 @@ void BraidyAudioProcessorEditor::resized() {
         settingsButton_->toFront(false);
     }
     
-    // Modulation overlay (full screen when visible) - disabled for now
-    // if (modulationOverlay_) {
-    //     modulationOverlay_->setBounds(0, 0, getWidth(), getHeight());
-    // }
+    // Modulation overlay (full screen when visible)
+    if (modulationOverlay_) {
+        modulationOverlay_->setBounds(0, 0, getWidth(), getHeight());
+    }
     
     // CV Jacks at bottom (6 jacks in a row)
     auto jackY = getHeight() - 50;
@@ -951,34 +933,8 @@ void BraidyAudioProcessorEditor::updateDisplay() {
 }
 
 void BraidyAudioProcessorEditor::updateParameterValues() {
-    // Sync knob positions with parameter values
-    auto& apvts = processorRef.getAPVTS();
-    
-    // Update algorithm display
-    if (auto* algParam = apvts.getRawParameterValue("algorithm")) {
-        int newAlgorithm = static_cast<int>(algParam->load() * 47.0f + 0.5f);
-        if (newAlgorithm != currentAlgorithm_ && displayMode_ == DisplayMode::Algorithm) {
-            currentAlgorithm_ = newAlgorithm;
-            updateDisplay();
-        }
-    }
-    
-    // Update Timbre knob
-    if (auto* param1 = apvts.getRawParameterValue("param1")) {
-        if (timbreKnob_) {
-            timbreKnob_->setValue(param1->load());
-        }
-    }
-    
-    // Update Color knob
-    if (auto* param2 = apvts.getRawParameterValue("param2")) {
-        if (colorKnob_) {
-            colorKnob_->setValue(param2->load());
-        }
-    }
-    
-    // TODO: Update other knobs when their parameters are connected
-    // For now, Fine, Coarse, FM, and Modulation knobs are not connected to parameters
+    // Simplified - no parameter connections to avoid crashes
+    // This would be implemented once the parameter system is working
 }
 
 void BraidyAudioProcessorEditor::updateParameterFromKnob(BraidsKnob* knob, const juce::String& paramId) {
@@ -1019,9 +975,6 @@ void BraidyAudioProcessorEditor::handleEncoderRotation(int delta) {
                 
                 // Update the audio parameter
                 updateAlgorithmParameter();
-                
-                // Load default parameters for the new algorithm
-                loadModelDefaults(currentAlgorithm_);
                 
                 // Stay in algorithm mode, don't jump to menu
                 displayMode_ = DisplayMode::Algorithm;
@@ -1190,7 +1143,7 @@ void BraidyAudioProcessorEditor::navigateMenu(int delta) {
             menuValue_ = 127;  // Display brightness (0-127)
             break;
         case MenuPage::VCA:
-            menuValue_ = 0;  // Default VCA mode
+            menuValue_ = processorRef.getBraidySettings().GetParameter(braidy::BraidyParameter::VCA_MODE) > 0.5f ? 1 : 0;
             break;
         default:
             menuValue_ = 0;
@@ -1367,21 +1320,30 @@ juce::String BraidyAudioProcessorEditor::getFormattedMenuValue() const {
 void BraidyAudioProcessorEditor::applyMenuValue() {
     // Apply the edited menu value to the appropriate parameter
     auto& apvts = processorRef.getAPVTS();
+    auto& settings = processorRef.getBraidySettings();
     
-    // Simplified parameter application - just use APVTS parameters for now
     switch (currentMenuPage_) {
         case MenuPage::WAVE:
             // WAVE saves settings and exits - handled in click handler
             break;
+            
+        case MenuPage::META:
+            settings.SetParameter(braidy::BraidyParameter::META_ENABLED, menuValue_ != 0 ? 1.0f : 0.0f);
+            break;
         case MenuPage::BITS:
+            settings.SetParameter(braidy::BraidyParameter::BIT_CRUSHER_BITS, static_cast<float>(menuValue_));
             if (auto* param = apvts.getParameter("bitDepth")) {
                 param->setValueNotifyingHost(menuValue_ / 16.0f);
             }
             break;
         case MenuPage::RATE:
+            settings.SetParameter(braidy::BraidyParameter::BIT_CRUSHER_RATE, static_cast<float>(menuValue_));
             if (auto* param = apvts.getParameter("sampleRate")) {
                 param->setValueNotifyingHost(menuValue_ / 96.0f);
             }
+            break;
+        case MenuPage::BRIG:
+            // Display brightness - UI only
             break;
         case MenuPage::ATK:
             if (auto* param = apvts.getParameter("attack")) {
@@ -1408,25 +1370,80 @@ void BraidyAudioProcessorEditor::applyMenuValue() {
                 param->setValueNotifyingHost(menuValue_ / 127.0f);
             }
             break;
+        case MenuPage::VCA:
+            settings.SetParameter(braidy::BraidyParameter::VCA_MODE, menuValue_ != 0 ? 1.0f : 0.0f);
+            if (auto* param = apvts.getParameter("vca")) {
+                param->setValueNotifyingHost(menuValue_);
+            }
+            break;
+        case MenuPage::RANG:
+            // Using pitch octave for frequency range
+            settings.SetParameter(braidy::BraidyParameter::PITCH_OCTAVE, static_cast<float>(menuValue_ - 2));
+            break;
+        case MenuPage::OCTV:
+            settings.SetParameter(braidy::BraidyParameter::PITCH_OCTAVE, static_cast<float>(menuValue_));
+            break;
+        case MenuPage::QNTZ:
+            settings.SetParameter(braidy::BraidyParameter::QUANTIZER_SCALE, static_cast<float>(menuValue_));
+            break;
+        case MenuPage::ROOT:
+            settings.SetParameter(braidy::BraidyParameter::QUANTIZER_ROOT, static_cast<float>(menuValue_));
+            break;
+        case MenuPage::FLAT:
+            // Using paraphony detune for detuning
+            settings.SetParameter(braidy::BraidyParameter::PARAPHONY_DETUNE, menuValue_ / 99.0f);
+            break;
+        case MenuPage::DRFT:
+            // Using meta speed for drift
+            settings.SetParameter(braidy::BraidyParameter::META_SPEED, menuValue_ / 127.0f);
+            break;
+        case MenuPage::SIGN:
+            // Signature - not directly mapped to a parameter yet
+            break;
         default:
-            // For other parameters, we'll just store the values locally for now
-            DBG("Applied menu value " + juce::String(menuValue_) + " for menu item " + 
-                juce::String(static_cast<int>(currentMenuPage_)));
             break;
     }
+    
+    // Save the current waveform's state after any parameter change
+    auto& stateManager = processorRef.getWaveformStateManager();
+    braidy::MacroOscillatorShape currentShape = static_cast<braidy::MacroOscillatorShape>(currentAlgorithm_);
+    stateManager.SaveCurrentToWaveform(currentShape, settings);
+    DBG("Saved current parameters to waveform: " + juce::String(algorithmNames_[currentAlgorithm_]));
+    
+    // Parameters are updated directly, no need to call private update method
 }
 
 void BraidyAudioProcessorEditor::updateAlgorithmParameter() {
     DBG("=== UPDATE ALGORITHM PARAMETER DEBUG ===");
-    DBG("Current algorithm index: " + juce::String(currentAlgorithm_));
-    DBG("Algorithm: " + juce::String(algorithmNames_[currentAlgorithm_]));
     
-    // Update the algorithm parameter in APVTS based on current algorithm
-    if (auto* shapeParam = processorRef.getAPVTS().getParameter("algorithm")) {
+    // Get the previous algorithm shape for state management
+    static int previousAlgorithm = currentAlgorithm_;
+    braidy::MacroOscillatorShape previousShape = static_cast<braidy::MacroOscillatorShape>(previousAlgorithm);
+    braidy::MacroOscillatorShape currentShape = static_cast<braidy::MacroOscillatorShape>(currentAlgorithm_);
+    
+    // Save current waveform state and load new waveform state
+    if (previousAlgorithm != currentAlgorithm_) {
+        DBG("Switching waveform from " + juce::String(algorithmNames_[previousAlgorithm]) + 
+            " to " + juce::String(algorithmNames_[currentAlgorithm_]));
+        
+        // Use WaveformStateManager to switch between waveforms
+        auto& stateManager = processorRef.getWaveformStateManager();
+        auto& settings = processorRef.getBraidySettings();
+        
+        // This saves the previous waveform's state and loads the new one
+        stateManager.SwitchWaveform(previousShape, currentShape, settings);
+        
+        DBG("Loaded saved state for " + juce::String(algorithmNames_[currentAlgorithm_]));
+        previousAlgorithm = currentAlgorithm_;
+    }
+    
+    // Update the SHAPE parameter in APVTS based on current algorithm
+    if (auto* shapeParam = processorRef.getAPVTS().getParameter("alg")) {
         // Convert algorithm index (0-47) to normalized value (0.0-1.0)
         float normalizedValue = static_cast<float>(currentAlgorithm_) / 47.0f;
         
-        DBG("Found 'algorithm' parameter in APVTS");
+        DBG("Found 'alg' parameter in APVTS");
+        DBG("Current algorithm index: " + juce::String(currentAlgorithm_));
         DBG("Normalized value: " + juce::String(normalizedValue, 4));
         
         float oldValue = shapeParam->getValue();
@@ -1434,11 +1451,13 @@ void BraidyAudioProcessorEditor::updateAlgorithmParameter() {
         float newValue = shapeParam->getValue();
         
         DBG("Parameter value changed from " + juce::String(oldValue, 4) + " to " + juce::String(newValue, 4));
+        DBG("Algorithm: " + juce::String(algorithmNames_[currentAlgorithm_]));
     } else {
-        DBG("ERROR: 'algorithm' parameter NOT FOUND in APVTS!");
+        DBG("ERROR: 'alg' parameter NOT FOUND in APVTS!");
         
         // List all available parameters
         DBG("Available parameters:");
+        auto& apvts = processorRef.getAPVTS();
         for (auto* param : processorRef.getParameters()) {
             if (auto* rangedParam = dynamic_cast<juce::RangedAudioParameter*>(param)) {
                 DBG("  - " + rangedParam->getParameterID());
@@ -1456,9 +1475,15 @@ void BraidyAudioProcessorEditor::sliderValueChanged(juce::Slider* slider) {
 
 void BraidyAudioProcessorEditor::buttonClicked(juce::Button* button) {
     if (button == settingsButton_.get()) {
-        // For now, just log that the MOD button was pressed
-        DBG("MOD button pressed - settings functionality to be implemented");
-        // TODO: Implement modulation overlay when system is ready
+        // Toggle modulation overlay visibility
+        if (modulationOverlay_) {
+            if (modulationOverlay_->isOverlayVisible()) {
+                modulationOverlay_->hideOverlay();
+            } else {
+                modulationOverlay_->showOverlay();
+                modulationOverlay_->toFront(true);
+            }
+        }
     }
 }
 
@@ -1572,15 +1597,27 @@ bool BraidyAudioProcessorEditor::keyStateChanged(bool isKeyDown) {
 }
 
 void BraidyAudioProcessorEditor::sendMidiNoteOn(int midiNote, float velocity) {
-    // MIDI processing method disabled for now
-    DBG("[MIDI SEND] Note ON: " + juce::String(midiNote) + " velocity: " + juce::String(velocity, 2));
-    // TODO: Implement MIDI processing when processor supports it
+    if (auto* processor = dynamic_cast<BraidyAudioProcessor*>(&processorRef)) {
+        // Create MIDI note on message
+        juce::MidiMessage noteOn = juce::MidiMessage::noteOn(1, midiNote, velocity);
+        
+        // Send to processor for immediate processing
+        processor->processMidiMessage(noteOn);
+        
+        DBG("[MIDI SEND] Note ON: " + juce::String(midiNote) + " velocity: " + juce::String(velocity, 2));
+    }
 }
 
 void BraidyAudioProcessorEditor::sendMidiNoteOff(int midiNote) {
-    // MIDI processing method disabled for now
-    DBG("[MIDI SEND] Note OFF: " + juce::String(midiNote));
-    // TODO: Implement MIDI processing when processor supports it
+    if (auto* processor = dynamic_cast<BraidyAudioProcessor*>(&processorRef)) {
+        // Create MIDI note off message
+        juce::MidiMessage noteOff = juce::MidiMessage::noteOff(1, midiNote, 0.0f);
+        
+        // Send to processor for immediate processing
+        processor->processMidiMessage(noteOff);
+        
+        DBG("[MIDI SEND] Note OFF: " + juce::String(midiNote));
+    }
 }
 
 void BraidyAudioProcessorEditor::checkForReleasedKeys() {
@@ -1603,47 +1640,4 @@ void BraidyAudioProcessorEditor::checkForReleasedKeys() {
     }
     
     pressedKeys_.clear();
-}
-
-void BraidyAudioProcessorEditor::loadModelDefaults(int algorithmIndex) {
-    // Ensure algorithm index is valid
-    if (algorithmIndex < 0 || algorithmIndex >= 47) return;
-    
-    // Get the model defaults for this algorithm
-    const auto& defaults = BraidsDefaults::MODEL_DEFAULTS[algorithmIndex];
-    
-    // Update parameter values
-    if (auto* param1 = processorRef.getAPVTS().getParameter("param1")) {
-        param1->setValueNotifyingHost(defaults.timbre);
-    }
-    
-    if (auto* param2 = processorRef.getAPVTS().getParameter("param2")) {
-        param2->setValueNotifyingHost(defaults.color);
-    }
-    
-    // Update knob positions to reflect new values
-    if (timbreKnob_) {
-        timbreKnob_->setValue(defaults.timbre);
-    }
-    
-    if (colorKnob_) {
-        colorKnob_->setValue(defaults.color);
-    }
-    
-    // TODO: Set FM and modulation amounts when those parameters are connected
-    // if (fmKnob_) fmKnob_->setValue(0.5f + defaults.fm * 0.5f);  // Convert to bipolar
-    // if (timbreModKnob_) timbreModKnob_->setValue(0.5f + defaults.modulation * 0.5f);
-    
-    // If this is a percussion model, trigger a strike
-    if (defaults.isPercussive && processorRef.getSynthesiser()) {
-        // Send a trigger/strike to the synthesizer
-        auto* synth = processorRef.getSynthesiser();
-        // TODO: Implement strike/trigger for percussion models
-    }
-    
-    if (fileLogger_) {
-        fileLogger_->logMessage("[DEFAULTS] Loaded defaults for " + juce::String(defaults.name) + 
-                                 " - Timbre: " + juce::String(defaults.timbre) + 
-                                 ", Color: " + juce::String(defaults.color));
-    }
 }

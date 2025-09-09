@@ -14,7 +14,14 @@
 
 #pragma once
 
+#ifdef TEST
+// For testing without JUCE
+#include <string>
+#include <vector>
+#include <utility>
+#else
 #include <JuceHeader.h>
+#endif
 #include <memory>
 
 namespace BraidyAdapter {

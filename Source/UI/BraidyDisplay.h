@@ -1,7 +1,7 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
-#include "../BraidyCore/BraidyTypes.h"
+// #include "../BraidyCore/BraidyTypes.h" // No longer needed
 
 namespace braidy {
 

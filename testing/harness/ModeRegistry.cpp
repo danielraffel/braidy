@@ -1,5 +1,5 @@
 #include "ModeRegistry.h"
-#include "../../Source/BraidyCore/MacroOscillator.h" // For braids::MacroOscillatorShape
+#include "../../eurorack/braids/macro_oscillator.h" // For braids::MacroOscillatorShape
 #include <algorithm>
 #include <cctype>
 
@@ -14,64 +14,64 @@ void ModeRegistry::initialize() {
     // Based on braids/macro_oscillator.h and the UI strings
     
     // Additive synthesis
-    nameToShape_["CSAW"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_CSAW);
-    nameToShape_["MORPH"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_MORPH);
-    nameToShape_["SAW_SQUARE"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_SAW_SQUARE);
-    nameToShape_["SINE_TRIANGLE"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_SINE_TRIANGLE);
-    nameToShape_["BUZZ"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_BUZZ);
-    nameToShape_["SQUARE_SUB"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_SQUARE_SUB);
-    nameToShape_["SAW_SUB"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_SAW_SUB);
-    nameToShape_["SQUARE_SYNC"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_SQUARE_SYNC);
-    nameToShape_["SAW_SYNC"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_SAW_SYNC);
-    nameToShape_["TRIPLE_SAW"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_TRIPLE_SAW);
-    nameToShape_["TRIPLE_SQUARE"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_TRIPLE_SQUARE);
-    nameToShape_["TRIPLE_TRIANGLE"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_TRIPLE_TRIANGLE);
-    nameToShape_["TRIPLE_SINE"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_TRIPLE_SINE);
-    nameToShape_["TRIPLE_RING_MOD"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_TRIPLE_RING_MOD);
-    nameToShape_["SAW_SWARM"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_SAW_SWARM);
-    nameToShape_["SAW_COMB"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_SAW_COMB);
-    nameToShape_["TOY"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_TOY);
+    nameToShape_["CSAW"] = static_cast<int>(braids::MACRO_OSC_SHAPE_CSAW);
+    nameToShape_["MORPH"] = static_cast<int>(braids::MACRO_OSC_SHAPE_MORPH);
+    nameToShape_["SAW_SQUARE"] = static_cast<int>(braids::MACRO_OSC_SHAPE_SAW_SQUARE);
+    nameToShape_["SINE_TRIANGLE"] = static_cast<int>(braids::MACRO_OSC_SHAPE_SINE_TRIANGLE);
+    nameToShape_["BUZZ"] = static_cast<int>(braids::MACRO_OSC_SHAPE_BUZZ);
+    nameToShape_["SQUARE_SUB"] = static_cast<int>(braids::MACRO_OSC_SHAPE_SQUARE_SUB);
+    nameToShape_["SAW_SUB"] = static_cast<int>(braids::MACRO_OSC_SHAPE_SAW_SUB);
+    nameToShape_["SQUARE_SYNC"] = static_cast<int>(braids::MACRO_OSC_SHAPE_SQUARE_SYNC);
+    nameToShape_["SAW_SYNC"] = static_cast<int>(braids::MACRO_OSC_SHAPE_SAW_SYNC);
+    nameToShape_["TRIPLE_SAW"] = static_cast<int>(braids::MACRO_OSC_SHAPE_TRIPLE_SAW);
+    nameToShape_["TRIPLE_SQUARE"] = static_cast<int>(braids::MACRO_OSC_SHAPE_TRIPLE_SQUARE);
+    nameToShape_["TRIPLE_TRIANGLE"] = static_cast<int>(braids::MACRO_OSC_SHAPE_TRIPLE_TRIANGLE);
+    nameToShape_["TRIPLE_SINE"] = static_cast<int>(braids::MACRO_OSC_SHAPE_TRIPLE_SINE);
+    nameToShape_["TRIPLE_RING_MOD"] = static_cast<int>(braids::MACRO_OSC_SHAPE_TRIPLE_RING_MOD);
+    nameToShape_["SAW_SWARM"] = static_cast<int>(braids::MACRO_OSC_SHAPE_SAW_SWARM);
+    nameToShape_["SAW_COMB"] = static_cast<int>(braids::MACRO_OSC_SHAPE_SAW_COMB);
+    nameToShape_["TOY"] = static_cast<int>(braids::MACRO_OSC_SHAPE_TOY);
     
     // Digital modulation
-    nameToShape_["DIGITAL_FILTER_LP"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_DIGITAL_FILTER_LP);
-    nameToShape_["DIGITAL_FILTER_PK"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_DIGITAL_FILTER_PK);
-    nameToShape_["DIGITAL_FILTER_BP"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_DIGITAL_FILTER_BP);
-    nameToShape_["DIGITAL_FILTER_HP"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_DIGITAL_FILTER_HP);
-    nameToShape_["VOSIM"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_VOSIM);
-    nameToShape_["VOWEL"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_VOWEL);
-    nameToShape_["VOWEL_FOF"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_VOWEL_FOF);
+    nameToShape_["DIGITAL_FILTER_LP"] = static_cast<int>(braids::MACRO_OSC_SHAPE_DIGITAL_FILTER_LP);
+    nameToShape_["DIGITAL_FILTER_PK"] = static_cast<int>(braids::MACRO_OSC_SHAPE_DIGITAL_FILTER_PK);
+    nameToShape_["DIGITAL_FILTER_BP"] = static_cast<int>(braids::MACRO_OSC_SHAPE_DIGITAL_FILTER_BP);
+    nameToShape_["DIGITAL_FILTER_HP"] = static_cast<int>(braids::MACRO_OSC_SHAPE_DIGITAL_FILTER_HP);
+    nameToShape_["VOSIM"] = static_cast<int>(braids::MACRO_OSC_SHAPE_VOSIM);
+    nameToShape_["VOWEL"] = static_cast<int>(braids::MACRO_OSC_SHAPE_VOWEL);
+    nameToShape_["VOWEL_FOF"] = static_cast<int>(braids::MACRO_OSC_SHAPE_VOWEL_FOF);
     
     // FM synthesis
-    nameToShape_["HARMONICS"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_HARMONICS);
-    nameToShape_["FM"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_FM);
-    nameToShape_["FEEDBACK_FM"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_FEEDBACK_FM);
-    nameToShape_["CHAOTIC_FEEDBACK_FM"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_CHAOTIC_FEEDBACK_FM);
-    nameToShape_["PLUCKED"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_PLUCKED);
-    nameToShape_["BOWED"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_BOWED);
-    nameToShape_["BLOWN"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_BLOWN);
-    nameToShape_["FLUTED"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_FLUTED);
-    nameToShape_["STRUCK_BELL"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_STRUCK_BELL);
-    nameToShape_["STRUCK_DRUM"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_STRUCK_DRUM);
-    nameToShape_["KICK"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_KICK);
-    nameToShape_["CYMBAL"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_CYMBAL);
-    nameToShape_["SNARE"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_SNARE);
+    nameToShape_["HARMONICS"] = static_cast<int>(braids::MACRO_OSC_SHAPE_HARMONICS);
+    nameToShape_["FM"] = static_cast<int>(braids::MACRO_OSC_SHAPE_FM);
+    nameToShape_["FEEDBACK_FM"] = static_cast<int>(braids::MACRO_OSC_SHAPE_FEEDBACK_FM);
+    nameToShape_["CHAOTIC_FEEDBACK_FM"] = static_cast<int>(braids::MACRO_OSC_SHAPE_CHAOTIC_FEEDBACK_FM);
+    nameToShape_["PLUCKED"] = static_cast<int>(braids::MACRO_OSC_SHAPE_PLUCKED);
+    nameToShape_["BOWED"] = static_cast<int>(braids::MACRO_OSC_SHAPE_BOWED);
+    nameToShape_["BLOWN"] = static_cast<int>(braids::MACRO_OSC_SHAPE_BLOWN);
+    nameToShape_["FLUTED"] = static_cast<int>(braids::MACRO_OSC_SHAPE_FLUTED);
+    nameToShape_["STRUCK_BELL"] = static_cast<int>(braids::MACRO_OSC_SHAPE_STRUCK_BELL);
+    nameToShape_["STRUCK_DRUM"] = static_cast<int>(braids::MACRO_OSC_SHAPE_STRUCK_DRUM);
+    nameToShape_["KICK"] = static_cast<int>(braids::MACRO_OSC_SHAPE_KICK);
+    nameToShape_["CYMBAL"] = static_cast<int>(braids::MACRO_OSC_SHAPE_CYMBAL);
+    nameToShape_["SNARE"] = static_cast<int>(braids::MACRO_OSC_SHAPE_SNARE);
     
     // Wavetable
-    nameToShape_["WAVETABLES"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_WAVETABLES);
-    nameToShape_["WAVE_MAP"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_WAVE_MAP);
-    nameToShape_["WAVE_LINE"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_WAVE_LINE);
-    nameToShape_["WAVE_PARAPHONIC"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_WAVE_PARAPHONIC);
+    nameToShape_["WAVETABLES"] = static_cast<int>(braids::MACRO_OSC_SHAPE_WAVETABLES);
+    nameToShape_["WAVE_MAP"] = static_cast<int>(braids::MACRO_OSC_SHAPE_WAVE_MAP);
+    nameToShape_["WAVE_LINE"] = static_cast<int>(braids::MACRO_OSC_SHAPE_WAVE_LINE);
+    nameToShape_["WAVE_PARAPHONIC"] = static_cast<int>(braids::MACRO_OSC_SHAPE_WAVE_PARAPHONIC);
     
     // Speech
-    nameToShape_["FILTERED_NOISE"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_FILTERED_NOISE);
-    nameToShape_["TWIN_PEAKS_NOISE"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_TWIN_PEAKS_NOISE);
-    nameToShape_["CLOCKED_NOISE"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_CLOCKED_NOISE);
-    nameToShape_["GRANULAR_CLOUD"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_GRANULAR_CLOUD);
-    nameToShape_["PARTICLE_NOISE"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_PARTICLE_NOISE);
+    nameToShape_["FILTERED_NOISE"] = static_cast<int>(braids::MACRO_OSC_SHAPE_FILTERED_NOISE);
+    nameToShape_["TWIN_PEAKS_NOISE"] = static_cast<int>(braids::MACRO_OSC_SHAPE_TWIN_PEAKS_NOISE);
+    nameToShape_["CLOCKED_NOISE"] = static_cast<int>(braids::MACRO_OSC_SHAPE_CLOCKED_NOISE);
+    nameToShape_["GRANULAR_CLOUD"] = static_cast<int>(braids::MACRO_OSC_SHAPE_GRANULAR_CLOUD);
+    nameToShape_["PARTICLE_NOISE"] = static_cast<int>(braids::MACRO_OSC_SHAPE_PARTICLE_NOISE);
     
     // Additional modes
-    nameToShape_["DIGITAL_MODULATION"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_DIGITAL_MODULATION);
-    nameToShape_["QUESTION_MARK"] = static_cast<int>(braids::MACRO_OSCILLATOR_SHAPE_QUESTION_MARK);
+    nameToShape_["DIGITAL_MODULATION"] = static_cast<int>(braids::MACRO_OSC_SHAPE_DIGITAL_MODULATION);
+    nameToShape_["QUESTION_MARK"] = static_cast<int>(braids::MACRO_OSC_SHAPE_QUESTION_MARK);
     
     // Build reverse mapping
     for (const auto& pair : nameToShape_) {

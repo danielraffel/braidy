@@ -4,10 +4,8 @@
 #include <unordered_map>
 #include <vector>
 
-// Forward declare the braids enum
-namespace braids {
-    enum MacroOscillatorShape;
-}
+// Include the actual braids header for the enum definition
+#include "../../eurorack/braids/macro_oscillator.h"
 
 /**
  * Registry that maps algorithm names to Braids MacroOscillatorShape values.

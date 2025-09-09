@@ -32,9 +32,9 @@ public:
     explicit BraidsSynthesiser(int numVoices = 8);
     ~BraidsSynthesiser() override;
 
-    // Synthesiser interface overrides
-    void setCurrentPlaybackSampleRate(double sampleRate) override;
-    void renderNextBlock(juce::AudioBuffer<float>& outputAudio, const juce::MidiBuffer& inputMidi, int startSample, int numSamples) override;
+    // Additional methods for parameter control
+    void setAlgorithm(int algorithm);
+    void setParameters(float param1, float param2);
 
     // Global parameter control (affects all voices)
     void setGlobalAlgorithm(int algorithm);
@@ -109,7 +109,7 @@ private:
     // Performance monitoring
     mutable std::mutex statsMutex_;
     PerformanceStats stats_;
-    juce::MovingAverage<float> cpuLoadAverage_;
+    float cpuLoadAverage_;
     std::chrono::high_resolution_clock::time_point lastStatsUpdate_;
     
     // Thread safety

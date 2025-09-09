@@ -1,0 +1,133 @@
+#include "PluginProcessor.h"
+#include "PluginEditor.h"
+#include <iostream>
+
+BraidyAudioProcessorEditor::BraidyAudioProcessorEditor(BraidyAudioProcessor& p)
+    : AudioProcessorEditor(&p), audioProcessor(p)
+{
+    // Algorithm selector
+    algorithmSelector.addItemList(juce::StringArray::fromTokens(
+        "CSAW MORPH SAW_SQUARE SINE_TRIANGLE BUZZ "
+        "SQUARE_SUB SAW_SUB SQUARE_SYNC SAW_SYNC "
+        "TRIPLE_SAW TRIPLE_SQUARE TRIPLE_TRIANGLE TRIPLE_SINE TRIPLE_RING_MOD "
+        "SAW_SWARM SAW_COMB TOY "
+        "DIGITAL_FILTER_LP DIGITAL_FILTER_PK DIGITAL_FILTER_BP DIGITAL_FILTER_HP "
+        "VOSIM VOWEL VOWEL_FOF "
+        "HARMONICS FM FEEDBACK_FM CHAOTIC_FEEDBACK_FM "
+        "PLUCKED BOWED BLOWN FLUTED STRUCK_BELL STRUCK_DRUM "
+        "KICK CYMBAL SNARE "
+        "WAVETABLES WAVE_MAP WAVE_LINE WAVE_PARAPHONIC "
+        "FILTERED_NOISE TWIN_PEAKS_NOISE CLOCKED_NOISE GRANULAR_CLOUD PARTICLE_NOISE "
+        "DIGITAL_MODULATION QUESTION_MARK", " ", ""), 1);
+    
+    algorithmAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        audioProcessor.getAPVTS(), "algorithm", algorithmSelector);
+    addAndMakeVisible(algorithmSelector);
+    
+    // Parameter 1 slider
+    param1Slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+    param1Slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
+    param1Attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.getAPVTS(), "param1", param1Slider);
+    addAndMakeVisible(param1Slider);
+    param1Label.setText("Param 1", juce::dontSendNotification);
+    param1Label.attachToComponent(&param1Slider, false);
+    addAndMakeVisible(param1Label);
+    
+    // Parameter 2 slider
+    param2Slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+    param2Slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
+    param2Attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.getAPVTS(), "param2", param2Slider);
+    addAndMakeVisible(param2Slider);
+    param2Label.setText("Param 2", juce::dontSendNotification);
+    param2Label.attachToComponent(&param2Slider, false);
+    addAndMakeVisible(param2Label);
+    
+    // Volume slider
+    volumeSlider.setSliderStyle(juce::Slider::LinearVertical);
+    volumeSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
+    volumeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.getAPVTS(), "volume", volumeSlider);
+    addAndMakeVisible(volumeSlider);
+    volumeLabel.setText("Volume", juce::dontSendNotification);
+    volumeLabel.attachToComponent(&volumeSlider, false);
+    addAndMakeVisible(volumeLabel);
+    
+    // Add virtual keyboard for testing
+    keyboardComponent = std::make_unique<juce::MidiKeyboardComponent>(
+        keyboardState, juce::MidiKeyboardComponent::horizontalKeyboard);
+    addAndMakeVisible(keyboardComponent.get());
+    keyboardState.addListener(this);
+    
+    setSize(600, 400);
+}
+
+BraidyAudioProcessorEditor::~BraidyAudioProcessorEditor()
+{
+    keyboardState.removeListener(this);
+}
+
+void BraidyAudioProcessorEditor::paint(juce::Graphics& g)
+{
+    g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
+    
+    g.setColour(juce::Colours::white);
+    g.setFont(20.0f);
+    g.drawFittedText("Braidy Synthesizer", getLocalBounds().withHeight(30), juce::Justification::centred, 1);
+}
+
+void BraidyAudioProcessorEditor::resized()
+{
+    auto bounds = getLocalBounds();
+    
+    // Title area
+    bounds.removeFromTop(40);
+    
+    // Algorithm selector at top
+    algorithmSelector.setBounds(bounds.removeFromTop(30).reduced(10, 0));
+    
+    bounds.removeFromTop(10);
+    
+    // Parameters area
+    auto paramArea = bounds.removeFromTop(150);
+    auto param1Area = paramArea.removeFromLeft(paramArea.getWidth() / 3);
+    auto param2Area = paramArea.removeFromLeft(paramArea.getWidth() / 2);
+    auto volumeArea = paramArea;
+    
+    param1Slider.setBounds(param1Area.reduced(10));
+    param2Slider.setBounds(param2Area.reduced(10));
+    volumeSlider.setBounds(volumeArea.reduced(20, 10));
+    
+    // Keyboard at bottom
+    if (keyboardComponent) {
+        keyboardComponent->setBounds(bounds.reduced(10));
+    }
+}
+
+void BraidyAudioProcessorEditor::handleNoteOn(juce::MidiKeyboardState*, int midiChannel, int midiNoteNumber, float velocity)
+{
+    std::cout << "[DEBUG] Note ON: channel=" << midiChannel 
+              << " note=" << midiNoteNumber 
+              << " velocity=" << velocity << std::endl;
+    
+    // Create MIDI message and send to processor's MIDI collector
+    auto message = juce::MidiMessage::noteOn(midiChannel, midiNoteNumber, velocity);
+    message.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
+    
+    // Add to MIDI collector so it gets picked up in processBlock
+    audioProcessor.getMidiCollector().addMessageToQueue(message);
+}
+
+void BraidyAudioProcessorEditor::handleNoteOff(juce::MidiKeyboardState*, int midiChannel, int midiNoteNumber, float velocity)
+{
+    std::cout << "[DEBUG] Note OFF: channel=" << midiChannel 
+              << " note=" << midiNoteNumber << std::endl;
+    
+    // Create MIDI message and send to processor's MIDI collector
+    auto message = juce::MidiMessage::noteOff(midiChannel, midiNoteNumber, velocity);
+    message.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
+    
+    // Add to MIDI collector so it gets picked up in processBlock
+    audioProcessor.getMidiCollector().addMessageToQueue(message);
+}

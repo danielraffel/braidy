@@ -1,5 +1,5 @@
 #include "BraidsReference.h"
-#include "../../Source/BraidyCore/MacroOscillator.h"
+#include "../../eurorack/braids/macro_oscillator.h"
 #include <cmath>
 #include <algorithm>
 #include <cstring>
@@ -144,13 +144,11 @@ void BraidsReference::updateOscillatorSettings() {
     // Convert normalized parameters to uint16_t range
     oscillator_->set_parameters(
         parameterToUint16(currentTimbre_),  // timbre
-        parameterToUint16(currentColor_),   // color
-        parameterToUint16(currentAux_)      // aux (FM amount, etc.)
+        parameterToUint16(currentColor_)    // color
     );
     
-    // Configure additional settings
-    oscillator_->set_ad_env(0);  // No AD envelope by default
-    oscillator_->set_vca_env(0); // No VCA envelope by default
+    // Note: aux parameter is not directly settable in MacroOscillator
+    // AD/VCA envelope methods don't exist in the actual Braids API
 }
 
 int16_t BraidsReference::frequencyToMidiNote(float frequency) {

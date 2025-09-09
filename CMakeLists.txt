@@ -99,14 +99,14 @@ add_library(braids STATIC
     eurorack/braids/digital_oscillator.cc
     eurorack/braids/quantizer.cc
     eurorack/braids/resources.cc
-    eurorack/braids/settings.cc
+    # settings.cc excluded - requires STM32 hardware
     # Headers
     eurorack/braids/macro_oscillator.h
     eurorack/braids/analog_oscillator.h
     eurorack/braids/digital_oscillator.h
     eurorack/braids/quantizer.h
     eurorack/braids/resources.h
-    eurorack/braids/settings.h
+    # settings.h excluded - requires STM32 hardware
     eurorack/braids/envelope.h
     eurorack/braids/excitation.h
     eurorack/braids/parameter_interpolation.h
@@ -143,9 +143,14 @@ target_sources(${PROJECT_NAME} PRIVATE
     Source/UI/ModulationSettingsOverlay.h
     Source/Modulation/LFO.h
     Source/Modulation/ModulationMatrix.h
-    # Adapter files will be added here when created
-    # Source/adapters/BraidsAdapter.cpp
-    # Source/adapters/BraidsAdapter.h
+    # Braids adapter files
+    Source/adapters/BraidsEngine.cpp
+    Source/adapters/BraidsEngine.h
+    Source/adapters/BraidsVoice.cpp
+    Source/adapters/BraidsVoice.h
+    Source/adapters/BraidsSynthesiser.cpp
+    Source/adapters/BraidsSynthesiser.h
+    Source/adapters/stmlib_stubs.cpp
 )
 
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)

@@ -14,7 +14,7 @@ BraidsSynthesiser::BraidsSynthesiser(int numVoices)
     , globalParam2_(0.5f)
     , maxPolyphony_(numVoices)
     , voiceStealingMode_(VoiceStealingMode::Oldest)
-    , cpuLoadAverage_(32) // Average over 32 samples
+    , cpuLoadAverage_(0.0f)
     , currentSampleRate_(48000.0)
 {
     // Initialize parameter CC mapping
@@ -34,48 +34,27 @@ BraidsSynthesiser::BraidsSynthesiser(int numVoices)
 
 BraidsSynthesiser::~BraidsSynthesiser() = default;
 
-void BraidsSynthesiser::setCurrentPlaybackSampleRate(double sampleRate) {
-    currentSampleRate_ = sampleRate;
-    juce::Synthesiser::setCurrentPlaybackSampleRate(sampleRate);
+void BraidsSynthesiser::setAlgorithm(int algorithm) {
+    globalAlgorithm_ = algorithm;
     
-    // Update all Braids voices with new sample rate
+    // Update all voices
     for (int i = 0; i < getNumVoices(); ++i) {
         if (auto* braidsVoice = dynamic_cast<BraidsVoice*>(getVoice(i))) {
-            braidsVoice->setSampleRate(sampleRate);
+            braidsVoice->setAlgorithm(algorithm);
         }
     }
 }
 
-void BraidsSynthesiser::renderNextBlock(juce::AudioBuffer<float>& outputAudio, const juce::MidiBuffer& inputMidi, int startSample, int numSamples) {
-    auto startTime = std::chrono::high_resolution_clock::now();
+void BraidsSynthesiser::setParameters(float param1, float param2) {
+    globalParam1_ = param1;
+    globalParam2_ = param2;
     
-    // Process MIDI CC messages for global parameter control
-    for (const auto& midiMessage : inputMidi) {
-        const auto& message = midiMessage.getMessage();
-        
-        if (message.isController()) {
-            int ccNumber = message.getControllerNumber();
-            float ccValue = message.getControllerValue() / 127.0f;
-            
-            // Check if this CC controls a global parameter
-            for (int param = 0; param < 2; ++param) {
-                if (parameterCCMap_[param] == ccNumber) {
-                    updateParameterThreadSafe(param, ccValue);
-                    break;
-                }
-            }
+    // Update all voices
+    for (int i = 0; i < getNumVoices(); ++i) {
+        if (auto* braidsVoice = dynamic_cast<BraidsVoice*>(getVoice(i))) {
+            braidsVoice->setParameters(param1, param2);
         }
     }
-    
-    // Call parent implementation
-    juce::Synthesiser::renderNextBlock(outputAudio, inputMidi, startSample, numSamples);
-    
-    // Update performance statistics
-    auto endTime = std::chrono::high_resolution_clock::now();
-    double renderTime = std::chrono::duration<double, std::milli>(endTime - startTime).count();
-    int activeVoices = getActiveVoiceCount();
-    
-    updatePerformanceStats(renderTime, activeVoices);
 }
 
 void BraidsSynthesiser::setGlobalAlgorithm(int algorithm) {
@@ -162,7 +141,7 @@ BraidsSynthesiser::PerformanceStats BraidsSynthesiser::getPerformanceStats() con
 void BraidsSynthesiser::resetPerformanceStats() {
     std::lock_guard<std::mutex> lock(statsMutex_);
     stats_ = {};
-    cpuLoadAverage_.clear();
+    cpuLoadAverage_ = 0.0f;
 }
 
 BraidsVoice* BraidsSynthesiser::getBraidsVoice(int voiceIndex) {
@@ -309,9 +288,10 @@ void BraidsSynthesiser::updatePerformanceStats(double renderTime, int activeVoic
     
     if (timeSinceLastUpdate >= 0.1) { // Update stats every 100ms
         float cpuLoad = static_cast<float>(renderTime / (timeSinceLastUpdate * 1000.0));
-        cpuLoadAverage_.pushNextSampleValue(cpuLoad);
+        // Simple exponential moving average
+        cpuLoadAverage_ = cpuLoadAverage_ * 0.9f + cpuLoad * 0.1f;
         
-        stats_.averageCpuLoad = cpuLoadAverage_.getAverage();
+        stats_.averageCpuLoad = cpuLoadAverage_;
         stats_.peakVoiceCount = std::max(stats_.peakVoiceCount, activeVoices);
         stats_.lastRenderTime = renderTime;
         

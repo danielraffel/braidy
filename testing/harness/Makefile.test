@@ -1,0 +1,63 @@
+# Makefile for testing the BraidsEngine wrapper
+# This builds the test program to validate wrapper against original Braids
+
+CXX = clang++
+CXXFLAGS = -std=c++17 -O2 -Wall -I../../eurorack -I../../eurorack/braids -I../../eurorack/stmlib -I../../Source -DTEST
+
+# Braids source files (excluding settings.cc which requires STM32 hardware)
+BRAIDS_SOURCES = ../../eurorack/braids/macro_oscillator.cc \
+                 ../../eurorack/braids/analog_oscillator.cc \
+                 ../../eurorack/braids/digital_oscillator.cc \
+                 ../../eurorack/braids/quantizer.cc \
+                 ../../eurorack/braids/resources.cc
+
+# Test harness files
+HARNESS_SOURCES = ModeRegistry.cpp \
+                  BraidsReference.cpp \
+                  AudioComparator.cpp \
+                  stmlib_stubs.cpp
+
+# Wrapper files
+WRAPPER_SOURCES = ../../Source/adapters/BraidsEngine.cpp
+
+# Test program
+TEST_SOURCES = test_wrapper.cpp
+
+# Object files
+BRAIDS_OBJS = $(BRAIDS_SOURCES:.cc=.o)
+HARNESS_OBJS = $(HARNESS_SOURCES:.cpp=.o)
+WRAPPER_OBJS = $(WRAPPER_SOURCES:.cpp=.o)
+TEST_OBJS = $(TEST_SOURCES:.cpp=.o)
+
+# Target
+TARGET = test_wrapper
+
+.PHONY: all clean test
+
+all: $(TARGET)
+
+$(TARGET): $(BRAIDS_OBJS) $(HARNESS_OBJS) $(WRAPPER_OBJS) $(TEST_OBJS)
+	$(CXX) $(CXXFLAGS) $^ -o $@
+
+# Pattern rules
+%.o: %.cc
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Run the test
+test: $(TARGET)
+	./$(TARGET)
+
+clean:
+	rm -f $(BRAIDS_OBJS) $(HARNESS_OBJS) $(WRAPPER_OBJS) $(TEST_OBJS) $(TARGET)
+	rm -f ../../eurorack/braids/*.o
+	rm -f ../../Source/adapters/*.o
+
+help:
+	@echo "Available targets:"
+	@echo "  all   - Build the test wrapper program"
+	@echo "  test  - Build and run the test"
+	@echo "  clean - Remove all built files"
+	@echo "  help  - Show this help message"

@@ -4,6 +4,7 @@
 
 #include "BraidsVoice.h"
 #include <algorithm>
+#include <iostream>
 #include <cmath>
 
 namespace BraidyAdapter {
@@ -38,6 +39,9 @@ bool BraidsVoice::canPlaySound(juce::SynthesiserSound* sound) {
 
 void BraidsVoice::startNote(int midiNoteNumber, float velocity, juce::SynthesiserSound* sound, int currentPitchWheelPosition) {
     juce::ignoreUnused(sound);
+    
+    std::cout << "[DEBUG] BraidsVoice::startNote - note=" << midiNoteNumber 
+              << " velocity=" << velocity << std::endl;
     
     isActive_ = true;
     currentMidiNote_ = midiNoteNumber;
@@ -119,6 +123,11 @@ void BraidsVoice::controllerMoved(int controllerNumber, int newControllerValue) 
 
 void BraidsVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer, int startSample, int numSamples) {
     if (!isActive_ || !braidsEngine_.isInitialized()) {
+        static int warnCount = 0;
+        if (++warnCount < 5) {
+            std::cout << "[DEBUG] BraidsVoice::renderNextBlock - skipping (active=" 
+                      << isActive_ << " initialized=" << braidsEngine_.isInitialized() << ")" << std::endl;
+        }
         return;
     }
     
@@ -166,6 +175,17 @@ void BraidsVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer, int st
     // Process audio through Braids engine
     float* audioData = tempBuffer.getWritePointer(0);
     braidsEngine_.processAudio(audioData, numSamples);
+    
+    // Debug: Check if we got any audio
+    static int debugCounter = 0;
+    if (++debugCounter % 100 == 0) {
+        float maxVal = 0;
+        for (int i = 0; i < numSamples; ++i) {
+            maxVal = std::max(maxVal, std::abs(audioData[i]));
+        }
+        std::cout << "[DEBUG] BraidsVoice - max audio: " << maxVal 
+                  << " note: " << currentMidiNote_ << std::endl;
+    }
     
     // Apply ADSR envelope and add to output buffer
     for (int channel = 0; channel < outputBuffer.getNumChannels(); ++channel) {

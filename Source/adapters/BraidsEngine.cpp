@@ -6,7 +6,6 @@
 
 // Include Braids headers
 #include "../../eurorack/braids/macro_oscillator.h"
-#include "../../eurorack/braids/settings.h"
 #include "../../eurorack/stmlib/dsp/parameter_interpolator.h"
 
 #include <algorithm>
@@ -83,6 +82,9 @@ static const std::vector<std::pair<std::string, std::string>> kParameterNames = 
 class BraidsEngine::Impl {
 public:
     Impl() : initialized_(false), sampleRate_(48000.0), algorithm_(0) {
+        // Zero-initialize the oscillator structure first
+        memset(&oscillator_, 0, sizeof(oscillator_));
+        
         // Initialize Braids oscillator
         oscillator_.Init();
         
@@ -96,9 +98,14 @@ public:
         // Initialize internal buffer
         internalBuffer_.resize(24); // Braids processes in 24-sample blocks
         syncBuffer_.resize(24);
+        std::fill(syncBuffer_.begin(), syncBuffer_.end(), 0);
         
         // Set default algorithm
         oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
+        
+        // Initialize oscillator parameters properly
+        oscillator_.set_parameters(32768, 32768); // Center position
+        oscillator_.set_pitch(8192); // ~60 MIDI note
     }
 
     void initialize(double sampleRate) {
@@ -106,11 +113,17 @@ public:
         sampleRate_ = sampleRate;
         initialized_ = true;
         
-        // Reset the oscillator
+        // Zero-initialize and reset the oscillator
+        memset(&oscillator_, 0, sizeof(oscillator_));
         oscillator_.Init();
         oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
+        oscillator_.set_parameters(32768, 32768);
         updatePitch();
         updateParameters();
+        
+        // Clear buffers
+        std::fill(internalBuffer_.begin(), internalBuffer_.end(), 0);
+        std::fill(syncBuffer_.begin(), syncBuffer_.end(), 0);
     }
 
     void setAlgorithm(int algorithm) {
@@ -169,12 +182,25 @@ public:
                 std::fill(syncBuffer_.data(), syncBuffer_.data() + samplesToProcess, 0);
             }
             
-            // Render audio using Braids
-            oscillator_.Render(syncBuffer_.data(), internalBuffer_.data(), samplesToProcess);
+            // Clear internal buffer before processing
+            std::fill(internalBuffer_.begin(), internalBuffer_.begin() + samplesToProcess, 0);
             
-            // Convert int16_t to float and copy to output buffer
+            // Render audio using Braids with safety
+            try {
+                oscillator_.Render(syncBuffer_.data(), internalBuffer_.data(), samplesToProcess);
+            } catch (...) {
+                // If render fails, output silence
+                std::fill(outputBuffer + samplesProcessed, 
+                         outputBuffer + samplesProcessed + samplesToProcess, 0.0f);
+                samplesProcessed += samplesToProcess;
+                continue;
+            }
+            
+            // Convert int16_t to float and copy to output buffer with clipping
             for (int i = 0; i < samplesToProcess; ++i) {
-                outputBuffer[samplesProcessed + i] = static_cast<float>(internalBuffer_[i]) / 32768.0f;
+                float sample = static_cast<float>(internalBuffer_[i]) / 32768.0f;
+                sample = std::clamp(sample, -1.0f, 1.0f);
+                outputBuffer[samplesProcessed + i] = sample;
             }
             
             samplesProcessed += samplesToProcess;
