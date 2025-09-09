@@ -5,7 +5,8 @@
 #include <set>
 
 // Exact algorithm names from Mutable Instruments Braids (4-character display)
-const std::array<const char*, 48> BraidyAudioProcessorEditor::algorithmNames_ = {
+// Note: Braids has exactly 47 algorithms (0-46)
+const std::array<const char*, 47> BraidyAudioProcessorEditor::algorithmNames_ = {
     "CSAW", "MRPH", "S/SQ", "S/TR", "BUZZ",          // Basic analog (0-4)
     "+SUB", "SAW+", "+SYN", "SAW*", "TRI3",          // Sub variants (5-9)
     "SQ3",  "TR3",  "SI3",  "RI3",  "SWRM",          // Triple variants (10-14)
@@ -15,7 +16,7 @@ const std::array<const char*, 48> BraidyAudioProcessorEditor::algorithmNames_ = 
     "BLOW", "FLUT", "BELL", "DRUM", "KICK",          // Physical modeling (30-34)
     "CYMB", "SNAR", "WTBL", "WMAP", "WLIN",          // Percussion & Wavetable (35-39)
     "WPAR", "NOIS", "TWLN", "CLKN", "CLDS",          // Wavetable & Noise (40-44)
-    "PART", "DIGI", "QPSK"                           // Final algorithms (45-47)
+    "PART", "DIGI"                                   // Final algorithms (45-46)
 };
 
 // Exact menu page names from Braids (4-character display)
@@ -871,8 +872,8 @@ void BraidyAudioProcessorEditor::updateDisplay() {
     
     switch (displayMode_) {
         case DisplayMode::Algorithm:
-            // Ensure we don't access out of bounds (limit to 0-47 for all algorithms)
-            if (currentAlgorithm_ >= 0 && currentAlgorithm_ <= 47) {
+            // Ensure we don't access out of bounds (limit to 0-46 for all algorithms)
+            if (currentAlgorithm_ >= 0 && currentAlgorithm_ <= 46) {
                 displayText = algorithmNames_[currentAlgorithm_];
                 static_cast<SimpleOLEDDisplay*>(oledDisplay_.get())->setText(displayText);
                 if (fileLogger_) {
@@ -956,7 +957,7 @@ void BraidyAudioProcessorEditor::updateParameterValues() {
     
     // Update algorithm display
     if (auto* algParam = apvts.getRawParameterValue("algorithm")) {
-        int newAlgorithm = static_cast<int>(algParam->load() * 47.0f + 0.5f);
+        int newAlgorithm = static_cast<int>(algParam->load() * 46.0f + 0.5f);
         if (newAlgorithm != currentAlgorithm_ && displayMode_ == DisplayMode::Algorithm) {
             currentAlgorithm_ = newAlgorithm;
             updateDisplay();
@@ -1004,10 +1005,10 @@ void BraidyAudioProcessorEditor::handleEncoderRotation(int delta) {
                 // Navigate algorithms with wrapping (like original Braids)
                 currentAlgorithm_ += delta;
                 
-                // Wrap around at the boundaries (48 algorithms total, index 0-47)
+                // Wrap around at the boundaries (47 algorithms total, index 0-46)
                 if (currentAlgorithm_ < 0) {
-                    currentAlgorithm_ = 47;  // Wrap to last algorithm (index 47)
-                } else if (currentAlgorithm_ > 47) {
+                    currentAlgorithm_ = 46;  // Wrap to last algorithm (index 46)
+                } else if (currentAlgorithm_ > 46) {
                     currentAlgorithm_ = 0;   // Wrap to first algorithm (index 0)
                 }
                 
@@ -1423,8 +1424,8 @@ void BraidyAudioProcessorEditor::updateAlgorithmParameter() {
     
     // Update the algorithm parameter in APVTS based on current algorithm
     if (auto* shapeParam = processorRef.getAPVTS().getParameter("algorithm")) {
-        // Convert algorithm index (0-47) to normalized value (0.0-1.0)
-        float normalizedValue = static_cast<float>(currentAlgorithm_) / 47.0f;
+        // Convert algorithm index (0-46) to normalized value (0.0-1.0)
+        float normalizedValue = static_cast<float>(currentAlgorithm_) / 46.0f;
         
         DBG("Found 'algorithm' parameter in APVTS");
         DBG("Normalized value: " + juce::String(normalizedValue, 4));

@@ -164,7 +164,7 @@ private:
     int currentAlgorithm_ = 0;
     
     // Algorithm names (4-character, matching Braids exactly)
-    static const std::array<const char*, 48> algorithmNames_;
+    static const std::array<const char*, 47> algorithmNames_;
     
     // Menu page names
     static const std::array<const char*, 24> menuPageNames_;
