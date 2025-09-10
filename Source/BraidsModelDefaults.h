@@ -52,33 +52,37 @@ const std::array<ModelDefaults, 47> MODEL_DEFAULTS = {{
     {"S/TR", 0.5f, 0.0f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
     {"BUZZ", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
     
-    // Triple oscillators (5-14)
-    {"/\\x3", 0.5f, 0.0f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
-    {"-_x3", 0.5f, 0.0f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
-    {"/x3", 0.5f, 0.0f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
-    {"SIx3", 0.5f, 0.0f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
-    {"RING", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
-    {"/\\-_", 0.3f, 0.0f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
-    {"-_/\\", 0.3f, 0.0f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
-    {"FOLD", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
-    {"uFOL", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
-    {"TOY*", 0.7f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
+    // Sub variants (5-9)
+    {"+SUB", 0.5f, 0.0f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
+    {"SAW+", 0.5f, 0.0f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
+    {"+SYN", 0.5f, 0.0f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
+    {"SAW*", 0.5f, 0.0f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
+    {"TRI3", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
     
-    // Digital/Filter (15-19)
-    {"ZLPF", 0.5f, 0.7f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
-    {"ZPKF", 0.5f, 0.8f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
-    {"ZBPF", 0.5f, 0.7f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
-    {"ZHPF", 0.5f, 0.3f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
+    // Triple variants (10-14)
+    {"SQ3", 0.3f, 0.0f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
+    {"TR3", 0.3f, 0.0f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
+    {"SI3", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
+    {"RI3", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
+    {"SWRM", 0.7f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
+    
+    // Digital filters (15-19)
+    {"COMB", 0.5f, 0.7f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
+    {"TOY", 0.5f, 0.8f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
+    {"FLTR", 0.5f, 0.7f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
+    {"PEAK", 0.5f, 0.3f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
+    {"BAND", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
+    
+    // Formants (20-24)
+    {"HIGH", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
     {"VOSM", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
-    
-    // Formant/Vocal (20-24)
     {"VOWL", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
-    {"VFOF", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
-    {"HARM", 0.3f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
-    {"FM  ", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
-    {"FBFM", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
+    {"VOW2", 0.3f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
+    {"HARM", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
     
-    // Physical modeling (25-31)
+    // FM & Physical (25-29)
+    {"FM", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
+    {"FBFM", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
     {"WTFM", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
     {"PLUK", 0.7f, 0.5f, 0.0f, 0.0f, {0.01f, 0.5f, 0.0f, 0.5f, false}, 0.9f, false, true},
     {"BOWD", 0.5f, 0.5f, 0.0f, 0.0f, {0.1f, 0.0f, 1.0f, 0.1f, false}, 0.8f, false, false},
@@ -86,27 +90,25 @@ const std::array<ModelDefaults, 47> MODEL_DEFAULTS = {{
     {"FLUT", 0.5f, 0.5f, 0.0f, 0.0f, {0.05f, 0.0f, 1.0f, 0.2f, false}, 0.8f, false, false},
     {"BELL", 0.5f, 0.8f, 0.0f, 0.0f, {0.001f, 2.0f, 0.0f, 2.0f, false}, 0.9f, true, true},
     {"DRUM", 0.5f, 0.5f, 0.0f, 0.0f, {0.001f, 0.3f, 0.0f, 0.3f, false}, 0.9f, true, true},
-    
-    // Percussion (32-38) - These need trigger/strike
     {"KICK", 0.5f, 0.7f, 0.0f, 0.0f, {0.001f, 0.5f, 0.0f, 0.5f, false}, 1.0f, true, true},
+    
+    // Percussion & Wavetable (35-39)
     {"CYMB", 0.5f, 0.7f, 0.0f, 0.0f, {0.001f, 1.5f, 0.0f, 1.5f, false}, 0.8f, true, true},
     {"SNAR", 0.5f, 0.5f, 0.0f, 0.0f, {0.001f, 0.2f, 0.0f, 0.2f, false}, 0.9f, true, true},
     {"WTBL", 0.5f, 0.0f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
     {"WMAP", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
     {"WLIN", 0.5f, 0.0f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
-    {"WTx4", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
     
-    // Noise/Texture (39-46)
+    // Wavetable & Noise (40-44)
+    {"WPAR", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
     {"NOIS", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
-    {"TWNQ", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
+    {"TWLN", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
     {"CLKN", 0.8f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
-    {"CLOU", 0.5f, 0.7f, 0.0f, 0.0f, {0.0f, 0.0f, 1.0f, 0.5f, true}, 0.7f, false, false},
-    {"PRTC", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
-    {"QPSK", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
+    {"CLDS", 0.5f, 0.7f, 0.0f, 0.0f, {0.0f, 0.0f, 1.0f, 0.5f, true}, 0.7f, false, false},
     
-    // Digital/Chiptune
-    {"FMFB", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false},
-    {"TOY ", 0.7f, 0.3f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false}
+    // Final algorithms (45-46)
+    {"PART", 0.5f, 0.5f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.7f, false, false},
+    {"DIGI", 0.7f, 0.3f, 0.0f, 0.0f, {0.0f, 0.3f, 1.0f, 0.3f, true}, 0.8f, false, false}
 }};
 
 // Menu settings that persist per model

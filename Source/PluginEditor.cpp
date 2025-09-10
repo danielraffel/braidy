@@ -1013,10 +1013,36 @@ void BraidyAudioProcessorEditor::updateParameterValues() {
     // Sync knob positions with parameter values
     auto& apvts = processorRef.getAPVTS();
     
-    // Don't update algorithm from parameter - let the encoder control it directly
-    // This was causing the algorithm to jump to DIGI constantly
-    // The encoder already updates currentAlgorithm_ directly and calls updateAlgorithmParameter()
-    // which syncs it to the processor
+    // Update algorithm from parameter when it changes from the host (e.g., Logic dropdown)
+    // We need to detect when the parameter changes from outside the plugin UI
+    if (auto* algorithmParam = apvts.getRawParameterValue("algorithm")) {
+        // AudioParameterChoice stores the actual index, not a normalized value!
+        int paramAlgorithm = static_cast<int>(algorithmParam->load());
+        
+        // Only update if the parameter differs from our current UI state
+        // This prevents feedback loops while still syncing with host changes
+        if (paramAlgorithm != currentAlgorithm_ && !updatingAlgorithmFromEncoder_ && 
+            editEncoder_ && !editEncoder_->isBeingManipulated()) {
+            // Host changed the algorithm (e.g., via Logic dropdown)
+            currentAlgorithm_ = paramAlgorithm;
+            
+            // Validate bounds
+            if (currentAlgorithm_ < 0 || currentAlgorithm_ >= static_cast<int>(algorithmNames_.size())) {
+                currentAlgorithm_ = 0;
+            }
+            
+            // Update display to reflect the change
+            updateDisplay();
+            
+            // Load defaults for the new algorithm
+            loadModelDefaults(currentAlgorithm_);
+            
+            if (fileLogger_) {
+                fileLogger_->logMessage("[PARAM SYNC] Algorithm changed from host to: " + 
+                    juce::String(algorithmNames_[currentAlgorithm_]) + " (" + juce::String(currentAlgorithm_) + ")");
+            }
+        }
+    }
     
     // Update Timbre knob
     if (auto* param1 = apvts.getRawParameterValue("param1")) {
@@ -1507,6 +1533,14 @@ void BraidyAudioProcessorEditor::updateAlgorithmParameter() {
     DBG("=== UPDATE ALGORITHM PARAMETER DEBUG ===");
     DBG("Current algorithm index: " + juce::String(currentAlgorithm_));
     
+    // Set flag to prevent feedback loops during parameter update
+    // Use RAII to ensure flag is always cleared
+    struct FlagGuard {
+        bool& flag;
+        FlagGuard(bool& f) : flag(f) { flag = true; }
+        ~FlagGuard() { flag = false; }
+    } guard(updatingAlgorithmFromEncoder_);
+    
     // Safe bounds check before accessing array
     if (currentAlgorithm_ >= 0 && currentAlgorithm_ < static_cast<int>(algorithmNames_.size())) {
         DBG("Algorithm: " + juce::String(algorithmNames_[currentAlgorithm_]));
@@ -1722,9 +1756,23 @@ void BraidyAudioProcessorEditor::checkForReleasedKeys() {
 }
 
 void BraidyAudioProcessorEditor::loadModelDefaults(int algorithmIndex) {
-    // Ensure algorithm index is valid (0-47 for 48 algorithms, but only 47 in BraidsDefaults)
-    // Note: BraidsDefaults only has 47 algorithms, not 48
-    if (algorithmIndex < 0 || algorithmIndex > 46) return;
+    // Ensure algorithm index is valid (0-46 for 47 algorithms in BraidsDefaults)
+    // CRITICAL: BraidsDefaults::MODEL_DEFAULTS has exactly 47 entries (indices 0-46)
+    if (algorithmIndex < 0 || algorithmIndex >= static_cast<int>(BraidsDefaults::MODEL_DEFAULTS.size())) {
+        if (fileLogger_) {
+            fileLogger_->logMessage("[DEFAULTS] ERROR: Algorithm index out of bounds: " + 
+                juce::String(algorithmIndex) + " (max: " + 
+                juce::String(BraidsDefaults::MODEL_DEFAULTS.size() - 1) + ")");
+        }
+        return;
+    }
+    
+    // Additional safety check for PLUK algorithm specifically
+    if (algorithmIndex == 28) { // PLUK is at index 28
+        if (fileLogger_) {
+            fileLogger_->logMessage("[DEFAULTS] Loading PLUK algorithm (index 28) with safety checks");
+        }
+    }
     
     // Get the model defaults for this algorithm
     const auto& defaults = BraidsDefaults::MODEL_DEFAULTS[algorithmIndex];
@@ -1747,12 +1795,13 @@ void BraidyAudioProcessorEditor::loadModelDefaults(int algorithmIndex) {
         colorKnob_->setValue(defaults.color);
     }
     
-    // Set FM and modulation amounts
-    if (fmKnob_) {
-        fmKnob_->setValue(0.5f);  // Center position (no FM by default)
+    // Preserve current FM and modulation knob positions to avoid jumping
+    // Only reset if knobs are not initialized yet
+    if (fmKnob_ && fmKnob_->getValue() == 0.0f) {
+        fmKnob_->setValue(defaults.fm);  // Use algorithm-specific default instead of hardcoded 0.5f
     }
-    if (timbreModKnob_) {
-        timbreModKnob_->setValue(0.5f);  // Center position (no modulation)
+    if (timbreModKnob_ && timbreModKnob_->getValue() == 0.5f) {
+        timbreModKnob_->setValue(defaults.modulation);  // Use algorithm-specific default
     }
     // Note: colorModKnob_ doesn't exist in current implementation
     

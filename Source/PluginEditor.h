@@ -60,6 +60,9 @@ private:
         std::function<void()> onClick;
         std::function<void()> onLongPress;
         
+        // Public method to check if encoder is being actively used
+        bool isBeingManipulated() const { return isPressed_; }
+        
     private:
         float angle_ = 0.0f;
         float lastAngle_ = 0.0f;
@@ -166,6 +169,7 @@ private:
     
     DisplayMode displayMode_ = DisplayMode::Algorithm;
     int currentAlgorithm_ = 0;
+    bool updatingAlgorithmFromEncoder_ = false;  // Flag to prevent feedback loops
     
     // Algorithm names (4-character, matching Braids exactly)
     static const std::array<const char*, 47> algorithmNames_;

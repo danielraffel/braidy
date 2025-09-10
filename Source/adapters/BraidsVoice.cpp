@@ -67,8 +67,10 @@ void BraidsVoice::startNote(int midiNoteNumber, float velocity, juce::Synthesise
     
     // For percussion algorithms, trigger a strike
     int algorithm = braidsEngine_.getAlgorithm();
-    if (algorithm >= 32 && algorithm <= 38) { // Percussion algorithms
+    // Percussion algorithms: BELL(32), DRUM(33), KICK(34), CYMB(35), SNAR(36)
+    if (algorithm >= 32 && algorithm <= 36) {
         braidsEngine_.strike();
+        std::cout << "[DEBUG] Triggering strike for percussion algorithm: " << algorithm << std::endl;
     }
     
     updatePitch();
@@ -177,7 +179,10 @@ void BraidsVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer, int st
     
     // Process audio through Braids engine
     float* audioData = tempBuffer.getWritePointer(0);
-    braidsEngine_.processAudio(audioData, numSamples);
+    
+    // Create sync buffer (nullptr for now - no external sync)
+    // This is required by the Braids engine for some algorithms
+    braidsEngine_.processAudio(audioData, numSamples, nullptr);
     
     // Debug: Check if we got any audio
     static int debugCounter = 0;
@@ -203,11 +208,42 @@ void BraidsVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer, int st
 }
 
 void BraidsVoice::setAlgorithm(int algorithm) {
-    braidsEngine_.setAlgorithm(algorithm);
+    // Validate algorithm bounds before passing to engine
+    if (algorithm < 0 || algorithm > 46) {
+        std::cerr << "[ERROR] BraidsVoice::setAlgorithm - invalid algorithm: " << algorithm << std::endl;
+        return;
+    }
     
-    // For percussion algorithms, trigger a strike after algorithm change
-    if (algorithm >= 32 && algorithm <= 38 && isActive_) {
-        braidsEngine_.strike();
+    std::cout << "[DEBUG] BraidsVoice::setAlgorithm - setting algorithm to: " << algorithm << std::endl;
+    
+    // Special handling for PLUK algorithm to prevent crashes
+    if (algorithm == 28) { // PLUK algorithm
+        std::cout << "[DEBUG] Setting PLUK algorithm with enhanced safety" << std::endl;
+        
+        // If voice is currently active, stop it temporarily to avoid crashes during algorithm change
+        bool wasActive = isActive_;
+        if (wasActive) {
+            isActive_ = false;
+            adsr_.reset();
+        }
+        
+        braidsEngine_.setAlgorithm(algorithm);
+        
+        // Restart voice if it was active
+        if (wasActive && currentMidiNote_ >= 0) {
+            isActive_ = true;
+            adsr_.noteOn();
+            braidsEngine_.strike(); // PLUK needs a strike to sound
+        }
+    } else {
+        braidsEngine_.setAlgorithm(algorithm);
+        
+        // For percussion algorithms, trigger a strike after algorithm change if note is active
+        // Percussion algorithms: BELL(32), DRUM(33), KICK(34), CYMB(35), SNAR(36)
+        if (algorithm >= 32 && algorithm <= 36 && isActive_) {
+            braidsEngine_.strike();
+            std::cout << "[DEBUG] Triggering strike after algorithm change to: " << algorithm << std::endl;
+        }
     }
 }
 

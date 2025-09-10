@@ -115,8 +115,7 @@ public:
         sampleRate_ = sampleRate;
         initialized_ = true;
         
-        // Zero-initialize and reset the oscillator
-        memset(&oscillator_, 0, sizeof(oscillator_));
+        // Initialize the oscillator properly (don't use memset on C++ objects!)
         oscillator_.Init();
         oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
         oscillator_.set_parameters(32768, 32768);
@@ -130,22 +129,55 @@ public:
 
     void setAlgorithm(int algorithm) {
         std::lock_guard<std::mutex> lock(mutex_);
+        
+        // Clamp algorithm to valid range (0 to MACRO_OSC_SHAPE_LAST_ACCESSIBLE_FROM_META = 46)
         algorithm = std::clamp(algorithm, 0, static_cast<int>(braids::MACRO_OSC_SHAPE_LAST_ACCESSIBLE_FROM_META));
+        
+        // Additional bounds check against our algorithm names array
+        if (algorithm >= static_cast<int>(kAlgorithmNames.size())) {
+            std::cerr << "[ERROR] Algorithm index " << algorithm << " exceeds available algorithms (" 
+                      << kAlgorithmNames.size() << "). Resetting to 0." << std::endl;
+            algorithm = 0;
+        }
         
         if (algorithm != algorithm_) {
             std::cout << "[DEBUG] BraidsEngine::setAlgorithm changing from " << algorithm_ 
                       << " to " << algorithm << " (name: " << kAlgorithmNames[algorithm] << ")" << std::endl;
+            
+            // Special handling for PLUK algorithm (index 28) - ensure safe initialization
+            if (algorithm == 28) { // MACRO_OSC_SHAPE_PLUCKED
+                std::cout << "[DEBUG] Initializing PLUK algorithm with extra safety" << std::endl;
+            }
+            
             algorithm_ = algorithm;
             
             // Reinitialize the oscillator when changing algorithms to avoid crashes
-            oscillator_.Init();
-            oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm));
-            
-            // Reset parameters to safe defaults
-            oscillator_.set_parameters(32768, 32768);
-            
-            // Force parameter update when algorithm changes
-            updateParameters();
+            try {
+                oscillator_.Init();
+                oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm));
+                
+                // Reset parameters to safe defaults
+                oscillator_.set_parameters(32768, 32768);
+                
+                // Force parameter update when algorithm changes
+                updateParameters();
+                
+                std::cout << "[DEBUG] Algorithm change successful: " << kAlgorithmNames[algorithm] << std::endl;
+            } catch (const std::exception& e) {
+                std::cerr << "[ERROR] Failed to set algorithm " << algorithm << ": " << e.what() << std::endl;
+                // Fall back to a safe algorithm
+                algorithm_ = 0; // CSAW
+                oscillator_.Init();
+                oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(0));
+                oscillator_.set_parameters(32768, 32768);
+            } catch (...) {
+                std::cerr << "[ERROR] Unknown error setting algorithm " << algorithm << std::endl;
+                // Fall back to a safe algorithm
+                algorithm_ = 0; // CSAW
+                oscillator_.Init();
+                oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(0));
+                oscillator_.set_parameters(32768, 32768);
+            }
         }
     }
 
