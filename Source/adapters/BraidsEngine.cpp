@@ -144,11 +144,6 @@ public:
             std::cout << "[DEBUG] BraidsEngine::setAlgorithm changing from " << algorithm_ 
                       << " to " << algorithm << " (name: " << kAlgorithmNames[algorithm] << ")" << std::endl;
             
-            // Special handling for PLUK algorithm (index 28) - ensure safe initialization
-            if (algorithm == 28) { // MACRO_OSC_SHAPE_PLUCKED
-                std::cout << "[DEBUG] Initializing PLUK algorithm with extra safety" << std::endl;
-            }
-            
             algorithm_ = algorithm;
             
             // Reinitialize the oscillator when changing algorithms to avoid crashes
@@ -161,6 +156,15 @@ public:
                 
                 // Force parameter update when algorithm changes
                 updateParameters();
+                
+                // Special handling for percussion algorithms that might need striking
+                if (algorithm == 28 || algorithm == 32 || algorithm == 33 || algorithm == 34 || algorithm == 35 || algorithm == 36) { 
+                    // PLUCKED=28, STRUCK_BELL=32, STRUCK_DRUM=33, KICK=34, CYMBAL=35, SNARE=36
+                    std::cout << "[DEBUG] Striking percussion algorithm " << algorithm 
+                              << " (" << kAlgorithmNames[algorithm] << ")" << std::endl;
+                    // Strike the oscillator to initialize percussion algorithms properly
+                    oscillator_.Strike();
+                }
                 
                 std::cout << "[DEBUG] Algorithm change successful: " << kAlgorithmNames[algorithm] << std::endl;
             } catch (const std::exception& e) {
@@ -253,7 +257,7 @@ public:
         while (samplesProcessed < numSamples) {
             int samplesToProcess = std::min(24, numSamples - samplesProcessed);
             
-            // Prepare sync buffer
+            // Prepare sync buffer - ensure it's exactly 24 samples
             if (syncBuffer) {
                 std::copy(syncBuffer + samplesProcessed, 
                          syncBuffer + samplesProcessed + samplesToProcess, 
@@ -261,17 +265,22 @@ public:
             } else {
                 std::fill(syncBuffer_.data(), syncBuffer_.data() + samplesToProcess, 0);
             }
+            // Pad remaining bytes if samplesToProcess < 24
+            if (samplesToProcess < 24) {
+                std::fill(syncBuffer_.data() + samplesToProcess, syncBuffer_.data() + 24, 0);
+            }
             
-            // Clear internal buffer before processing
-            std::fill(internalBuffer_.begin(), internalBuffer_.begin() + samplesToProcess, 0);
+            // Clear internal buffer before processing - ensure exactly 24 samples
+            std::fill(internalBuffer_.begin(), internalBuffer_.end(), 0);
             
             // Render audio using Braids with safety
-            // Note: Some algorithms may have internal issues, so we protect against crashes
+            // CRITICAL: Always pass exactly 24 samples to Braids as it expects this internally
             bool renderSuccess = false;
             try {
                 // Ensure oscillator is in a valid state before rendering
                 if (initialized_) {
-                    oscillator_.Render(syncBuffer_.data(), internalBuffer_.data(), samplesToProcess);
+                    // Always render exactly 24 samples - Braids expects this
+                    oscillator_.Render(syncBuffer_.data(), internalBuffer_.data(), 24);
                     renderSuccess = true;
                 }
             } catch (const std::exception& e) {

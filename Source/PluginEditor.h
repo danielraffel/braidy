@@ -9,6 +9,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <memory>
 #include <array>
+#include <atomic>
 
 //==============================================================================
 /**
@@ -214,9 +215,14 @@ private:
     void applyMenuValue();
     juce::String getFormattedMenuValue() const;
     void loadModelDefaults(int algorithmIndex);
+    void loadModelDefaultsSafe(int algorithmIndex);
     
     // File logger for debug output
     std::unique_ptr<juce::FileLogger> fileLogger_;
+    
+    // Thread safety for algorithm changes
+    std::atomic<bool> algorithmChangePending_{false};
+    std::atomic<int> pendingAlgorithmChange_{-1};
     
     // Modulation system
     braidy::ModulationMatrix modulationMatrix_;

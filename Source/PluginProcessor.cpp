@@ -327,12 +327,21 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                 braidy::ModulationMatrix::ALGORITHM_SELECTION, newAlgorithm, 0, 46);
         }
         
-        // Update if changed
+        // Update if changed with safer voice management
         if (newAlgorithm != currentAlgorithm_) {
             std::cout << "[DEBUG] PluginProcessor: Algorithm changed from " << currentAlgorithm_ 
                       << " to " << newAlgorithm << std::endl;
+            
+            // THREAD SAFETY FIX: Stop all voices before changing algorithm to prevent crashes
+            // This is especially important for algorithms like PLUK/BELL that can crash during voice switches
+            synthesiser_->allNotesOff(0, true); // Force stop all active voices
+            
             currentAlgorithm_ = newAlgorithm;
+            
+            // Set algorithm on synthesiser (this will update all voices)
             synthesiser_->setAlgorithm(newAlgorithm);
+            
+            std::cout << "[DEBUG] PluginProcessor: Algorithm change completed safely" << std::endl;
         }
         
         if (newParam1 != currentParam1_ || newParam2 != currentParam2_) {

@@ -1097,6 +1097,14 @@ void BraidyAudioProcessorEditor::handleEncoderRotation(int delta) {
     switch (displayMode_) {
         case DisplayMode::Algorithm:
             {
+                // CRITICAL FIX: Check if algorithm change is already pending to prevent race conditions
+                if (algorithmChangePending_.load()) {
+                    if (fileLogger_) {
+                        fileLogger_->logMessage("[RACE PROTECTION] Algorithm change already pending, ignoring encoder input");
+                    }
+                    return; // Ignore encoder input until previous change completes
+                }
+                
                 int oldAlgorithm = currentAlgorithm_;
                 // Navigate algorithms with wrapping (like original Braids)
                 currentAlgorithm_ += delta;
@@ -1106,6 +1114,14 @@ void BraidyAudioProcessorEditor::handleEncoderRotation(int delta) {
                     currentAlgorithm_ = 46;  // Wrap to last algorithm (index 46)
                 } else if (currentAlgorithm_ > 46) {
                     currentAlgorithm_ = 0;   // Wrap to first algorithm (index 0)
+                }
+                
+                // Validate algorithm bounds before proceeding
+                if (currentAlgorithm_ < 0 || currentAlgorithm_ >= static_cast<int>(algorithmNames_.size())) {
+                    if (fileLogger_) {
+                        fileLogger_->logMessage("[ERROR] Algorithm index out of bounds: " + juce::String(currentAlgorithm_) + ", resetting to 0");
+                    }
+                    currentAlgorithm_ = 0;
                 }
                 
                 // Safe bounds check before accessing array
@@ -1124,11 +1140,18 @@ void BraidyAudioProcessorEditor::handleEncoderRotation(int delta) {
                         oldName + " to [" + juce::String(currentAlgorithm_) + "] " + newName);
                 }
                 
-                // Update the audio parameter
+                // THREAD SAFETY FIX: Set atomic flag before making changes
+                algorithmChangePending_.store(true);
+                pendingAlgorithmChange_.store(currentAlgorithm_);
+                
+                // Update the audio parameter thread-safely
                 updateAlgorithmParameter();
                 
                 // Load default parameters for the new algorithm
                 loadModelDefaults(currentAlgorithm_);
+                
+                // Clear the pending flag after safe completion
+                algorithmChangePending_.store(false);
                 
                 // Stay in algorithm mode, don't jump to menu
                 displayMode_ = DisplayMode::Algorithm;
@@ -1541,44 +1564,76 @@ void BraidyAudioProcessorEditor::updateAlgorithmParameter() {
         ~FlagGuard() { flag = false; }
     } guard(updatingAlgorithmFromEncoder_);
     
+    // THREAD SAFETY: Double-check bounds even more strictly
+    if (currentAlgorithm_ < 0 || currentAlgorithm_ >= 47) { // Braids has exactly 47 algorithms (0-46)
+        if (fileLogger_) {
+            fileLogger_->logMessage("[CRITICAL ERROR] Algorithm index completely out of bounds: " + 
+                juce::String(currentAlgorithm_) + " - resetting to safe value");
+        }
+        DBG("CRITICAL ERROR: Algorithm index completely out of bounds: " + juce::String(currentAlgorithm_));
+        currentAlgorithm_ = 0;  // Reset to safe value (CSAW)
+        pendingAlgorithmChange_.store(0); // Update atomic as well
+    }
+    
     // Safe bounds check before accessing array
     if (currentAlgorithm_ >= 0 && currentAlgorithm_ < static_cast<int>(algorithmNames_.size())) {
         DBG("Algorithm: " + juce::String(algorithmNames_[currentAlgorithm_]));
+        if (fileLogger_) {
+            fileLogger_->logMessage("[ALGORITHM UPDATE] Setting to: " + juce::String(algorithmNames_[currentAlgorithm_]) + 
+                " (index " + juce::String(currentAlgorithm_) + ")");
+        }
     } else {
         DBG("Algorithm: INVALID INDEX (" + juce::String(currentAlgorithm_) + ")");
+        if (fileLogger_) {
+            fileLogger_->logMessage("[ERROR] Invalid algorithm index after bounds check: " + juce::String(currentAlgorithm_));
+        }
         currentAlgorithm_ = 0;  // Reset to safe value
+        pendingAlgorithmChange_.store(0); // Update atomic as well
     }
     
-    // Update the algorithm parameter in APVTS based on current algorithm
-    if (auto* param = processorRef.getAPVTS().getParameter("algorithm")) {
-        // Always use normalized value for parameters
-        float normalizedValue = static_cast<float>(currentAlgorithm_) / 46.0f;
-        
-        DBG("Found 'algorithm' parameter in APVTS");
-        DBG("Setting algorithm index: " + juce::String(currentAlgorithm_));
-        DBG("Normalized value: " + juce::String(normalizedValue, 4));
-        
-        float oldValue = param->getValue();
-        
-        // Use proper change gesture for automation
-        param->beginChangeGesture();
-        param->setValueNotifyingHost(normalizedValue);
-        param->endChangeGesture();
-        
-        float newValue = param->getValue();
-        
-        DBG("Parameter value changed from " + juce::String(oldValue, 4) + " to " + juce::String(newValue, 4));
-    } else {
-        DBG("ERROR: 'algorithm' parameter NOT FOUND in APVTS!");
-        
-        // List all available parameters
-        DBG("Available parameters:");
-        for (auto* param : processorRef.getParameters()) {
-            if (auto* rangedParam = dynamic_cast<juce::RangedAudioParameter*>(param)) {
-                DBG("  - " + rangedParam->getParameterID());
+    // THREAD SAFETY: Use message manager to safely communicate with audio thread
+    // This prevents direct manipulation during audio processing
+    juce::MessageManager::callAsync([this]() {
+        // Update the algorithm parameter in APVTS based on current algorithm
+        if (auto* param = processorRef.getAPVTS().getParameter("algorithm")) {
+            // Always use normalized value for parameters
+            float normalizedValue = static_cast<float>(currentAlgorithm_) / 46.0f;
+            normalizedValue = juce::jlimit(0.0f, 1.0f, normalizedValue); // Extra safety clamp
+            
+            DBG("Found 'algorithm' parameter in APVTS");
+            DBG("Setting algorithm index: " + juce::String(currentAlgorithm_));
+            DBG("Normalized value: " + juce::String(normalizedValue, 4));
+            
+            float oldValue = param->getValue();
+            
+            // Use proper change gesture for automation
+            param->beginChangeGesture();
+            param->setValueNotifyingHost(normalizedValue);
+            param->endChangeGesture();
+            
+            float newValue = param->getValue();
+            
+            DBG("Parameter value changed from " + juce::String(oldValue, 4) + " to " + juce::String(newValue, 4));
+            
+            if (fileLogger_) {
+                fileLogger_->logMessage("[PARAMETER CHANGE] Algorithm parameter updated: " + 
+                    juce::String(oldValue, 4) + " -> " + juce::String(newValue, 4));
+            }
+        } else {
+            DBG("ERROR: 'algorithm' parameter NOT FOUND in APVTS!");
+            if (fileLogger_) {
+                fileLogger_->logMessage("[ERROR] Algorithm parameter not found in APVTS!");
+            }
+            
+            // List all available parameters
+            DBG("Available parameters:");
+            for (auto* param : processorRef.getParameters()) {
+                if (auto* rangedParam = dynamic_cast<juce::RangedAudioParameter*>(param)) {
+                    DBG("  - " + rangedParam->getParameterID());
+                }
             }
         }
-    }
+    });
 }
 
 //==============================================================================
@@ -1756,68 +1811,110 @@ void BraidyAudioProcessorEditor::checkForReleasedKeys() {
 }
 
 void BraidyAudioProcessorEditor::loadModelDefaults(int algorithmIndex) {
+    // THREAD SAFETY: Check if we're in the middle of an algorithm change
+    if (algorithmChangePending_.load()) {
+        if (fileLogger_) {
+            fileLogger_->logMessage("[DEFAULTS] Algorithm change pending, deferring default loading");
+        }
+        // Defer the load until the algorithm change completes
+        juce::Timer::callAfterDelay(50, [this, algorithmIndex]() {
+            loadModelDefaults(algorithmIndex);
+        });
+        return;
+    }
+    
     // Ensure algorithm index is valid (0-46 for 47 algorithms in BraidsDefaults)
     // CRITICAL: BraidsDefaults::MODEL_DEFAULTS has exactly 47 entries (indices 0-46)
     if (algorithmIndex < 0 || algorithmIndex >= static_cast<int>(BraidsDefaults::MODEL_DEFAULTS.size())) {
         if (fileLogger_) {
             fileLogger_->logMessage("[DEFAULTS] ERROR: Algorithm index out of bounds: " + 
                 juce::String(algorithmIndex) + " (max: " + 
-                juce::String(BraidsDefaults::MODEL_DEFAULTS.size() - 1) + ")");
+                juce::String(BraidsDefaults::MODEL_DEFAULTS.size() - 1) + ") - aborting load");
         }
         return;
     }
     
-    // Additional safety check for PLUK algorithm specifically
+    // Additional safety check for PLUK and other problematic algorithms
     if (algorithmIndex == 28) { // PLUK is at index 28
         if (fileLogger_) {
-            fileLogger_->logMessage("[DEFAULTS] Loading PLUK algorithm (index 28) with safety checks");
+            fileLogger_->logMessage("[DEFAULTS] Loading PLUK algorithm (index 28) with enhanced safety checks");
         }
+        // PLUK needs special handling - ensure synthesiser is in a stable state
+        if (auto* synth = processorRef.getSynthesiser()) {
+            // Stop all active voices before loading PLUK defaults to prevent crashes
+            synth->allNotesOff(0, true); // Force stop all notes
+            
+            // Small delay to let voices stop cleanly
+            juce::Timer::callAfterDelay(10, [this, algorithmIndex]() {
+                loadModelDefaultsSafe(algorithmIndex);
+            });
+            return;
+        }
+    }
+    
+    // For non-PLUK algorithms or if we can't access synthesiser, load directly
+    loadModelDefaultsSafe(algorithmIndex);
+}
+
+void BraidyAudioProcessorEditor::loadModelDefaultsSafe(int algorithmIndex) {
+    // This is the actual implementation, called after safety checks
+    if (algorithmIndex < 0 || algorithmIndex >= static_cast<int>(BraidsDefaults::MODEL_DEFAULTS.size())) {
+        return; // Already logged error above
     }
     
     // Get the model defaults for this algorithm
     const auto& defaults = BraidsDefaults::MODEL_DEFAULTS[algorithmIndex];
     
-    // Update parameter values
-    if (auto* param1 = processorRef.getAPVTS().getParameter("param1")) {
-        param1->setValueNotifyingHost(defaults.timbre);
-    }
+    // THREAD SAFETY: Use async message to avoid race conditions with audio thread
+    juce::MessageManager::callAsync([this, algorithmIndex, defaults]() {
+        // Update parameter values through APVTS (thread-safe)
+        if (auto* param1 = processorRef.getAPVTS().getParameter("param1")) {
+            param1->beginChangeGesture();
+            param1->setValueNotifyingHost(defaults.timbre);
+            param1->endChangeGesture();
+        }
+        
+        if (auto* param2 = processorRef.getAPVTS().getParameter("param2")) {
+            param2->beginChangeGesture();
+            param2->setValueNotifyingHost(defaults.color);
+            param2->endChangeGesture();
+        }
+        
+        // Update knob positions to reflect new values
+        if (timbreKnob_) {
+            timbreKnob_->setValue(defaults.timbre);
+        }
+        
+        if (colorKnob_) {
+            colorKnob_->setValue(defaults.color);
+        }
+        
+        // Preserve current FM and modulation knob positions to avoid jumping
+        // Only reset if knobs are not initialized yet
+        if (fmKnob_ && fmKnob_->getValue() == 0.0f) {
+            fmKnob_->setValue(defaults.fm);  // Use algorithm-specific default instead of hardcoded 0.5f
+        }
+        if (timbreModKnob_ && timbreModKnob_->getValue() == 0.5f) {
+            timbreModKnob_->setValue(defaults.modulation);  // Use algorithm-specific default
+        }
+        // Note: colorModKnob_ doesn't exist in current implementation
+        
+        if (fileLogger_) {
+            fileLogger_->logMessage("[DEFAULTS] Loaded defaults for " + juce::String(defaults.name) + 
+                                     " - Timbre: " + juce::String(defaults.timbre) + 
+                                     ", Color: " + juce::String(defaults.color));
+        }
+    });
     
-    if (auto* param2 = processorRef.getAPVTS().getParameter("param2")) {
-        param2->setValueNotifyingHost(defaults.color);
-    }
-    
-    // Update knob positions to reflect new values
-    if (timbreKnob_) {
-        timbreKnob_->setValue(defaults.timbre);
-    }
-    
-    if (colorKnob_) {
-        colorKnob_->setValue(defaults.color);
-    }
-    
-    // Preserve current FM and modulation knob positions to avoid jumping
-    // Only reset if knobs are not initialized yet
-    if (fmKnob_ && fmKnob_->getValue() == 0.0f) {
-        fmKnob_->setValue(defaults.fm);  // Use algorithm-specific default instead of hardcoded 0.5f
-    }
-    if (timbreModKnob_ && timbreModKnob_->getValue() == 0.5f) {
-        timbreModKnob_->setValue(defaults.modulation);  // Use algorithm-specific default
-    }
-    // Note: colorModKnob_ doesn't exist in current implementation
-    
-    // If this is a percussion model, trigger a strike
+    // Handle percussion trigger separately to avoid blocking the UI
     if (defaults.isPercussive && processorRef.getSynthesiser()) {
         // Send a trigger/strike to the synthesizer for percussion models
         // This triggers a short C4 note to demonstrate the percussion sound
-        sendMidiNoteOn(60, 0.8f);  // C4 with velocity 0.8
-        juce::Timer::callAfterDelay(100, [this]() {
-            sendMidiNoteOff(60);
+        juce::Timer::callAfterDelay(200, [this]() { // Delay to let algorithm change settle
+            sendMidiNoteOn(60, 0.8f);  // C4 with velocity 0.8
+            juce::Timer::callAfterDelay(100, [this]() {
+                sendMidiNoteOff(60);
+            });
         });
-    }
-    
-    if (fileLogger_) {
-        fileLogger_->logMessage("[DEFAULTS] Loaded defaults for " + juce::String(defaults.name) + 
-                                 " - Timbre: " + juce::String(defaults.timbre) + 
-                                 ", Color: " + juce::String(defaults.color));
     }
 }
