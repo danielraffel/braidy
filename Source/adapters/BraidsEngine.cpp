@@ -136,7 +136,13 @@ public:
             std::cout << "[DEBUG] BraidsEngine::setAlgorithm changing from " << algorithm_ 
                       << " to " << algorithm << " (name: " << kAlgorithmNames[algorithm] << ")" << std::endl;
             algorithm_ = algorithm;
+            
+            // Reinitialize the oscillator when changing algorithms to avoid crashes
+            oscillator_.Init();
             oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm));
+            
+            // Reset parameters to safe defaults
+            oscillator_.set_parameters(32768, 32768);
             
             // Force parameter update when algorithm changes
             updateParameters();
@@ -165,7 +171,11 @@ public:
             
             if (newAlgorithm != algorithm_) {
                 algorithm_ = newAlgorithm;
+                
+                // Reinitialize oscillator for algorithm change in meta mode
+                oscillator_.Init();
                 oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
+                oscillator_.set_parameters(32768, 32768);
                 
                 std::cout << "[DEBUG] Meta mode algorithm change: " << algorithm_ 
                           << " (" << getAlgorithmName() << ")" << std::endl;
@@ -216,12 +226,36 @@ public:
             std::fill(internalBuffer_.begin(), internalBuffer_.begin() + samplesToProcess, 0);
             
             // Render audio using Braids with safety
+            // Note: Some algorithms may have internal issues, so we protect against crashes
+            bool renderSuccess = false;
             try {
-                oscillator_.Render(syncBuffer_.data(), internalBuffer_.data(), samplesToProcess);
+                // Ensure oscillator is in a valid state before rendering
+                if (initialized_) {
+                    oscillator_.Render(syncBuffer_.data(), internalBuffer_.data(), samplesToProcess);
+                    renderSuccess = true;
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "[ERROR] BraidsEngine render exception: " << e.what() 
+                          << " (algorithm=" << algorithm_ << ")" << std::endl;
             } catch (...) {
-                // If render fails, output silence
+                std::cerr << "[ERROR] BraidsEngine render unknown exception (algorithm=" 
+                          << algorithm_ << ")" << std::endl;
+            }
+            
+            if (!renderSuccess) {
+                // If render fails, output silence and try to recover
                 std::fill(outputBuffer + samplesProcessed, 
                          outputBuffer + samplesProcessed + samplesToProcess, 0.0f);
+                
+                // Try to recover by reinitializing
+                try {
+                    oscillator_.Init();
+                    oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
+                    oscillator_.set_parameters(32768, 32768);
+                } catch (...) {
+                    // If recovery fails, stay silent
+                }
+                
                 samplesProcessed += samplesToProcess;
                 continue;
             }
