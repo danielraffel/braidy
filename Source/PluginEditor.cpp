@@ -1029,7 +1029,7 @@ void BraidyAudioProcessorEditor::updateParameterValues() {
     }
     
     // Update other knobs to reflect parameter changes
-    if (fmKnob_ && param) {
+    if (fmKnob_) {
         auto* fmParam = apvts.getParameter("fmAmount");
         if (fmParam) {
             fmKnob_->setValue(fmParam->getValue());
@@ -1735,9 +1735,7 @@ void BraidyAudioProcessorEditor::loadModelDefaults(int algorithmIndex) {
     if (timbreModKnob_) {
         timbreModKnob_->setValue(0.5f);  // Center position (no modulation)
     }
-    if (colorModKnob_) {
-        colorModKnob_->setValue(0.5f);  // Center position (no modulation)
-    }
+    // Note: colorModKnob_ doesn't exist in current implementation
     
     // If this is a percussion model, trigger a strike
     if (defaults.isPercussive && processorRef.getSynthesiser()) {
