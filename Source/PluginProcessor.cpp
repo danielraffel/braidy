@@ -242,7 +242,11 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     if (auto* playHead = getPlayHead()) {
         if (auto positionInfo = playHead->getPosition()) {
             if (positionInfo->getBpm().hasValue()) {
-                bpm = *positionInfo->getBpm();
+                double hostBpm = *positionInfo->getBpm();
+                // Validate BPM is in reasonable range to avoid division by zero
+                if (hostBpm > 0.0 && hostBpm < 999.0) {
+                    bpm = hostBpm;
+                }
             }
         }
     }

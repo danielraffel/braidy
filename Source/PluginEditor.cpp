@@ -927,7 +927,7 @@ void BraidyAudioProcessorEditor::updateDisplay() {
     switch (displayMode_) {
         case DisplayMode::Algorithm:
             // Ensure we don't access out of bounds (limit to 0-46 for all algorithms)
-            if (currentAlgorithm_ >= 0 && currentAlgorithm_ <= 46) {
+            if (currentAlgorithm_ >= 0 && currentAlgorithm_ < static_cast<int>(algorithmNames_.size())) {
                 displayText = algorithmNames_[currentAlgorithm_];
                 static_cast<SimpleOLEDDisplay*>(oledDisplay_.get())->setText(displayText);
                 if (fileLogger_) {
@@ -935,10 +935,14 @@ void BraidyAudioProcessorEditor::updateDisplay() {
                         "]: " + displayText);
                 }
             } else {
+                // Reset to safe value and display error
+                displayText = "----";
+                static_cast<SimpleOLEDDisplay*>(oledDisplay_.get())->setText(displayText);
                 if (fileLogger_) {
                     fileLogger_->logMessage("[DISPLAY] ERROR: Algorithm index out of bounds: " + 
-                        juce::String(currentAlgorithm_));
+                        juce::String(currentAlgorithm_) + " - resetting to 0");
                 }
+                currentAlgorithm_ = 0;  // Reset to safe value
             }
             break;
             
@@ -1078,12 +1082,20 @@ void BraidyAudioProcessorEditor::handleEncoderRotation(int delta) {
                     currentAlgorithm_ = 0;   // Wrap to first algorithm (index 0)
                 }
                 
-                // Bounds check before accessing array
-                if (fileLogger_ && oldAlgorithm >= 0 && oldAlgorithm < 47 && 
-                    currentAlgorithm_ >= 0 && currentAlgorithm_ < 47) {
+                // Safe bounds check before accessing array
+                if (fileLogger_) {
+                    juce::String oldName = "INVALID";
+                    juce::String newName = "INVALID";
+                    
+                    if (oldAlgorithm >= 0 && oldAlgorithm < static_cast<int>(algorithmNames_.size())) {
+                        oldName = algorithmNames_[oldAlgorithm];
+                    }
+                    if (currentAlgorithm_ >= 0 && currentAlgorithm_ < static_cast<int>(algorithmNames_.size())) {
+                        newName = algorithmNames_[currentAlgorithm_];
+                    }
+                    
                     fileLogger_->logMessage("Algorithm changed from [" + juce::String(oldAlgorithm) + "] " + 
-                        juce::String(algorithmNames_[oldAlgorithm]) + " to [" + juce::String(currentAlgorithm_) + 
-                        "] " + juce::String(algorithmNames_[currentAlgorithm_]));
+                        oldName + " to [" + juce::String(currentAlgorithm_) + "] " + newName);
                 }
                 
                 // Update the audio parameter
@@ -1494,7 +1506,14 @@ void BraidyAudioProcessorEditor::applyMenuValue() {
 void BraidyAudioProcessorEditor::updateAlgorithmParameter() {
     DBG("=== UPDATE ALGORITHM PARAMETER DEBUG ===");
     DBG("Current algorithm index: " + juce::String(currentAlgorithm_));
-    DBG("Algorithm: " + juce::String(algorithmNames_[currentAlgorithm_]));
+    
+    // Safe bounds check before accessing array
+    if (currentAlgorithm_ >= 0 && currentAlgorithm_ < static_cast<int>(algorithmNames_.size())) {
+        DBG("Algorithm: " + juce::String(algorithmNames_[currentAlgorithm_]));
+    } else {
+        DBG("Algorithm: INVALID INDEX (" + juce::String(currentAlgorithm_) + ")");
+        currentAlgorithm_ = 0;  // Reset to safe value
+    }
     
     // Update the algorithm parameter in APVTS based on current algorithm
     if (auto* param = processorRef.getAPVTS().getParameter("algorithm")) {
