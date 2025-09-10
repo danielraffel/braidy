@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "adapters/BraidsEngine.h"
 #include <iostream>
+#include <cmath>
 
 BraidyAudioProcessor::BraidyAudioProcessor()
      : AudioProcessor(BusesProperties()
@@ -254,6 +255,21 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     
     // Process MIDI and generate audio using JUCE's built-in synthesiser renderNextBlock
     synthesiser_->renderNextBlock(buffer, midiMessages, 0, buffer.getNumSamples());
+    
+    // Apply gain compensation for polyphony to prevent clipping
+    // With 8 voices, we need to scale down to prevent summing above 0dB
+    // Using a conservative scaling factor that maintains headroom
+    const float polyphonyCompensation = 0.35f; // Scale down to prevent clipping with multiple voices
+    buffer.applyGain(polyphonyCompensation);
+    
+    // Apply soft clipping as safety to prevent any remaining peaks
+    for (int channel = 0; channel < buffer.getNumChannels(); ++channel) {
+        float* channelData = buffer.getWritePointer(channel);
+        for (int sample = 0; sample < buffer.getNumSamples(); ++sample) {
+            // Soft clipping using tanh for musical saturation
+            channelData[sample] = std::tanh(channelData[sample]);
+        }
+    }
     
     // Check if any audio was generated
     float maxSample = 0;
