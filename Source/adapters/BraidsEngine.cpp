@@ -163,6 +163,14 @@ public:
     void setParameters(float param1, float param2) {
         std::lock_guard<std::mutex> lock(mutex_);
         
+        // Ensure parameters are in valid range
+        param1 = std::clamp(param1, 0.0f, 1.0f);
+        param2 = std::clamp(param2, 0.0f, 1.0f);
+        
+        // Check for NaN or infinity
+        if (!std::isfinite(param1)) param1 = 0.5f;
+        if (!std::isfinite(param2)) param2 = 0.5f;
+        
         if (metaMode_) {
             // In meta mode, param2 controls algorithm selection
             int algorithmRange = static_cast<int>(braids::MACRO_OSC_SHAPE_LAST_ACCESSIBLE_FROM_META);
@@ -182,12 +190,12 @@ public:
             }
             
             // param1 still controls timbre
-            targetParam1_ = std::clamp(param1, 0.0f, 1.0f);
+            targetParam1_ = param1;
             targetParam2_ = 0.5f; // Reset param2 since it's used for algorithm selection
         } else {
             // Normal mode - both params control timbre/color
-            targetParam1_ = std::clamp(param1, 0.0f, 1.0f);
-            targetParam2_ = std::clamp(param2, 0.0f, 1.0f);
+            targetParam1_ = param1;
+            targetParam2_ = param2;
         }
         
         updateParameters();
@@ -248,16 +256,32 @@ public:
                          outputBuffer + samplesProcessed + samplesToProcess, 0.0f);
                 
                 // Try to recover by reinitializing
-                try {
-                    oscillator_.Init();
-                    oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
-                    oscillator_.set_parameters(32768, 32768);
-                } catch (...) {
-                    // If recovery fails, stay silent
+                static int recoveryAttempts = 0;
+                if (++recoveryAttempts < 3) {
+                    try {
+                        std::cerr << "[WARNING] Attempting to recover audio engine (attempt " 
+                                  << recoveryAttempts << ")" << std::endl;
+                        oscillator_.Init();
+                        oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
+                        oscillator_.set_parameters(32768, 32768);
+                        updatePitch();
+                        updateParameters();
+                        initialized_ = true;
+                    } catch (...) {
+                        // If recovery fails, mark as uninitialized
+                        initialized_ = false;
+                    }
+                } else {
+                    // Too many recovery attempts, reset counter for next time
+                    recoveryAttempts = 0;
                 }
                 
                 samplesProcessed += samplesToProcess;
                 continue;
+            } else {
+                // Reset recovery counter on successful render
+                static int recoveryAttempts = 0;
+                recoveryAttempts = 0;
             }
             
             // Convert int16_t to float and copy to output buffer with clipping

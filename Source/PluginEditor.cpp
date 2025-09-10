@@ -561,13 +561,13 @@ void BraidyAudioProcessorEditor::setupComponents() {
     timbreModKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar for attenuverter
     timbreModKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     timbreModKnob_->onValueChange = [this](float value) {
-        // Meta mode toggle: In Braids, the modulation knob position can enable meta mode
-        // For now, this acts as a placeholder - meta mode is controlled by a separate parameter
-        if (auto* param = processorRef.getAPVTS().getParameter("metaMode")) {
-            // Toggle meta mode when knob moves significantly from center
-            bool metaEnabled = std::abs(value - 0.5f) > 0.25f;
-            param->setValueNotifyingHost(metaEnabled ? 1.0f : 0.0f);
-        }
+        // In original Braids, this is a modulation attenuverter
+        // It controls the amount and polarity of modulation applied to timbre
+        // For now, just store the value without affecting meta mode
+        // Meta mode should be toggled explicitly via long press or menu
+        
+        // TODO: When modulation CV input is implemented, this will control
+        // the amount of external modulation applied to the timbre parameter
     };
     addAndMakeVisible(*timbreModKnob_);
     timbreModKnob_->setVisible(true);
