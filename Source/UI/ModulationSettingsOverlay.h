@@ -13,7 +13,8 @@ namespace braidy {
 class ModulationSettingsOverlay : public juce::Component,
                                   public juce::Button::Listener,
                                   public juce::ComboBox::Listener,
-                                  public juce::Slider::Listener
+                                  public juce::Slider::Listener,
+                                  public juce::Timer
 {
 public:
     ModulationSettingsOverlay(ModulationMatrix& modMatrix)
@@ -98,21 +99,23 @@ public:
             lfo.destCombo.addItem("Algorithm (META)", 2);
             lfo.destCombo.addItem("Timbre", 3);
             lfo.destCombo.addItem("Color", 4);
-            lfo.destCombo.addItem("Pitch", 5);
-            lfo.destCombo.addItem("Detune", 6);
-            lfo.destCombo.addItem("Env Attack", 7);
-            lfo.destCombo.addItem("Env Decay", 8);
-            lfo.destCombo.addItem("Env Sustain", 9);
-            lfo.destCombo.addItem("Env Release", 10);
-            lfo.destCombo.addItem("Env->Timbre", 11);
-            lfo.destCombo.addItem("Env->Color", 12);
-            lfo.destCombo.addItem("Bit Depth", 13);
-            lfo.destCombo.addItem("Sample Rate", 14);
-            lfo.destCombo.addItem("Volume", 15);
-            lfo.destCombo.addItem("Pan", 16);
-            lfo.destCombo.addItem("Quantize Scale", 17);
-            lfo.destCombo.addItem("Quantize Root", 18);
+            lfo.destCombo.addItem("FM Amount", 5);
+            lfo.destCombo.addItem("Pitch", 6);
+            lfo.destCombo.addItem("Detune", 7);
+            lfo.destCombo.addItem("Env Attack", 8);
+            lfo.destCombo.addItem("Env Decay", 9);
+            lfo.destCombo.addItem("Env Sustain", 10);
+            lfo.destCombo.addItem("Env Release", 11);
+            lfo.destCombo.addItem("Env->Timbre", 12);
+            lfo.destCombo.addItem("Env->Color", 13);
+            lfo.destCombo.addItem("Bit Depth", 14);
+            lfo.destCombo.addItem("Sample Rate", 15);
+            lfo.destCombo.addItem("Volume", 16);
+            lfo.destCombo.addItem("Pan", 17);
+            lfo.destCombo.addItem("Quantize Scale", 18);
+            lfo.destCombo.addItem("Quantize Root", 19);
             lfo.destCombo.setSelectedId(1);
+            lfo.destCombo.setJustificationType(juce::Justification::centredLeft);
             lfo.destCombo.addListener(this);
             addAndMakeVisible(lfo.destCombo);
             
@@ -123,7 +126,7 @@ public:
             lfo.amountSlider.setRange(-1.0, 1.0, 0.01);
             lfo.amountSlider.setValue(0.0);
             lfo.amountSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-            lfo.amountSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+            lfo.amountSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
             lfo.amountSlider.addListener(this);
             addAndMakeVisible(lfo.amountSlider);
             
@@ -206,8 +209,9 @@ public:
             lfo.enableButton.setBounds(xOffset, yPos, lfoSectionWidth - 20, 25);
             yPos += 35;
             
+            // Shape: Increase width for "Sample & Hold"
             lfo.shapeLabel.setBounds(xOffset, yPos, 50, 25);
-            lfo.shapeCombo.setBounds(xOffset + 55, yPos, lfoSectionWidth - 75, 25);
+            lfo.shapeCombo.setBounds(xOffset + 55, yPos, lfoSectionWidth - 60, 25);
             yPos += 30;
             
             lfo.rateLabel.setBounds(xOffset, yPos, 50, 25);
@@ -221,21 +225,24 @@ public:
             lfo.tempoSyncButton.setBounds(xOffset, yPos, lfoSectionWidth - 20, 25);
             yPos += 35;
             
-            lfo.destLabel.setBounds(xOffset, yPos, 70, 25);
-            lfo.destCombo.setBounds(xOffset + 75, yPos, lfoSectionWidth - 95, 25);
-            yPos += 30;
+            // Destination: Move label to its own line for more space
+            lfo.destLabel.setBounds(xOffset, yPos, lfoSectionWidth - 20, 25);
+            yPos += 25;
+            lfo.destCombo.setBounds(xOffset, yPos, lfoSectionWidth - 20, 30);
+            yPos += 35;
             
             lfo.amountLabel.setBounds(xOffset, yPos, 60, 25);
-            lfo.amountSlider.setBounds(xOffset + 65, yPos, lfoSectionWidth - 85, 25);
+            lfo.amountSlider.setBounds(xOffset + 65, yPos, lfoSectionWidth - 75, 30);
             yPos += 30;
             
             lfo.bipolarButton.setBounds(xOffset, yPos, lfoSectionWidth - 20, 25);
+            yPos += 30;  // Add spacing after bipolar button
             
-            // Reset Y position for second LFO
+            // Reset Y position for second LFO (account for taller sections)
             if (i == 0) yPos = 60;
         }
         
-        // Global settings at bottom
+        // Global settings at bottom - adjust Y position to account for taller LFO sections
         int globalY = bounds.getHeight() - 90;
         int buttonWidth = (bounds.getWidth() - 40) / 3;
         
@@ -331,15 +338,86 @@ public:
         setVisible(true);
         isVisible_ = true;
         grabKeyboardFocus();  // Grab focus to receive ESC key
+        
+        // Refresh UI state to show current routings
+        refreshUIFromMatrix();
+        
+        // Start timer for real-time UI updates (30Hz for smooth knob movement)
+        startTimer(33);
+        
+        // IMPORTANT: Don't interfere with audio processing
+        // The modulation matrix should continue running normally
+    }
+    
+    void refreshUIFromMatrix()
+    {
+        // Update each LFO section to reflect current modulation matrix state
+        for (int lfoIndex = 0; lfoIndex < 2; ++lfoIndex)
+        {
+            auto& lfo = lfoSections_[lfoIndex];
+            auto& lfoObj = modulationMatrix_.getLFO(lfoIndex);
+            
+            // Update LFO controls
+            lfo.enableButton.setToggleState(lfoObj.isEnabled(), juce::dontSendNotification);
+            lfo.shapeCombo.setSelectedId(static_cast<int>(lfoObj.getShape()) + 1, juce::dontSendNotification);
+            lfo.rateSlider.setValue(lfoObj.getRate(), juce::dontSendNotification);
+            lfo.depthSlider.setValue(lfoObj.getDepth(), juce::dontSendNotification);
+            lfo.tempoSyncButton.setToggleState(lfoObj.isTempoSynced(), juce::dontSendNotification);
+            
+            // Find active routing for this LFO
+            bool foundRouting = false;
+            for (int d = 0; d < ModulationMatrix::NUM_DESTINATIONS; ++d)
+            {
+                auto dest = static_cast<ModulationMatrix::Destination>(d);
+                const auto& routing = modulationMatrix_.getRouting(dest);
+                
+                if (routing.enabled && routing.sourceId == lfoIndex)
+                {
+                    // Update destination dropdown (add 2 because "None" is 1)
+                    lfo.destCombo.setSelectedId(d + 2, juce::dontSendNotification);
+                    lfo.amountSlider.setValue(routing.amount, juce::dontSendNotification);
+                    lfo.bipolarButton.setToggleState(routing.bipolar, juce::dontSendNotification);
+                    foundRouting = true;
+                    
+                    DBG("[MODULATION] Refreshed UI - LFO" + juce::String(lfoIndex + 1) + " -> " + juce::String(ModulationMatrix::getDestinationName(dest)) + ", amount: " + juce::String(routing.amount));
+                    break;
+                }
+            }
+            
+            if (!foundRouting)
+            {
+                // No routing found, set to "None"
+                lfo.destCombo.setSelectedId(1, juce::dontSendNotification);
+                lfo.amountSlider.setValue(0.0, juce::dontSendNotification);
+                DBG("[MODULATION] Refreshed UI - LFO" + juce::String(lfoIndex + 1) + " -> None");
+            }
+        }
     }
     
     void hideOverlay()
     {
+        stopTimer();  // Stop real-time updates when hidden
         setVisible(false);
         isVisible_ = false;
     }
     
     bool isOverlayVisible() const { return isVisible_; }
+    
+    // Sync meta mode state (called from main UI)
+    void setMetaModeState(bool enabled) { 
+        metaModeButton_.setToggleState(enabled, juce::dontSendNotification); 
+    }
+    
+    // Timer callback for real-time UI updates
+    void timerCallback() override
+    {
+        // Only refresh the display of current values, not the entire UI
+        // This keeps dropdowns responsive while updating real-time values
+        if (isVisible_)
+        {
+            refreshUIFromMatrix();
+        }
+    }
     
     // Handle ESC key to close overlay
     bool keyPressed(const juce::KeyPress& key) override
@@ -366,16 +444,22 @@ private:
         auto& lfo = lfoSections_[lfoIndex];
         int destId = lfo.destCombo.getSelectedId() - 2;  // -2 because "None" is 1
         
-        if (destId >= 0)
+        DBG("[MODULATION] LFO" + juce::String(lfoIndex + 1) + " routing update - Selected ID: " + juce::String(lfo.destCombo.getSelectedId()) + ", destId: " + juce::String(destId));
+        
+        if (destId >= 0 && destId < ModulationMatrix::NUM_DESTINATIONS)
         {
             auto dest = static_cast<ModulationMatrix::Destination>(destId);
             float amount = static_cast<float>(lfo.amountSlider.getValue());
             bool bipolar = lfo.bipolarButton.getToggleState();
             
+            DBG("[MODULATION] Setting routing: LFO" + juce::String(lfoIndex + 1) + " -> " + juce::String(ModulationMatrix::getDestinationName(dest)) + ", amount: " + juce::String(amount));
+            
             modulationMatrix_.setRouting(lfoIndex, dest, amount, bipolar);
         }
         else
         {
+            DBG("[MODULATION] Clearing routings for LFO" + juce::String(lfoIndex + 1));
+            
             // Clear all routings for this LFO
             for (int d = 0; d < ModulationMatrix::NUM_DESTINATIONS; ++d)
             {
