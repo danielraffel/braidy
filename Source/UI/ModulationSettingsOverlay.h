@@ -17,8 +17,8 @@ class ModulationSettingsOverlay : public juce::Component,
                                   public juce::Timer
 {
 public:
-    ModulationSettingsOverlay(ModulationMatrix& modMatrix)
-        : modulationMatrix_(modMatrix), isVisible_(false)
+    ModulationSettingsOverlay(ModulationMatrix& modMatrix, juce::AudioProcessorValueTreeState& apvts)
+        : modulationMatrix_(modMatrix), apvts_(apvts), isVisible_(false)
     {
         // Close button (larger and more prominent)
         closeButton_.setButtonText("X");  // Simple X that works everywhere
@@ -269,11 +269,17 @@ public:
                 
                 if (button == &lfo.enableButton)
                 {
-                    lfoObj.setEnabled(lfo.enableButton.getToggleState());
+                    // Update APVTS parameter instead of direct modulation matrix
+                    juce::String paramId = "lfo" + juce::String(i + 1) + "Enable";
+                    if (auto* param = apvts_.getParameter(paramId))
+                        param->setValueNotifyingHost(lfo.enableButton.getToggleState() ? 1.0f : 0.0f);
                 }
                 else if (button == &lfo.tempoSyncButton)
                 {
-                    lfoObj.setTempoSync(lfo.tempoSyncButton.getToggleState());
+                    // Update APVTS parameter instead of direct modulation matrix  
+                    juce::String paramId = "lfo" + juce::String(i + 1) + "TempoSync";
+                    if (auto* param = apvts_.getParameter(paramId))
+                        param->setValueNotifyingHost(lfo.tempoSyncButton.getToggleState() ? 1.0f : 0.0f);
                 }
                 else if (button == &lfo.bipolarButton)
                 {
@@ -301,12 +307,17 @@ public:
             
             if (combo == &lfo.shapeCombo)
             {
-                auto& lfoObj = modulationMatrix_.getLFO(i);
-                lfoObj.setShape(static_cast<LFO::Shape>(combo->getSelectedId() - 1));
+                // Update APVTS parameter for LFO shape
+                juce::String paramId = "lfo" + juce::String(i + 1) + "Shape";
+                if (auto* param = apvts_.getParameter(paramId))
+                    param->setValueNotifyingHost(float(combo->getSelectedId() - 1) / 5.0f);  // Normalize 0-5 to 0-1
             }
             else if (combo == &lfo.destCombo)
             {
-                updateRouting(i);
+                // Update APVTS parameter for LFO destination
+                juce::String paramId = "lfo" + juce::String(i + 1) + "Dest";
+                if (auto* param = apvts_.getParameter(paramId))
+                    param->setValueNotifyingHost(float(combo->getSelectedId() - 1) / 5.0f);  // Normalize 0-5 to 0-1
             }
         }
     }
@@ -320,11 +331,17 @@ public:
             
             if (slider == &lfo.rateSlider)
             {
-                lfoObj.setRate(static_cast<float>(slider->getValue()));
+                // Update APVTS parameter for LFO rate
+                juce::String paramId = "lfo" + juce::String(i + 1) + "Rate";
+                if (auto* param = apvts_.getParameter(paramId))
+                    param->setValueNotifyingHost(static_cast<float>(slider->getValue()));
             }
             else if (slider == &lfo.depthSlider)
             {
-                lfoObj.setDepth(static_cast<float>(slider->getValue()));
+                // Update APVTS parameter for LFO depth
+                juce::String paramId = "lfo" + juce::String(i + 1) + "Depth";
+                if (auto* param = apvts_.getParameter(paramId))
+                    param->setValueNotifyingHost(static_cast<float>(slider->getValue()));
             }
             else if (slider == &lfo.amountSlider)
             {
@@ -473,6 +490,7 @@ private:
     }
     
     ModulationMatrix& modulationMatrix_;
+    juce::AudioProcessorValueTreeState& apvts_;
     bool isVisible_;
     
     juce::TextButton closeButton_;

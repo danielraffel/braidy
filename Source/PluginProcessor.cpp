@@ -462,7 +462,7 @@ void BraidyAudioProcessor::updateModulationFromParameters()
             auto* lfo1Rate = apvts_.getRawParameterValue("lfo1Rate");
             auto* lfo1Depth = apvts_.getRawParameterValue("lfo1Depth");
             auto* lfo1TempoSync = apvts_.getRawParameterValue("lfo1TempoSync");
-            auto* lfo1Dest = apvts_.getRawParameterValue("lfo1Destination");
+            auto* lfo1Dest = apvts_.getRawParameterValue("lfo1Dest");
             
             if (lfo1Shape && lfo1Rate && lfo1Depth && lfo1TempoSync && lfo1Dest) {
                 // Configure LFO 1
@@ -523,7 +523,7 @@ void BraidyAudioProcessor::updateModulationFromParameters()
             auto* lfo2Rate = apvts_.getRawParameterValue("lfo2Rate");
             auto* lfo2Depth = apvts_.getRawParameterValue("lfo2Depth");
             auto* lfo2TempoSync = apvts_.getRawParameterValue("lfo2TempoSync");
-            auto* lfo2Dest = apvts_.getRawParameterValue("lfo2Destination");
+            auto* lfo2Dest = apvts_.getRawParameterValue("lfo2Dest");
             
             if (lfo2Shape && lfo2Rate && lfo2Depth && lfo2TempoSync && lfo2Dest) {
                 // Configure LFO 2
@@ -593,7 +593,14 @@ void BraidyAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 // Get modulated parameter values for UI display
 float BraidyAudioProcessor::getModulatedTimbre() const {
     float baseValue = apvts_.getRawParameterValue("param1")->load();
-    return modulationMatrix_.applyModulation(braidy::ModulationMatrix::TIMBRE, baseValue, 0.0f, 1.0f);
+    float modulatedValue = modulationMatrix_.applyModulation(braidy::ModulationMatrix::TIMBRE, baseValue, 0.0f, 1.0f);
+    
+    if (std::abs(modulatedValue - baseValue) > 0.001f) {
+        DBG("[MODULATION DEBUG] Timbre - Base: " + juce::String(baseValue) + 
+            ", Modulated: " + juce::String(modulatedValue));
+    }
+    
+    return modulatedValue;
 }
 
 float BraidyAudioProcessor::getModulatedColor() const {

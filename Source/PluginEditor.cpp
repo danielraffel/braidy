@@ -643,7 +643,7 @@ void BraidyAudioProcessorEditor::setupComponents() {
     DBG("=== All Components Created ===");
     
     // Create modulation overlay LAST so it's on top of everything
-    modulationOverlay_ = std::make_unique<braidy::ModulationSettingsOverlay>(modulationMatrix_);
+    modulationOverlay_ = std::make_unique<braidy::ModulationSettingsOverlay>(modulationMatrix_, processorRef.getAPVTS());
     modulationOverlay_->setVisible(false);  // Start hidden
     modulationOverlay_->onClose = [this]() {
         modulationOverlay_->hideOverlay();
