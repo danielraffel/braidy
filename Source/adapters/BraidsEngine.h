@@ -68,10 +68,18 @@ public:
 
     /**
      * Set the two main parameters for the current algorithm.
-     * @param param1 First parameter (0.0 to 1.0)
-     * @param param2 Second parameter (0.0 to 1.0)
+     * @param param1 First parameter (0.0 to 1.0) - maps to TIMBRE (ADC channel 0)
+     * @param param2 Second parameter (0.0 to 1.0) - maps to COLOR (ADC channel 1)
      */
     void setParameters(float param1, float param2);
+
+    /**
+     * Set the FM parameter (ADC channel 3).
+     * In meta mode, this controls algorithm selection.
+     * In normal mode, this controls FM depth/amount.
+     * @param fmValue FM parameter (0.0 to 1.0)
+     */
+    void setFMParameter(float fmValue);
 
     /**
      * Trigger a strike/reset for percussion algorithms.
@@ -117,7 +125,8 @@ public:
 
     /**
      * Enable/disable meta modulation mode.
-     * When enabled, parameter 2 controls algorithm selection instead of color.
+     * When enabled, FM parameter (ADC channel 3) controls algorithm selection.
+     * This matches exact hardware behavior where meta mode uses FM CV input.
      * @param enabled true to enable meta mode, false for normal mode
      */
     void setMetaMode(bool enabled);
@@ -127,6 +136,12 @@ public:
      * @return true if meta mode is enabled
      */
     bool getMetaMode() const;
+
+    /**
+     * Get the current algorithm in meta mode for LED display.
+     * @return Current algorithm index if meta mode is enabled, -1 otherwise
+     */
+    int getMetaAlgorithm() const;
 
 private:
     class Impl;

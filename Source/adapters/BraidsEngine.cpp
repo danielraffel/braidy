@@ -12,6 +12,7 @@
 #include <cmath>
 #include <mutex>
 #include <iostream>
+#include <chrono>
 
 namespace BraidyAdapter {
 
@@ -82,7 +83,7 @@ static const std::vector<std::pair<std::string, std::string>> kParameterNames = 
 
 class BraidsEngine::Impl {
 public:
-    Impl() : initialized_(false), sampleRate_(48000.0), algorithm_(0) {
+    Impl() : initialized_(false), sampleRate_(48000.0), internalSampleRate_(96000.0), algorithm_(0) {
         // Zero-initialize the oscillator structure first
         memset(&oscillator_, 0, sizeof(oscillator_));
         
@@ -95,6 +96,7 @@ public:
         targetParam2_ = 0.5f;
         currentParam1_ = 0.5f;
         currentParam2_ = 0.5f;
+        targetFMValue_ = 0.0f;
         metaMode_ = false;
         
         // Initialize internal buffer
@@ -113,6 +115,20 @@ public:
     void initialize(double sampleRate) {
         std::lock_guard<std::mutex> lock(mutex_);
         sampleRate_ = sampleRate;
+        internalSampleRate_ = 96000.0;  // Braids always runs at 96kHz internally
+        needsSampleRateConversion_ = std::abs(sampleRate_ - internalSampleRate_) > 1.0;
+        
+        if (needsSampleRateConversion_) {
+            std::cout << "[INFO] Sample rate conversion enabled: " << sampleRate_ 
+                      << "Hz host -> " << internalSampleRate_ << "Hz internal" << std::endl;
+            
+            // Pre-allocate conversion buffers for typical block sizes
+            int maxBlockSize = 512;
+            double ratio = internalSampleRate_ / sampleRate_;
+            upsampleBuffer_.resize(static_cast<size_t>(maxBlockSize * ratio * 2));  // Extra space for safety
+            downsampleBuffer_.resize(static_cast<size_t>(maxBlockSize * ratio * 2));
+        }
+        
         initialized_ = true;
         
         // Initialize the oscillator properly (don't use memset on C++ objects!)
@@ -207,34 +223,64 @@ public:
         if (!std::isfinite(param1)) param1 = 0.5f;
         if (!std::isfinite(param2)) param2 = 0.5f;
         
-        if (metaMode_) {
-            // In meta mode, param2 controls algorithm selection
-            int algorithmRange = static_cast<int>(braids::MACRO_OSC_SHAPE_LAST_ACCESSIBLE_FROM_META);
-            int newAlgorithm = static_cast<int>(param2 * algorithmRange);
-            newAlgorithm = std::clamp(newAlgorithm, 0, algorithmRange);
-            
-            if (newAlgorithm != algorithm_) {
-                algorithm_ = newAlgorithm;
-                
-                // Reinitialize oscillator for algorithm change in meta mode
-                oscillator_.Init();
-                oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
-                oscillator_.set_parameters(32768, 32768);
-                
-                std::cout << "[DEBUG] Meta mode algorithm change: " << algorithm_ 
-                          << " (" << getAlgorithmName() << ")" << std::endl;
-            }
-            
-            // param1 still controls timbre
-            targetParam1_ = param1;
-            targetParam2_ = 0.5f; // Reset param2 since it's used for algorithm selection
-        } else {
-            // Normal mode - both params control timbre/color
-            targetParam1_ = param1;
-            targetParam2_ = param2;
-        }
+        // Always map param1 and param2 to TIMBRE (ADC 0) and COLOR (ADC 1) respectively
+        // This matches exact hardware behavior
+        targetParam1_ = param1;  // ADC channel 0 - TIMBRE
+        targetParam2_ = param2;  // ADC channel 1 - COLOR
         
         updateParameters();
+    }
+
+    void setFMParameter(float fmValue) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        
+        // Ensure FM parameter is in valid range
+        fmValue = std::clamp(fmValue, 0.0f, 1.0f);
+        
+        // Check for NaN or infinity
+        if (!std::isfinite(fmValue)) fmValue = 0.5f;
+        
+        // Store FM value for normal FM processing when not in meta mode
+        targetFMValue_ = fmValue;
+        
+        if (metaMode_) {
+            // In meta mode, FM parameter (ADC channel 3) controls algorithm selection
+            // This matches exact hardware behavior from braids.cc lines 195-215
+            int algorithmRange = static_cast<int>(braids::MACRO_OSC_SHAPE_LAST_ACCESSIBLE_FROM_META);
+            
+            // Convert 0.0-1.0 to algorithm index (0 to 46)
+            int newAlgorithm = static_cast<int>(fmValue * algorithmRange);
+            newAlgorithm = std::clamp(newAlgorithm, 0, algorithmRange);
+            
+            // Only change algorithm if it's actually different
+            // Add rate limiting to prevent excessive reinitialization
+            static auto lastAlgorithmChange = std::chrono::steady_clock::now();
+            auto now = std::chrono::steady_clock::now();
+            auto timeSinceLastChange = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastAlgorithmChange);
+            
+            if (newAlgorithm != algorithm_ && timeSinceLastChange.count() > 10) {  // Minimum 10ms between changes
+                try {
+                    algorithm_ = newAlgorithm;
+                    lastAlgorithmChange = now;
+                    
+                    // Reinitialize oscillator for algorithm change in meta mode
+                    // This is expensive but necessary for algorithm switching
+                    oscillator_.Init();
+                    oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
+                    oscillator_.set_parameters(32768, 32768);
+                    
+                    std::cout << "[DEBUG] Meta mode algorithm change via FM: " << algorithm_ 
+                              << " (" << getAlgorithmName() << ")" << std::endl;
+                              
+                } catch (const std::exception& e) {
+                    std::cerr << "[ERROR] Meta mode algorithm change failed: " << e.what() << std::endl;
+                    // Revert to previous algorithm
+                    algorithm_ = algorithm_;  // Keep current algorithm
+                } catch (...) {
+                    std::cerr << "[ERROR] Unknown error in meta mode algorithm change" << std::endl;
+                }
+            }
+        }
     }
 
     void strike() {
@@ -251,6 +297,17 @@ public:
 
         std::lock_guard<std::mutex> lock(mutex_);
         
+        if (!needsSampleRateConversion_) {
+            // Direct processing at 96kHz (no conversion needed)
+            processAudioDirect(outputBuffer, numSamples, syncBuffer);
+        } else {
+            // Sample rate conversion required
+            processAudioWithConversion(outputBuffer, numSamples, syncBuffer);
+        }
+    }
+    
+private:
+    void processAudioDirect(float* outputBuffer, int numSamples, const uint8_t* syncBuffer) {
         int samplesProcessed = 0;
         static int debugCounter = 0;
         
@@ -273,56 +330,15 @@ public:
             // Clear internal buffer before processing - ensure exactly 24 samples
             std::fill(internalBuffer_.begin(), internalBuffer_.end(), 0);
             
-            // Render audio using Braids with safety
-            // CRITICAL: Always pass exactly 24 samples to Braids as it expects this internally
-            bool renderSuccess = false;
-            try {
-                // Ensure oscillator is in a valid state before rendering
-                if (initialized_) {
-                    // Always render exactly 24 samples - Braids expects this
-                    oscillator_.Render(syncBuffer_.data(), internalBuffer_.data(), 24);
-                    renderSuccess = true;
-                }
-            } catch (const std::exception& e) {
-                std::cerr << "[ERROR] BraidsEngine render exception: " << e.what() 
-                          << " (algorithm=" << algorithm_ << ")" << std::endl;
-            } catch (...) {
-                std::cerr << "[ERROR] BraidsEngine render unknown exception (algorithm=" 
-                          << algorithm_ << ")" << std::endl;
-            }
+            // Render audio using Braids at 96kHz
+            bool renderSuccess = renderBraidsBlock();
             
             if (!renderSuccess) {
                 // If render fails, output silence and try to recover
                 std::fill(outputBuffer + samplesProcessed, 
                          outputBuffer + samplesProcessed + samplesToProcess, 0.0f);
-                
-                // Try to recover by reinitializing
-                static int recoveryAttempts = 0;
-                if (++recoveryAttempts < 3) {
-                    try {
-                        std::cerr << "[WARNING] Attempting to recover audio engine (attempt " 
-                                  << recoveryAttempts << ")" << std::endl;
-                        oscillator_.Init();
-                        oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
-                        oscillator_.set_parameters(32768, 32768);
-                        updatePitch();
-                        updateParameters();
-                        initialized_ = true;
-                    } catch (...) {
-                        // If recovery fails, mark as uninitialized
-                        initialized_ = false;
-                    }
-                } else {
-                    // Too many recovery attempts, reset counter for next time
-                    recoveryAttempts = 0;
-                }
-                
                 samplesProcessed += samplesToProcess;
                 continue;
-            } else {
-                // Reset recovery counter on successful render
-                static int recoveryAttempts = 0;
-                recoveryAttempts = 0;
             }
             
             // Convert int16_t to float and copy to output buffer with clipping
@@ -337,13 +353,99 @@ public:
             // Debug output every 1000 blocks
             if (++debugCounter % 1000 == 0) {
                 std::cout << "[DEBUG] BraidsEngine::processAudio algo=" << algorithm_ 
-                          << " maxSample=" << maxSample << std::endl;
+                          << " maxSample=" << maxSample << " (direct 96kHz)" << std::endl;
             }
             
             samplesProcessed += samplesToProcess;
         }
     }
+    
+    void processAudioWithConversion(float* outputBuffer, int numSamples, const uint8_t* syncBuffer) {
+        // Calculate how many internal samples we need for the host samples
+        double ratio = internalSampleRate_ / sampleRate_;
+        int internalSamples = static_cast<int>(numSamples * ratio) + 1;
+        
+        // Ensure our conversion buffer is large enough
+        if (upsampleBuffer_.size() < static_cast<size_t>(internalSamples)) {
+            upsampleBuffer_.resize(internalSamples);
+        }
+        
+        // Process at internal 96kHz rate
+        processAudioDirect(upsampleBuffer_.data(), internalSamples, nullptr);
+        
+        // Downsample to host rate using linear interpolation
+        for (int i = 0; i < numSamples; ++i) {
+            double sourceIndex = i * ratio;
+            int index1 = static_cast<int>(sourceIndex);
+            int index2 = std::min(index1 + 1, internalSamples - 1);
+            double fraction = sourceIndex - index1;
+            
+            if (index1 < internalSamples) {
+                float sample1 = (index1 < internalSamples) ? upsampleBuffer_[index1] : 0.0f;
+                float sample2 = (index2 < internalSamples) ? upsampleBuffer_[index2] : 0.0f;
+                outputBuffer[i] = sample1 + fraction * (sample2 - sample1);
+            } else {
+                outputBuffer[i] = 0.0f;
+            }
+        }
+        
+        static int debugCounter = 0;
+        if (++debugCounter % 1000 == 0) {
+            std::cout << "[DEBUG] BraidsEngine::processAudio algo=" << algorithm_ 
+                      << " (with sample rate conversion " << sampleRate_ << "Hz)" << std::endl;
+        }
+    }
+    
+    bool renderBraidsBlock() {
+        // Render audio using Braids with safety
+        // CRITICAL: Always pass exactly 24 samples to Braids as it expects this internally
+        bool renderSuccess = false;
+        try {
+            // Ensure oscillator is in a valid state before rendering
+            if (initialized_) {
+                // Always render exactly 24 samples - Braids expects this
+                oscillator_.Render(syncBuffer_.data(), internalBuffer_.data(), 24);
+                renderSuccess = true;
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "[ERROR] BraidsEngine render exception: " << e.what() 
+                      << " (algorithm=" << algorithm_ << ")" << std::endl;
+        } catch (...) {
+            std::cerr << "[ERROR] BraidsEngine render unknown exception (algorithm=" 
+                      << algorithm_ << ")" << std::endl;
+        }
+        
+        if (!renderSuccess) {
+            // Try to recover by reinitializing
+            static int recoveryAttempts = 0;
+            if (++recoveryAttempts < 3) {
+                try {
+                    std::cerr << "[WARNING] Attempting to recover audio engine (attempt " 
+                              << recoveryAttempts << ")" << std::endl;
+                    oscillator_.Init();
+                    oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
+                    oscillator_.set_parameters(32768, 32768);
+                    updatePitch();
+                    updateParameters();
+                    initialized_ = true;
+                } catch (...) {
+                    // If recovery fails, mark as uninitialized
+                    initialized_ = false;
+                }
+            } else {
+                // Too many recovery attempts, reset counter for next time
+                recoveryAttempts = 0;
+            }
+        } else {
+            // Reset recovery counter on successful render
+            static int recoveryAttempts = 0;
+            recoveryAttempts = 0;
+        }
+        
+        return renderSuccess;
+    }
 
+public:
     void reset() {
         std::lock_guard<std::mutex> lock(mutex_);
         oscillator_.Init();
@@ -379,6 +481,11 @@ public:
         std::cout << "[DEBUG] Meta mode " << (enabled ? "enabled" : "disabled") << std::endl;
     }
 
+    int getMetaAlgorithm() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return metaMode_ ? algorithm_ : -1;  // Return algorithm only if in meta mode
+    }
+
     bool getMetaMode() const {
         std::lock_guard<std::mutex> lock(mutex_);
         return metaMode_;
@@ -409,11 +516,18 @@ private:
     
     bool initialized_;
     double sampleRate_;
+    double internalSampleRate_;  // Always 96kHz for Braids compatibility
     int algorithm_;
+    
+    // Sample rate conversion buffers for when host != 96kHz
+    std::vector<float> upsampleBuffer_;
+    std::vector<float> downsampleBuffer_;
+    bool needsSampleRateConversion_;
     
     float currentPitch_;
     float targetParam1_, targetParam2_;
     float currentParam1_, currentParam2_;
+    float targetFMValue_;
     bool metaMode_;
     
     std::vector<int16_t> internalBuffer_;
@@ -447,6 +561,10 @@ void BraidsEngine::setPitch(float pitch) {
 
 void BraidsEngine::setParameters(float param1, float param2) {
     pImpl->setParameters(param1, param2);
+}
+
+void BraidsEngine::setFMParameter(float fmValue) {
+    pImpl->setFMParameter(fmValue);
 }
 
 void BraidsEngine::strike() {
@@ -483,6 +601,10 @@ void BraidsEngine::setMetaMode(bool enabled) {
 
 bool BraidsEngine::getMetaMode() const {
     return pImpl->getMetaMode();
+}
+
+int BraidsEngine::getMetaAlgorithm() const {
+    return pImpl->getMetaAlgorithm();
 }
 
 } // namespace BraidyAdapter

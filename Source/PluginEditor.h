@@ -85,9 +85,14 @@ private:
         void mouseDrag(const juce::MouseEvent& e) override;
         void mouseDoubleClick(const juce::MouseEvent& e) override;
         
-        void setValue(float value);
+        void setValue(float value);  // For programmatic updates (no callback)
+        void setValueAndNotify(float value);  // For user interaction (triggers callback)
         float getValue() const { return value_; }
         void resetToDefault();
+        
+        // Mouse interaction tracking for modulation system
+        void mouseUp(const juce::MouseEvent& e) override;
+        bool isBeingManipulated() const { return isPressed_; }
         
         std::function<void(float)> onValueChange;
         
@@ -98,6 +103,7 @@ private:
         uint32_t indicatorColor_;
         float dragStartY_ = 0;
         float dragStartValue_ = 0;
+        bool isPressed_ = false;
     };
     
     // Pitch controls
@@ -241,6 +247,9 @@ private:
     void sendMidiNoteOff(int midiNote);
     void checkForReleasedKeys();
     int getOctaveOffset() const { return 60; }  // C4 as base note
+    
+    // Shutdown tracking to prevent timer callbacks on destroyed objects
+    std::atomic<bool> isShuttingDown_{false};
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BraidyAudioProcessorEditor)
 };

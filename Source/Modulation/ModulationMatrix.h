@@ -20,6 +20,7 @@ public:
         ALGORITHM_SELECTION,  // META mode - morph between algorithms
         TIMBRE,              // Main timbre parameter
         COLOR,               // Main color parameter
+        FM_AMOUNT,           // FM parameter (ADC channel 3)
         
         // Oscillator parameters
         PITCH,               // Oscillator pitch
@@ -62,6 +63,7 @@ public:
             case ALGORITHM_SELECTION: return "Algorithm (META)";
             case TIMBRE: return "Timbre";
             case COLOR: return "Color";
+            case FM_AMOUNT: return "FM Amount";
             case PITCH: return "Pitch";
             case DETUNE: return "Detune";
             case OCTAVE: return "Octave";

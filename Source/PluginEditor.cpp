@@ -271,6 +271,7 @@ void BraidyAudioProcessorEditor::BraidsKnob::paint(juce::Graphics& g) {
 }
 
 void BraidyAudioProcessorEditor::BraidsKnob::mouseDown(const juce::MouseEvent& e) {
+    isPressed_ = true;
     dragStartY_ = e.position.y;
     dragStartValue_ = value_;
 }
@@ -293,6 +294,17 @@ void BraidyAudioProcessorEditor::BraidsKnob::setValue(float value) {
     repaint();
 }
 
+void BraidyAudioProcessorEditor::BraidsKnob::setValueAndNotify(float value) {
+    value_ = juce::jlimit(0.0f, 1.0f, value);
+    
+    // Only trigger callback when explicitly requested (user interaction)
+    if (onValueChange) {
+        onValueChange(value_);
+    }
+    
+    repaint();
+}
+
 void BraidyAudioProcessorEditor::BraidsKnob::mouseDoubleClick(const juce::MouseEvent& e) {
     // Reset to default value on double-click
     resetToDefault();
@@ -304,6 +316,10 @@ void BraidyAudioProcessorEditor::BraidsKnob::resetToDefault() {
         onValueChange(value_);
     }
     repaint();
+}
+
+void BraidyAudioProcessorEditor::BraidsKnob::mouseUp(const juce::MouseEvent& e) {
+    isPressed_ = false;
 }
 
 //==============================================================================
@@ -463,7 +479,14 @@ BraidyAudioProcessorEditor::BraidyAudioProcessorEditor(BraidyAudioProcessor& p)
 }
 
 BraidyAudioProcessorEditor::~BraidyAudioProcessorEditor() {
+    // Set shutdown flag to prevent timer callbacks
+    isShuttingDown_ = true;
+    
+    // Stop all timers
     stopTimer();
+    
+    // Wait a brief moment for any pending timer callbacks to complete
+    juce::Thread::sleep(10);
     
     // Clean up logger
     DBG("[SHUTDOWN] Editor closing");
@@ -1101,6 +1124,7 @@ void BraidyAudioProcessorEditor::updateDisplay() {
             DBG("Display set to startup: " + displayText);
             // After startup delay, switch to algorithm display
             juce::Timer::callAfterDelay(1000, [this]() {
+                if (isShuttingDown_) return;  // Don't execute if shutting down
                 displayMode_ = DisplayMode::Algorithm;
                 currentAlgorithm_ = 22; // VOWL is at index 22, not 23 (VOW2 is at 23)
                 updateDisplay();
@@ -1120,9 +1144,6 @@ void BraidyAudioProcessorEditor::updateParameterValues() {
     
     // Sync knob positions with parameter values
     auto& apvts = processorRef.getAPVTS();
-    
-    // Get modulation matrix for real-time modulated values
-    auto& modMatrix = processorRef.getModulationMatrix();
     
     // Skip non-essential parameter updates when modulation overlay is visible
     if (!overlayVisible) {
@@ -1157,114 +1178,77 @@ void BraidyAudioProcessorEditor::updateParameterValues() {
             }
         }
         
-        // Update Timbre knob with modulation (skip when overlay visible)
-        if (auto* param1 = apvts.getRawParameterValue("param1")) {
-            if (timbreKnob_) {
-                float baseValue = param1->load();
-                if (modMatrix.isModulated(braidy::ModulationMatrix::TIMBRE)) {
-                    // Apply real-time modulation to knob position
-                    float modulated = modMatrix.applyModulation(braidy::ModulationMatrix::TIMBRE, baseValue, 0.0f, 1.0f);
-                    timbreKnob_->setValue(modulated);
-                } else {
-                    timbreKnob_->setValue(baseValue);
-                }
-            }
+        // Update Timbre knob with modulation (skip when overlay visible or knob being manipulated)
+        if (timbreKnob_ && !timbreKnob_->isBeingManipulated()) {
+            // Get modulated value from processor (includes LFO if active)
+            float modulatedValue = processorRef.getModulatedTimbre();
+            timbreKnob_->setValue(modulatedValue);  // No callback triggered
         }
         
-        // Update Color knob with modulation (skip when overlay visible)
-        if (auto* param2 = apvts.getRawParameterValue("param2")) {
-            if (colorKnob_) {
-                float baseValue = param2->load();
-                if (modMatrix.isModulated(braidy::ModulationMatrix::COLOR)) {
-                    // Apply real-time modulation to knob position
-                    float modulated = modMatrix.applyModulation(braidy::ModulationMatrix::COLOR, baseValue, 0.0f, 1.0f);
-                    colorKnob_->setValue(modulated);
-                } else {
-                    colorKnob_->setValue(baseValue);
-                }
-            }
+        // Update Color knob with modulation (skip when overlay visible or knob being manipulated)
+        if (colorKnob_ && !colorKnob_->isBeingManipulated()) {
+            // Get modulated value from processor (includes LFO if active)
+            float modulatedValue = processorRef.getModulatedColor();
+            colorKnob_->setValue(modulatedValue);  // No callback triggered
         }
-    }
-    
-    // Update FM knob with modulation and meta mode algorithm display
-    if (fmKnob_) {
-        auto* fmParam = apvts.getParameter("fmAmount");
-        if (fmParam) {
-            float baseValue = fmParam->getValue();
-            if (modMatrix.isModulated(braidy::ModulationMatrix::FM_AMOUNT)) {
-                // Apply real-time modulation to knob position
-                float modulated = modMatrix.applyModulation(braidy::ModulationMatrix::FM_AMOUNT, baseValue, 0.0f, 1.0f);
-                fmKnob_->setValue(modulated);
-                
-                // If meta mode is enabled, update algorithm display based on processor's current algorithm
-                if (processorRef.isMetaModeEnabled()) {
-                    // Get the algorithm from the processor which has already calculated it based on FM modulation
-                    int modulatedAlgorithm = processorRef.getCurrentAlgorithm();
+        
+        // Update FM knob with modulation and meta mode algorithm display
+        if (fmKnob_ && !fmKnob_->isBeingManipulated()) {
+            // Get modulated value from processor (includes LFO if active)
+            float modulatedValue = processorRef.getModulatedFM();
+            fmKnob_->setValue(modulatedValue);  // No callback triggered
                     
-                    // Only update display if algorithm actually changed
-                    static int lastModulatedAlgorithm = -1;
-                    if (modulatedAlgorithm != lastModulatedAlgorithm) {
-                        lastModulatedAlgorithm = modulatedAlgorithm;
+                    // If meta mode is enabled, update algorithm display based on processor's current algorithm
+                    if (processorRef.isMetaModeEnabled()) {
+                        // Get the algorithm from the processor which has already calculated it based on FM modulation
+                        int modulatedAlgorithm = processorRef.getCurrentAlgorithm();
                         
-                        // Update display to show modulated algorithm
-                        if (oledDisplay_ && modulatedAlgorithm >= 0 && modulatedAlgorithm < static_cast<int>(algorithmNames_.size())) {
-                            if (auto* display = dynamic_cast<SimpleOLEDDisplay*>(oledDisplay_.get())) {
-                                display->setText(algorithmNames_[modulatedAlgorithm]);
+                        // Only update display if algorithm actually changed
+                        static int lastModulatedAlgorithm = -1;
+                        if (modulatedAlgorithm != lastModulatedAlgorithm) {
+                            lastModulatedAlgorithm = modulatedAlgorithm;
+                            
+                            // Update display to show modulated algorithm
+                            if (oledDisplay_ && modulatedAlgorithm >= 0 && modulatedAlgorithm < static_cast<int>(algorithmNames_.size())) {
+                                if (auto* display = dynamic_cast<SimpleOLEDDisplay*>(oledDisplay_.get())) {
+                                    display->setText(algorithmNames_[modulatedAlgorithm]);
+                                }
+                            }
+                            
+                            // Update internal algorithm tracking for encoder visual feedback
+                            currentAlgorithm_ = modulatedAlgorithm;
+                            
+                            // Update encoder visual position
+                            if (editEncoder_) {
+                                editEncoder_->repaint();
+                            }
+                            
+                            if (fileLogger_) {
+                                fileLogger_->logMessage(juce::String("[META MODULATION] Algorithm modulated to: ") + 
+                                    juce::String(algorithmNames_[modulatedAlgorithm]) + " (" + juce::String(modulatedAlgorithm) + ")");
                             }
                         }
-                        
-                        // Update internal algorithm tracking for encoder visual feedback
-                        currentAlgorithm_ = modulatedAlgorithm;
-                        
-                        // Update encoder visual position
-                        if (editEncoder_) {
-                            editEncoder_->repaint();
-                        }
-                        
-                        if (fileLogger_) {
-                            fileLogger_->logMessage(juce::String("[META MODULATION] Algorithm modulated to: ") + 
-                                juce::String(algorithmNames_[modulatedAlgorithm]) + " (" + juce::String(modulatedAlgorithm) + ")");
-                        }
                     }
-                }
-            } else {
-                fmKnob_->setValue(baseValue);
-            }
         }
     }
+    
     // Update other knobs with modulation
-    if (fineKnob_) {
-        auto* fineParam = apvts.getParameter("fineTune");
-        if (fineParam) {
-            float baseValue = fineParam->getValue();
-            if (modMatrix.isModulated(braidy::ModulationMatrix::PITCH)) {
-                float modulated = modMatrix.applyModulation(braidy::ModulationMatrix::PITCH, baseValue, 0.0f, 1.0f);
-                fineKnob_->setValue(modulated);
-            } else {
-                fineKnob_->setValue(baseValue);
-            }
-        }
+    if (fineKnob_ && !fineKnob_->isBeingManipulated()) {
+        // Get modulated value from processor (includes LFO if active)
+        float modulatedValue = processorRef.getModulatedFine();
+        fineKnob_->setValue(modulatedValue);  // No callback triggered
     }
     
-    if (coarseKnob_) {
-        auto* coarseParam = apvts.getParameter("coarseTune");
-        if (coarseParam) {
-            float baseValue = coarseParam->getValue();
-            if (modMatrix.isModulated(braidy::ModulationMatrix::DETUNE)) {
-                float modulated = modMatrix.applyModulation(braidy::ModulationMatrix::DETUNE, baseValue, 0.0f, 1.0f);
-                coarseKnob_->setValue(modulated);
-            } else {
-                coarseKnob_->setValue(baseValue);
-            }
-        }
+    if (coarseKnob_ && !coarseKnob_->isBeingManipulated()) {
+        // Get modulated value from processor (includes LFO if active)
+        float modulatedValue = processorRef.getModulatedCoarse();
+        coarseKnob_->setValue(modulatedValue);  // No callback triggered
     }
     
-    if (timbreModKnob_) {
-        // Modulation knob could control LFO1 depth for TIMBRE modulation
-        if (modMatrix.isModulated(braidy::ModulationMatrix::TIMBRE)) {
-            auto routing = modMatrix.getRouting(braidy::ModulationMatrix::TIMBRE);
-            timbreModKnob_->setValue(std::abs(routing.amount));
-        }
+    if (timbreModKnob_ && !timbreModKnob_->isBeingManipulated()) {
+        // Get modulated value from processor (includes LFO if active)
+        float modulatedValue = processorRef.getModulatedTimbreMod();
+        timbreModKnob_->setValue(modulatedValue);  // No callback triggered
     }
 }
 
@@ -1978,6 +1962,7 @@ bool BraidyAudioProcessorEditor::keyStateChanged(bool isKeyDown) {
     if (!isKeyDown) {
         // Start a timer to check for released keys
         juce::Timer::callAfterDelay(10, [this]() {
+            if (isShuttingDown_) return;  // Don't execute if shutting down
             this->checkForReleasedKeys();
         });
         return true;
@@ -2126,8 +2111,10 @@ void BraidyAudioProcessorEditor::loadModelDefaultsSafe(int algorithmIndex) {
         // Send a trigger/strike to the synthesizer for percussion models
         // This triggers a short C4 note to demonstrate the percussion sound
         juce::Timer::callAfterDelay(200, [this]() { // Delay to let algorithm change settle
+            if (isShuttingDown_) return;  // Don't execute if shutting down
             sendMidiNoteOn(60, 0.8f);  // C4 with velocity 0.8
             juce::Timer::callAfterDelay(100, [this]() {
+                if (isShuttingDown_) return;  // Don't execute if shutting down
                 sendMidiNoteOff(60);
             });
         });

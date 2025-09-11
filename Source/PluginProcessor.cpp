@@ -425,8 +425,8 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                     voice->setFMAmount(fmAmount);  // Then set FM amount which triggers algorithm change in meta mode
                     
                     // Update current algorithm for display based on what the engine is actually using
-                    if (metaMode && modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT)) {
-                        // Get the algorithm that the engine calculated
+                    if (metaMode) {
+                        // Get the algorithm that the engine calculated (works for both direct FM knob and LFO modulation)
                         int engineAlgorithm = voice->getAlgorithm();
                         currentAlgorithm_ = engineAlgorithm;
                         
@@ -582,6 +582,49 @@ void BraidyAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
     
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
     copyXmlToBinary(*xml, destData);
+}
+
+// Get modulated parameter values for UI display
+float BraidyAudioProcessor::getModulatedTimbre() const {
+    float baseValue = apvts_.getRawParameterValue("param1")->load();
+    return modulationMatrix_.applyModulation(braidy::ModulationMatrix::TIMBRE, baseValue, 0.0f, 1.0f);
+}
+
+float BraidyAudioProcessor::getModulatedColor() const {
+    float baseValue = apvts_.getRawParameterValue("param2")->load();
+    return modulationMatrix_.applyModulation(braidy::ModulationMatrix::COLOR, baseValue, 0.0f, 1.0f);
+}
+
+float BraidyAudioProcessor::getModulatedFM() const {
+    if (auto* param = apvts_.getParameter("fmAmount")) {
+        float baseValue = param->getValue();
+        return modulationMatrix_.applyModulation(braidy::ModulationMatrix::FM_AMOUNT, baseValue, 0.0f, 1.0f);
+    }
+    return 0.0f;
+}
+
+float BraidyAudioProcessor::getModulatedFine() const {
+    if (auto* param = apvts_.getParameter("fineTune")) {
+        float baseValue = param->getValue();
+        return modulationMatrix_.applyModulation(braidy::ModulationMatrix::PITCH, baseValue, 0.0f, 1.0f);
+    }
+    return 0.5f;
+}
+
+float BraidyAudioProcessor::getModulatedCoarse() const {
+    if (auto* param = apvts_.getParameter("coarseTune")) {
+        float baseValue = param->getValue();
+        return modulationMatrix_.applyModulation(braidy::ModulationMatrix::OCTAVE, baseValue, 0.0f, 1.0f);
+    }
+    return 0.5f;
+}
+
+float BraidyAudioProcessor::getModulatedTimbreMod() const {
+    if (auto* param = apvts_.getParameter("timbreMod")) {
+        float baseValue = param->getValue();
+        return modulationMatrix_.applyModulation(braidy::ModulationMatrix::ENV_TIMBRE_AMOUNT, baseValue, 0.0f, 1.0f);
+    }
+    return 0.5f;
 }
 
 void BraidyAudioProcessor::setStateInformation(const void* data, int sizeInBytes)

@@ -63,6 +63,14 @@ public:
     
     // Get current algorithm (for META mode display updates)
     int getCurrentAlgorithm() const { return currentAlgorithm_.load(); }
+    
+    // Get modulated parameter values for UI display
+    float getModulatedTimbre() const;
+    float getModulatedColor() const;
+    float getModulatedFM() const;
+    float getModulatedFine() const;
+    float getModulatedCoarse() const;
+    float getModulatedTimbreMod() const;
 
 private:
     // Braids synthesiser
