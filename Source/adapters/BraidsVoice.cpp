@@ -324,4 +324,15 @@ void BraidsVoice::setPitchOffset(float semitones) {
     }
 }
 
+void BraidsVoice::setFMAmount(float amount) {
+    fmAmount_ = std::clamp(amount, 0.0f, 1.0f);
+    
+    // Rate limit to prevent engine overload during rapid modulation
+    // Use instance variable instead of static to avoid cross-voice interference
+    if (std::abs(fmAmount_ - lastFMValue_) > 0.005f) {  // Increased threshold for smoother modulation
+        lastFMValue_ = fmAmount_;
+        braidsEngine_.setFMParameter(fmAmount_);
+    }
+}
+
 } // namespace BraidyAdapter

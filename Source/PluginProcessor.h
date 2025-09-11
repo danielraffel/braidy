@@ -53,6 +53,16 @@ public:
     // Modulation system access
     braidy::ModulationMatrix& getModulationMatrix() { return modulationMatrix_; }
     const braidy::ModulationMatrix& getModulationMatrix() const { return modulationMatrix_; }
+    
+    // Check if META mode is enabled
+    bool isMetaModeEnabled() const {
+        if (auto* metaParam = apvts_.getRawParameterValue("metaMode"))
+            return metaParam->load() > 0.5f;
+        return false;
+    }
+    
+    // Get current algorithm (for META mode display updates)
+    int getCurrentAlgorithm() const { return currentAlgorithm_.load(); }
 
 private:
     // Braids synthesiser
@@ -85,6 +95,9 @@ private:
     std::atomic<float> currentParam1_{0.5f};
     std::atomic<float> currentParam2_{0.5f};
     std::atomic<float> currentVolume_{0.7f};
+    
+    // Recursion guard for parameter updates
+    std::atomic<bool> isUpdatingParameters_{false};
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BraidyAudioProcessor)
 };

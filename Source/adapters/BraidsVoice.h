@@ -51,7 +51,8 @@ public:
     void setPitchOffset(float semitones);
     
     // Set FM amount (0.0 to 1.0) - controls internal envelope modulation of pitch
-    void setFMAmount(float amount) { fmAmount_ = std::clamp(amount, 0.0f, 1.0f); }
+    // In meta mode, this controls algorithm selection
+    void setFMAmount(float amount);
     
     // Set meta modulation mode - enables algorithm modulation
     void setMetaMode(bool enabled);
@@ -87,6 +88,7 @@ private:
     float pitchOffset_ = 0.0f;      // Global pitch offset in semitones
     float fmAmount_ = 0.0f;         // FM envelope modulation depth (matches SETTING_AD_FM)
     bool metaMode_ = false;         // Meta modulation mode (algorithm modulation)
+    float lastFMValue_ = -1.0f;     // For rate limiting FM updates
     
     // Smoothing
     juce::SmoothedValue<float> smoothedPitch_;

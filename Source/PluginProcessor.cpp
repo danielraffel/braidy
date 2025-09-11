@@ -293,6 +293,18 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
 
 void BraidyAudioProcessor::updateSynthesiserFromParameters()
 {
+    // Prevent recursive calls - this is critical to avoid freezes
+    bool expected = false;
+    if (!isUpdatingParameters_.compare_exchange_strong(expected, true)) {
+        return; // Already updating, skip to prevent recursion
+    }
+    
+    // RAII guard to ensure flag is reset even if exception occurs
+    struct UpdateGuard {
+        std::atomic<bool>& flag;
+        ~UpdateGuard() { flag = false; }
+    } guard{isUpdatingParameters_};
+    
     // Get parameter values
     auto* algorithmParam = apvts_.getRawParameterValue(ALGORITHM_ID);
     auto* param1 = apvts_.getRawParameterValue(PARAM1_ID);
@@ -396,14 +408,33 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
         if (fmAmountParam) {
             float fmAmount = fmAmountParam->load();
             
+            // Apply FM modulation
+            if (modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT)) {
+                fmAmount = modulationMatrix_.applyModulation(
+                    braidy::ModulationMatrix::FM_AMOUNT, fmAmount, 0.0f, 1.0f);
+            }
+            
             // Meta mode (algorithm modulation)
             auto* metaModeParam = apvts_.getRawParameterValue("metaMode");
             bool metaMode = metaModeParam ? (metaModeParam->load() > 0.5f) : false;
             
+            // Pass FM value to voices - let BraidsEngine handle META mode algorithm switching internally
             for (int i = 0; i < synthesiser_->getNumVoices(); ++i) {
                 if (auto* voice = dynamic_cast<BraidyAdapter::BraidsVoice*>(synthesiser_->getVoice(i))) {
-                    voice->setFMAmount(fmAmount);
-                    voice->setMetaMode(metaMode);
+                    voice->setMetaMode(metaMode);  // Set meta mode first
+                    voice->setFMAmount(fmAmount);  // Then set FM amount which triggers algorithm change in meta mode
+                    
+                    // Update current algorithm for display based on what the engine is actually using
+                    if (metaMode && modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT)) {
+                        // Get the algorithm that the engine calculated
+                        int engineAlgorithm = voice->getAlgorithm();
+                        currentAlgorithm_ = engineAlgorithm;
+                        
+                        static int logCounter = 0;
+                        if (++logCounter % 100 == 0) {  // Rate limit logging
+                            DBG("[META MODE] Algorithm from engine: " + juce::String(engineAlgorithm) + " (FM: " + juce::String(fmAmount) + ")");
+                        }
+                    }
                 }
             }
         }
