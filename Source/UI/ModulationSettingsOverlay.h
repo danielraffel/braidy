@@ -70,7 +70,7 @@ public:
             lfo.rateSlider.setRange(0.01, 20.0, 0.01);
             lfo.rateSlider.setValue(1.0);
             lfo.rateSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-            lfo.rateSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+            lfo.rateSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 80, 20);
             lfo.rateSlider.addListener(this);
             addAndMakeVisible(lfo.rateSlider);
             
@@ -215,7 +215,7 @@ public:
             yPos += 30;
             
             lfo.rateLabel.setBounds(xOffset, yPos, 50, 25);
-            lfo.rateSlider.setBounds(xOffset + 55, yPos, lfoSectionWidth - 75, 25);
+            lfo.rateSlider.setBounds(xOffset + 55, yPos, lfoSectionWidth - 60, 25);
             yPos += 30;
             
             lfo.depthLabel.setBounds(xOffset, yPos, 50, 25);

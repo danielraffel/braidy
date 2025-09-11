@@ -457,7 +457,7 @@ BraidyAudioProcessorEditor::BraidyAudioProcessorEditor(BraidyAudioProcessor& p)
     DBG("[FOCUS] Plugin ready - click to focus for keyboard input");
     
     // Start timer for parameter updates (reduce frequency to avoid issues)
-    startTimer(100);
+    startTimer(30);  // 33Hz for smooth real-time modulation display
     
     DBG("[STARTUP] Constructor complete with MIDI keyboard support");
 }
@@ -497,6 +497,7 @@ void BraidyAudioProcessorEditor::setupComponents() {
     fineKnob_->onValueChange = [this](float value) {
         // Fine tuning: +/- 100 cents (1 semitone)
         // Store as parameter that will be applied to all voices
+        DBG("Fine knob changed: " + juce::String(value));
         if (auto* param = processorRef.getAPVTS().getParameter("fineTune")) {
             param->setValueNotifyingHost(value);
         }
@@ -510,6 +511,7 @@ void BraidyAudioProcessorEditor::setupComponents() {
     coarseKnob_->onValueChange = [this](float value) {
         // Coarse tuning: Braids hardware has 5 octave positions (-2, -1, 0, +1, +2)
         // Convert continuous value to discrete octave selection
+        DBG("Coarse knob changed: " + juce::String(value));
         if (auto* param = processorRef.getAPVTS().getParameter("coarseTune")) {
             // Map 0-1 to 5 discrete positions
             float discreteValue = std::round(value * 4.0f) / 4.0f;
@@ -563,11 +565,31 @@ void BraidyAudioProcessorEditor::setupComponents() {
     timbreModKnob_->onValueChange = [this](float value) {
         // In original Braids, this is a modulation attenuverter
         // It controls the amount and polarity of modulation applied to timbre
-        // For now, just store the value without affecting meta mode
-        // Meta mode should be toggled explicitly via long press or menu
+        DBG("Timbre modulation knob changed: " + juce::String(value));
         
-        // TODO: When modulation CV input is implemented, this will control
-        // the amount of external modulation applied to the timbre parameter
+        // Control LFO1 modulation amount for TIMBRE parameter
+        auto& modMatrix = processorRef.getModulationMatrix();
+        
+        // Convert knob value (-1 to +1) to modulation amount
+        float modulationAmount = (value - 0.5f) * 2.0f;  // Convert 0-1 to -1 to +1
+        
+        if (std::abs(modulationAmount) > 0.01f) {
+            // Enable modulation routing: LFO1 -> TIMBRE
+            modMatrix.setRouting(0, braidy::ModulationMatrix::TIMBRE, modulationAmount, true);
+            
+            // Enable LFO1 if it's not already enabled
+            auto& lfo1 = modMatrix.getLFO(0);
+            if (!lfo1.isEnabled()) {
+                lfo1.setEnabled(true);
+                lfo1.setRate(2.0f);  // 2 Hz default rate
+                lfo1.setDepth(1.0f);  // Full depth, controlled by amount
+                lfo1.setShape(braidy::LFO::SINE);  // Sine wave default
+                DBG("Enabled LFO1 for timbre modulation");
+            }
+        } else {
+            // Disable modulation routing when knob is at center
+            modMatrix.clearRouting(braidy::ModulationMatrix::TIMBRE);
+        }
     };
     addAndMakeVisible(*timbreModKnob_);
     timbreModKnob_->setVisible(true);
@@ -602,6 +624,18 @@ void BraidyAudioProcessorEditor::setupComponents() {
     modulationOverlay_->setVisible(false);  // Start hidden
     modulationOverlay_->onClose = [this]() {
         modulationOverlay_->hideOverlay();
+    };
+    
+    // Sync meta mode between main menu and modulation overlay
+    modulationOverlay_->onMetaModeChanged = [this](bool enabled) {
+        // Update the main parameter
+        if (auto* param = processorRef.getAPVTS().getParameter("metaMode")) {
+            param->setValueNotifyingHost(enabled ? 1.0f : 0.0f);
+        }
+        // Sync with menu value (so both UIs stay in sync)
+        if (currentMenuPage_ == MenuPage::META) {
+            menuValue_ = enabled ? 1 : 0;
+        }
     };
     addChildComponent(*modulationOverlay_);  // Use addChildComponent so it starts hidden
     modulationOverlay_->setAlwaysOnTop(true);  // Ensure overlay stays on top
@@ -750,6 +784,23 @@ void BraidyAudioProcessorEditor::drawParameterLeds(juce::Graphics& g) {
         auto ledBounds = juce::Rectangle<int>(5, 5).withCentre({timbreBounds.getCentreX(), timbreBounds.getY() - 10});
         
         auto brightness = timbreKnob_->getValue();
+        
+        // Check if TIMBRE is being modulated by LFO
+        auto& modMatrix = processorRef.getModulationMatrix();
+        if (modMatrix.isModulated(braidy::ModulationMatrix::TIMBRE)) {
+            // Add LFO modulation visual feedback
+            float lfoValue = modMatrix.getModulation(braidy::ModulationMatrix::TIMBRE);
+            float lfoIntensity = std::abs(lfoValue) * 0.5f; // Scale down for visual effect
+            brightness = std::clamp(brightness + lfoIntensity, 0.0f, 1.0f);
+            
+            // Pulsing effect for modulated parameters
+            static float pulsePhase = 0.0f;
+            pulsePhase += 0.1f;
+            if (pulsePhase > juce::MathConstants<float>::twoPi) pulsePhase = 0.0f;
+            float pulse = (std::sin(pulsePhase) + 1.0f) * 0.15f; // 0-0.3 range
+            brightness = std::clamp(brightness + pulse, 0.0f, 1.0f);
+        }
+        
         auto ledColour = juce::Colour(0xFF00CCA3).withAlpha(0.4f + brightness * 0.6f);  // Teal color
         
         g.setColour(ledColour);
@@ -770,6 +821,23 @@ void BraidyAudioProcessorEditor::drawParameterLeds(juce::Graphics& g) {
         auto ledBounds = juce::Rectangle<int>(5, 5).withCentre({colorBounds.getCentreX(), colorBounds.getY() - 10});
         
         auto brightness = colorKnob_->getValue();
+        
+        // Check if COLOR is being modulated by LFO
+        auto& modMatrix = processorRef.getModulationMatrix();
+        if (modMatrix.isModulated(braidy::ModulationMatrix::COLOR)) {
+            // Add LFO modulation visual feedback
+            float lfoValue = modMatrix.getModulation(braidy::ModulationMatrix::COLOR);
+            float lfoIntensity = std::abs(lfoValue) * 0.5f; // Scale down for visual effect
+            brightness = std::clamp(brightness + lfoIntensity, 0.0f, 1.0f);
+            
+            // Pulsing effect for modulated parameters
+            static float pulsePhase = 0.0f;
+            pulsePhase += 0.12f; // Slightly different phase for COLOR
+            if (pulsePhase > juce::MathConstants<float>::twoPi) pulsePhase = 0.0f;
+            float pulse = (std::sin(pulsePhase) + 1.0f) * 0.15f; // 0-0.3 range
+            brightness = std::clamp(brightness + pulse, 0.0f, 1.0f);
+        }
+        
         auto ledColour = juce::Colour(0xFFE74C3C).withAlpha(0.4f + brightness * 0.6f);  // Red color
         
         g.setColour(ledColour);
@@ -777,6 +845,43 @@ void BraidyAudioProcessorEditor::drawParameterLeds(juce::Graphics& g) {
         
         // LED rim (brighter red)
         g.setColour(juce::Colour(0xFFE74C3C));
+        g.drawEllipse(ledBounds.toFloat(), 0.8f);
+        
+        // Inner glow effect
+        g.setColour(ledColour.brighter(0.3f));
+        g.fillEllipse(ledBounds.reduced(1).toFloat());
+    }
+    
+    // FM LED (blue - unique color for FM parameter)
+    if (fmKnob_) {
+        auto fmBounds = fmKnob_->getBounds();
+        auto ledBounds = juce::Rectangle<int>(5, 5).withCentre({fmBounds.getCentreX(), fmBounds.getY() - 10});
+        
+        auto brightness = fmKnob_->getValue();
+        
+        // Check if FM is being modulated by LFO
+        auto& modMatrix = processorRef.getModulationMatrix();
+        if (modMatrix.isModulated(braidy::ModulationMatrix::FM_AMOUNT)) {
+            // Add LFO modulation visual feedback
+            float lfoValue = modMatrix.getModulation(braidy::ModulationMatrix::FM_AMOUNT);
+            float lfoIntensity = std::abs(lfoValue) * 0.5f; // Scale down for visual effect
+            brightness = std::clamp(brightness + lfoIntensity, 0.0f, 1.0f);
+            
+            // Pulsing effect for modulated parameters
+            static float pulsePhase = 0.0f;
+            pulsePhase += 0.15f; // Different phase for FM
+            if (pulsePhase > juce::MathConstants<float>::twoPi) pulsePhase -= juce::MathConstants<float>::twoPi;
+            float pulse = (std::sin(pulsePhase) + 1.0f) * 0.3f; // Pulse between 0.0f and 0.6f
+            brightness = std::clamp(brightness + pulse, 0.0f, 1.0f);
+        }
+        
+        auto ledColour = juce::Colour(0xFF4A90E2).withAlpha(0.4f + brightness * 0.6f);  // Blue color
+        
+        g.setColour(ledColour);
+        g.fillEllipse(ledBounds.toFloat());
+        
+        // LED rim (brighter blue)
+        g.setColour(juce::Colour(0xFF4A90E2));
         g.drawEllipse(ledBounds.toFloat(), 0.8f);
         
         // Inner glow effect
@@ -1010,62 +1115,157 @@ void BraidyAudioProcessorEditor::updateDisplay() {
 }
 
 void BraidyAudioProcessorEditor::updateParameterValues() {
+    // Skip most parameter updates if settings panel is open to avoid audio interruption
+    bool overlayVisible = modulationOverlay_ && modulationOverlay_->isVisible();
+    
     // Sync knob positions with parameter values
     auto& apvts = processorRef.getAPVTS();
     
-    // Update algorithm from parameter when it changes from the host (e.g., Logic dropdown)
-    // We need to detect when the parameter changes from outside the plugin UI
-    if (auto* algorithmParam = apvts.getRawParameterValue("algorithm")) {
-        // AudioParameterChoice stores the actual index, not a normalized value!
-        int paramAlgorithm = static_cast<int>(algorithmParam->load());
+    // Get modulation matrix for real-time modulated values
+    auto& modMatrix = processorRef.getModulationMatrix();
+    
+    // Skip non-essential parameter updates when modulation overlay is visible
+    if (!overlayVisible) {
+        // Update algorithm from parameter when it changes from the host (e.g., Logic dropdown)
+        // We need to detect when the parameter changes from outside the plugin UI
+        if (auto* algorithmParam = apvts.getRawParameterValue("algorithm")) {
+            // AudioParameterChoice stores the actual index, not a normalized value!
+            int paramAlgorithm = static_cast<int>(algorithmParam->load());
+            
+            // Only update if the parameter differs from our current UI state
+            // This prevents feedback loops while still syncing with host changes
+            if (paramAlgorithm != currentAlgorithm_ && !updatingAlgorithmFromEncoder_ && 
+                editEncoder_ && !editEncoder_->isBeingManipulated()) {
+                // Host changed the algorithm (e.g., via Logic dropdown)
+                currentAlgorithm_ = paramAlgorithm;
+                
+                // Validate bounds
+                if (currentAlgorithm_ < 0 || currentAlgorithm_ >= static_cast<int>(algorithmNames_.size())) {
+                    currentAlgorithm_ = 0;
+                }
+                
+                // Update display to reflect the change
+                updateDisplay();
+                
+                // Load defaults for the new algorithm
+                loadModelDefaults(currentAlgorithm_);
+                
+                if (fileLogger_) {
+                    fileLogger_->logMessage("[PARAM SYNC] Algorithm changed from host to: " + 
+                        juce::String(algorithmNames_[currentAlgorithm_]) + " (" + juce::String(currentAlgorithm_) + ")");
+                }
+            }
+        }
         
-        // Only update if the parameter differs from our current UI state
-        // This prevents feedback loops while still syncing with host changes
-        if (paramAlgorithm != currentAlgorithm_ && !updatingAlgorithmFromEncoder_ && 
-            editEncoder_ && !editEncoder_->isBeingManipulated()) {
-            // Host changed the algorithm (e.g., via Logic dropdown)
-            currentAlgorithm_ = paramAlgorithm;
-            
-            // Validate bounds
-            if (currentAlgorithm_ < 0 || currentAlgorithm_ >= static_cast<int>(algorithmNames_.size())) {
-                currentAlgorithm_ = 0;
-            }
-            
-            // Update display to reflect the change
-            updateDisplay();
-            
-            // Load defaults for the new algorithm
-            loadModelDefaults(currentAlgorithm_);
-            
-            if (fileLogger_) {
-                fileLogger_->logMessage("[PARAM SYNC] Algorithm changed from host to: " + 
-                    juce::String(algorithmNames_[currentAlgorithm_]) + " (" + juce::String(currentAlgorithm_) + ")");
+        // Update Timbre knob with modulation (skip when overlay visible)
+        if (auto* param1 = apvts.getRawParameterValue("param1")) {
+            if (timbreKnob_) {
+                float baseValue = param1->load();
+                if (modMatrix.isModulated(braidy::ModulationMatrix::TIMBRE)) {
+                    // Apply real-time modulation to knob position
+                    float modulated = modMatrix.applyModulation(braidy::ModulationMatrix::TIMBRE, baseValue, 0.0f, 1.0f);
+                    timbreKnob_->setValue(modulated);
+                } else {
+                    timbreKnob_->setValue(baseValue);
+                }
             }
         }
-    }
-    
-    // Update Timbre knob
-    if (auto* param1 = apvts.getRawParameterValue("param1")) {
-        if (timbreKnob_) {
-            timbreKnob_->setValue(param1->load());
+        
+        // Update Color knob with modulation (skip when overlay visible)
+        if (auto* param2 = apvts.getRawParameterValue("param2")) {
+            if (colorKnob_) {
+                float baseValue = param2->load();
+                if (modMatrix.isModulated(braidy::ModulationMatrix::COLOR)) {
+                    // Apply real-time modulation to knob position
+                    float modulated = modMatrix.applyModulation(braidy::ModulationMatrix::COLOR, baseValue, 0.0f, 1.0f);
+                    colorKnob_->setValue(modulated);
+                } else {
+                    colorKnob_->setValue(baseValue);
+                }
+            }
         }
     }
     
-    // Update Color knob
-    if (auto* param2 = apvts.getRawParameterValue("param2")) {
-        if (colorKnob_) {
-            colorKnob_->setValue(param2->load());
-        }
-    }
-    
-    // Update other knobs to reflect parameter changes
+    // Update FM knob with modulation and meta mode algorithm display
     if (fmKnob_) {
         auto* fmParam = apvts.getParameter("fmAmount");
         if (fmParam) {
-            fmKnob_->setValue(fmParam->getValue());
+            float baseValue = fmParam->getValue();
+            if (modMatrix.isModulated(braidy::ModulationMatrix::FM_AMOUNT)) {
+                // Apply real-time modulation to knob position
+                float modulated = modMatrix.applyModulation(braidy::ModulationMatrix::FM_AMOUNT, baseValue, 0.0f, 1.0f);
+                fmKnob_->setValue(modulated);
+                
+                // If meta mode is enabled, update algorithm display based on processor's current algorithm
+                if (processorRef.isMetaModeEnabled()) {
+                    // Get the algorithm from the processor which has already calculated it based on FM modulation
+                    int modulatedAlgorithm = processorRef.getCurrentAlgorithm();
+                    
+                    // Only update display if algorithm actually changed
+                    static int lastModulatedAlgorithm = -1;
+                    if (modulatedAlgorithm != lastModulatedAlgorithm) {
+                        lastModulatedAlgorithm = modulatedAlgorithm;
+                        
+                        // Update display to show modulated algorithm
+                        if (oledDisplay_ && modulatedAlgorithm >= 0 && modulatedAlgorithm < static_cast<int>(algorithmNames_.size())) {
+                            if (auto* display = dynamic_cast<SimpleOLEDDisplay*>(oledDisplay_.get())) {
+                                display->setText(algorithmNames_[modulatedAlgorithm]);
+                            }
+                        }
+                        
+                        // Update internal algorithm tracking for encoder visual feedback
+                        currentAlgorithm_ = modulatedAlgorithm;
+                        
+                        // Update encoder visual position
+                        if (editEncoder_) {
+                            editEncoder_->repaint();
+                        }
+                        
+                        if (fileLogger_) {
+                            fileLogger_->logMessage(juce::String("[META MODULATION] Algorithm modulated to: ") + 
+                                juce::String(algorithmNames_[modulatedAlgorithm]) + " (" + juce::String(modulatedAlgorithm) + ")");
+                        }
+                    }
+                }
+            } else {
+                fmKnob_->setValue(baseValue);
+            }
         }
     }
-    // For now, Fine, Coarse, FM, and Modulation knobs are not connected to parameters
+    // Update other knobs with modulation
+    if (fineKnob_) {
+        auto* fineParam = apvts.getParameter("fineTune");
+        if (fineParam) {
+            float baseValue = fineParam->getValue();
+            if (modMatrix.isModulated(braidy::ModulationMatrix::PITCH)) {
+                float modulated = modMatrix.applyModulation(braidy::ModulationMatrix::PITCH, baseValue, 0.0f, 1.0f);
+                fineKnob_->setValue(modulated);
+            } else {
+                fineKnob_->setValue(baseValue);
+            }
+        }
+    }
+    
+    if (coarseKnob_) {
+        auto* coarseParam = apvts.getParameter("coarseTune");
+        if (coarseParam) {
+            float baseValue = coarseParam->getValue();
+            if (modMatrix.isModulated(braidy::ModulationMatrix::DETUNE)) {
+                float modulated = modMatrix.applyModulation(braidy::ModulationMatrix::DETUNE, baseValue, 0.0f, 1.0f);
+                coarseKnob_->setValue(modulated);
+            } else {
+                coarseKnob_->setValue(baseValue);
+            }
+        }
+    }
+    
+    if (timbreModKnob_) {
+        // Modulation knob could control LFO1 depth for TIMBRE modulation
+        if (modMatrix.isModulated(braidy::ModulationMatrix::TIMBRE)) {
+            auto routing = modMatrix.getRouting(braidy::ModulationMatrix::TIMBRE);
+            timbreModKnob_->setValue(std::abs(routing.amount));
+        }
+    }
 }
 
 void BraidyAudioProcessorEditor::updateParameterFromKnob(BraidsKnob* knob, const juce::String& paramId) {
@@ -1309,7 +1509,12 @@ void BraidyAudioProcessorEditor::navigateMenu(int delta) {
             menuValue_ = 0;
             break;
         case MenuPage::META:
-            menuValue_ = 0;  // Meta mode off/on
+            // Read current meta mode parameter value instead of defaulting to 0
+            if (auto* metaParam = processorRef.getAPVTS().getRawParameterValue("metaMode")) {
+                menuValue_ = (metaParam->load() > 0.5f) ? 1 : 0;
+            } else {
+                menuValue_ = 0;  // Fallback if parameter doesn't exist
+            }
             break;
         case MenuPage::BITS:
             menuValue_ = 16;  // Bit depth (4-16)
@@ -1507,6 +1712,10 @@ void BraidyAudioProcessorEditor::applyMenuValue() {
         case MenuPage::META:
             if (auto* param = apvts.getParameter("metaMode")) {
                 param->setValueNotifyingHost(menuValue_ > 0 ? 1.0f : 0.0f);
+                // Sync with modulation overlay
+                if (modulationOverlay_) {
+                    modulationOverlay_->setMetaModeState(menuValue_ > 0);
+                }
             }
             break;
         case MenuPage::BITS:
@@ -1650,6 +1859,11 @@ void BraidyAudioProcessorEditor::buttonClicked(juce::Button* button) {
             if (modulationOverlay_->isOverlayVisible()) {
                 modulationOverlay_->hideOverlay();
             } else {
+                // Sync META mode state with current parameter before showing
+                if (auto* metaParam = processorRef.getAPVTS().getRawParameterValue("metaMode")) {
+                    bool isEnabled = metaParam->load() > 0.5f;
+                    modulationOverlay_->setMetaModeState(isEnabled);
+                }
                 modulationOverlay_->showOverlay();
                 modulationOverlay_->toFront(true);  // Bring to front when showing
             }
@@ -1667,9 +1881,10 @@ void BraidyAudioProcessorEditor::timerCallback() {
     // Don't update display from timer - let encoder events handle it
     // This prevents duplicate display updates and lag
     
-    // Repaint LEDs to show parameter activity (less frequent)
+    // Repaint LEDs to show parameter activity
+    // With 33Hz timer, repaint every 2 ticks = ~60ms for smooth LED updates
     static int repaintCounter = 0;
-    if (++repaintCounter >= 5) {  // Only repaint every 5th tick (500ms)
+    if (++repaintCounter >= 2) {  
         repaintCounter = 0;
         repaint();
     }
