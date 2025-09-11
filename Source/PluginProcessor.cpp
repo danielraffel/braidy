@@ -426,13 +426,19 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                     
                     // Update current algorithm for display based on what the engine is actually using
                     if (metaMode) {
-                        // Get the algorithm that the engine calculated (works for both direct FM knob and LFO modulation)
-                        int engineAlgorithm = voice->getAlgorithm();
-                        currentAlgorithm_ = engineAlgorithm;
+                        // In META mode, FM value (0-1) maps to algorithm (0-46)
+                        // Calculate the algorithm directly from the FM value
+                        int targetAlgorithm = static_cast<int>(fmAmount * 46.0f);
+                        targetAlgorithm = juce::jlimit(0, 46, targetAlgorithm);
                         
-                        static int logCounter = 0;
-                        if (++logCounter % 100 == 0) {  // Rate limit logging
-                            DBG("[META MODE] Algorithm from engine: " + juce::String(engineAlgorithm) + " (FM: " + juce::String(fmAmount) + ")");
+                        // Update the algorithm if it changed
+                        if (targetAlgorithm != currentAlgorithm_) {
+                            currentAlgorithm_ = targetAlgorithm;
+                            synthesiser_->setAlgorithm(targetAlgorithm);
+                            
+                            // Log the change for debugging
+                            DBG("[META MODE] Algorithm changed to: " + 
+                                juce::String(targetAlgorithm) + " (FM: " + juce::String(fmAmount) + ")");
                         }
                     }
                 }

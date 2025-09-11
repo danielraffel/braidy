@@ -425,7 +425,7 @@ BraidyAudioProcessorEditor::BraidyAudioProcessorEditor(BraidyAudioProcessor& p)
         
         // Force immediate write by logging directly
         fileLogger_->logMessage("[STARTUP] Debug logging enabled to: " + fileLogger_->getLogFile().getFullPathName());
-        fileLogger_->logMessage("[STARTUP] Plugin version: " + juce::String(JucePlugin_VersionString));
+        fileLogger_->logMessage("[STARTUP] Plugin version: 1.1.118");
         fileLogger_->logMessage("[STARTUP] Build type: DEBUG");
         fileLogger_->logMessage("[STARTUP] Initial display mode: Algorithm");
         fileLogger_->logMessage("[STARTUP] Initial algorithm: CSAW (0)");
@@ -1145,10 +1145,9 @@ void BraidyAudioProcessorEditor::updateParameterValues() {
     // Sync knob positions with parameter values
     auto& apvts = processorRef.getAPVTS();
     
-    // Skip non-essential parameter updates when modulation overlay is visible
+    // Update algorithm from parameter when it changes from the host (e.g., Logic dropdown)
+    // We need to detect when the parameter changes from outside the plugin UI
     if (!overlayVisible) {
-        // Update algorithm from parameter when it changes from the host (e.g., Logic dropdown)
-        // We need to detect when the parameter changes from outside the plugin UI
         if (auto* algorithmParam = apvts.getRawParameterValue("algorithm")) {
             // AudioParameterChoice stores the actual index, not a normalized value!
             int paramAlgorithm = static_cast<int>(algorithmParam->load());
@@ -1177,59 +1176,104 @@ void BraidyAudioProcessorEditor::updateParameterValues() {
                 }
             }
         }
+    }
+    
+    // ALWAYS update knobs with modulation (not just when overlay is hidden!)
+    // This is what makes the knobs move with LFO modulation
+    
+    // Update Timbre knob with modulation (skip only when knob being manually manipulated)
+    if (timbreKnob_ && !timbreKnob_->isBeingManipulated()) {
+        // Get modulated value from processor (includes LFO if active)
+        float modulatedValue = processorRef.getModulatedTimbre();
+        float currentKnobValue = timbreKnob_->getValue();
         
-        // Update Timbre knob with modulation (skip when overlay visible or knob being manipulated)
-        if (timbreKnob_ && !timbreKnob_->isBeingManipulated()) {
-            // Get modulated value from processor (includes LFO if active)
-            float modulatedValue = processorRef.getModulatedTimbre();
+        // Only update if value actually changed to reduce CPU usage
+        if (std::abs(modulatedValue - currentKnobValue) > 0.001f) {
             timbreKnob_->setValue(modulatedValue);  // No callback triggered
+            
+            // Debug logging to verify modulation is working
+            static int logCounter = 0;
+            if (++logCounter % 30 == 0) {  // Log every 30 frames (~1 second at 30Hz)
+                if (fileLogger_) {
+                    fileLogger_->logMessage("[MODULATION] Timbre knob updated: " + 
+                        juce::String(currentKnobValue, 3) + " -> " + juce::String(modulatedValue, 3));
+                }
+            }
         }
+    }
+    
+    // Update Color knob with modulation (skip only when knob being manually manipulated)
+    if (colorKnob_ && !colorKnob_->isBeingManipulated()) {
+        // Get modulated value from processor (includes LFO if active)
+        float modulatedValue = processorRef.getModulatedColor();
+        float currentKnobValue = colorKnob_->getValue();
         
-        // Update Color knob with modulation (skip when overlay visible or knob being manipulated)
-        if (colorKnob_ && !colorKnob_->isBeingManipulated()) {
-            // Get modulated value from processor (includes LFO if active)
-            float modulatedValue = processorRef.getModulatedColor();
+        // Only update if value actually changed to reduce CPU usage
+        if (std::abs(modulatedValue - currentKnobValue) > 0.001f) {
             colorKnob_->setValue(modulatedValue);  // No callback triggered
+            
+            // Debug logging to verify modulation is working
+            static int logCounter = 0;
+            if (++logCounter % 30 == 0) {  // Log every 30 frames (~1 second at 30Hz)
+                if (fileLogger_) {
+                    fileLogger_->logMessage("[MODULATION] Color knob updated: " + 
+                        juce::String(currentKnobValue, 3) + " -> " + juce::String(modulatedValue, 3));
+                }
+            }
         }
+    }
+    
+    // Update FM knob with modulation and meta mode algorithm display
+    if (fmKnob_ && !fmKnob_->isBeingManipulated()) {
+        // Get modulated value from processor (includes LFO if active)
+        float modulatedValue = processorRef.getModulatedFM();
+        float currentKnobValue = fmKnob_->getValue();
         
-        // Update FM knob with modulation and meta mode algorithm display
-        if (fmKnob_ && !fmKnob_->isBeingManipulated()) {
-            // Get modulated value from processor (includes LFO if active)
-            float modulatedValue = processorRef.getModulatedFM();
+        // Only update if value actually changed to reduce CPU usage
+        if (std::abs(modulatedValue - currentKnobValue) > 0.001f) {
             fmKnob_->setValue(modulatedValue);  // No callback triggered
+            
+            // Debug logging to verify modulation is working
+            static int logCounter = 0;
+            if (++logCounter % 30 == 0) {  // Log every 30 frames (~1 second at 30Hz)
+                if (fileLogger_) {
+                    fileLogger_->logMessage("[MODULATION] FM knob updated: " + 
+                        juce::String(currentKnobValue, 3) + " -> " + juce::String(modulatedValue, 3));
+                }
+            }
+        }
+                
+                // If meta mode is enabled, update algorithm display based on processor's current algorithm
+                if (processorRef.isMetaModeEnabled()) {
+                    // Get the algorithm from the processor which has already calculated it based on FM modulation
+                    int modulatedAlgorithm = processorRef.getCurrentAlgorithm();
                     
-                    // If meta mode is enabled, update algorithm display based on processor's current algorithm
-                    if (processorRef.isMetaModeEnabled()) {
-                        // Get the algorithm from the processor which has already calculated it based on FM modulation
-                        int modulatedAlgorithm = processorRef.getCurrentAlgorithm();
+                    // Only update display if algorithm actually changed
+                    static int lastModulatedAlgorithm = -1;
+                    if (modulatedAlgorithm != lastModulatedAlgorithm) {
+                        lastModulatedAlgorithm = modulatedAlgorithm;
                         
-                        // Only update display if algorithm actually changed
-                        static int lastModulatedAlgorithm = -1;
-                        if (modulatedAlgorithm != lastModulatedAlgorithm) {
-                            lastModulatedAlgorithm = modulatedAlgorithm;
-                            
-                            // Update display to show modulated algorithm
-                            if (oledDisplay_ && modulatedAlgorithm >= 0 && modulatedAlgorithm < static_cast<int>(algorithmNames_.size())) {
-                                if (auto* display = dynamic_cast<SimpleOLEDDisplay*>(oledDisplay_.get())) {
-                                    display->setText(algorithmNames_[modulatedAlgorithm]);
-                                }
-                            }
-                            
-                            // Update internal algorithm tracking for encoder visual feedback
-                            currentAlgorithm_ = modulatedAlgorithm;
-                            
-                            // Update encoder visual position
-                            if (editEncoder_) {
-                                editEncoder_->repaint();
-                            }
-                            
-                            if (fileLogger_) {
-                                fileLogger_->logMessage(juce::String("[META MODULATION] Algorithm modulated to: ") + 
-                                    juce::String(algorithmNames_[modulatedAlgorithm]) + " (" + juce::String(modulatedAlgorithm) + ")");
+                        // Update display to show modulated algorithm
+                        if (oledDisplay_ && modulatedAlgorithm >= 0 && modulatedAlgorithm < static_cast<int>(algorithmNames_.size())) {
+                            if (auto* display = dynamic_cast<SimpleOLEDDisplay*>(oledDisplay_.get())) {
+                                display->setText(algorithmNames_[modulatedAlgorithm]);
                             }
                         }
+                        
+                        // Update internal algorithm tracking for encoder visual feedback
+                        currentAlgorithm_ = modulatedAlgorithm;
+                        
+                        // Update encoder visual position
+                        if (editEncoder_) {
+                            editEncoder_->repaint();
+                        }
+                        
+                        if (fileLogger_) {
+                            fileLogger_->logMessage(juce::String("[META MODULATION] Algorithm modulated to: ") + 
+                                juce::String(algorithmNames_[modulatedAlgorithm]) + " (" + juce::String(modulatedAlgorithm) + ")");
+                        }
                     }
-        }
+                }
     }
     
     // Update other knobs with modulation
@@ -2081,11 +2125,12 @@ void BraidyAudioProcessorEditor::loadModelDefaultsSafe(int algorithmIndex) {
         }
         
         // Update knob positions to reflect new values
-        if (timbreKnob_) {
+        // Only update if knobs are not being manually manipulated to prevent jumping
+        if (timbreKnob_ && !timbreKnob_->isBeingManipulated()) {
             timbreKnob_->setValue(defaults.timbre);
         }
         
-        if (colorKnob_) {
+        if (colorKnob_ && !colorKnob_->isBeingManipulated()) {
             colorKnob_->setValue(defaults.color);
         }
         
