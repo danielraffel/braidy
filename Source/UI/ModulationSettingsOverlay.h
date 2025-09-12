@@ -307,17 +307,23 @@ public:
             
             if (combo == &lfo.shapeCombo)
             {
-                // Update APVTS parameter for LFO shape
+                // Update APVTS parameter for LFO shape (AudioParameterChoice)
                 juce::String paramId = "lfo" + juce::String(i + 1) + "Shape";
-                if (auto* param = apvts_.getParameter(paramId))
-                    param->setValueNotifyingHost(float(combo->getSelectedId() - 1) / 5.0f);  // Normalize 0-5 to 0-1
+                if (auto* param = dynamic_cast<juce::AudioParameterChoice*>(apvts_.getParameter(paramId)))
+                {
+                    int index = combo->getSelectedId() - 1;  // Convert 1-based ComboBox ID to 0-based index
+                    param->setValueNotifyingHost(param->convertTo0to1(index));
+                }
             }
             else if (combo == &lfo.destCombo)
             {
-                // Update APVTS parameter for LFO destination
+                // Update APVTS parameter for LFO destination (AudioParameterChoice)
                 juce::String paramId = "lfo" + juce::String(i + 1) + "Dest";
-                if (auto* param = apvts_.getParameter(paramId))
-                    param->setValueNotifyingHost(float(combo->getSelectedId() - 1) / 5.0f);  // Normalize 0-5 to 0-1
+                if (auto* param = dynamic_cast<juce::AudioParameterChoice*>(apvts_.getParameter(paramId)))
+                {
+                    int index = combo->getSelectedId() - 1;  // Convert 1-based ComboBox ID to 0-based index
+                    param->setValueNotifyingHost(param->convertTo0to1(index));
+                }
             }
         }
     }
@@ -425,11 +431,11 @@ public:
                 lfo.enableButton.setToggleState(param->load() > 0.5f, juce::dontSendNotification);
             }
             
-            // Load LFO Shape
+            // Load LFO Shape (AudioParameterChoice - use direct index)
             if (auto* param = apvts_.getRawParameterValue(lfoPrefix + "Shape"))
             {
-                int shapeIndex = static_cast<int>(param->load() * 5.0f); // Denormalize 0-1 to 0-5
-                lfo.shapeCombo.setSelectedId(shapeIndex + 1, juce::dontSendNotification);
+                int shapeIndex = static_cast<int>(param->load());  // Direct index, no denormalization needed
+                lfo.shapeCombo.setSelectedId(shapeIndex + 1, juce::dontSendNotification);  // Convert 0-based to 1-based ComboBox ID
             }
             
             // Load LFO Rate
@@ -450,11 +456,11 @@ public:
                 lfo.tempoSyncButton.setToggleState(param->load() > 0.5f, juce::dontSendNotification);
             }
             
-            // Load LFO Destination
+            // Load LFO Destination (AudioParameterChoice - use direct index)
             if (auto* param = apvts_.getRawParameterValue(lfoPrefix + "Dest"))
             {
-                int destIndex = static_cast<int>(param->load() * 5.0f); // Denormalize 0-1 to 0-5
-                lfo.destCombo.setSelectedId(destIndex + 1, juce::dontSendNotification);
+                int destIndex = static_cast<int>(param->load());  // Direct index, no denormalization needed
+                lfo.destCombo.setSelectedId(destIndex + 1, juce::dontSendNotification);  // Convert 0-based to 1-based ComboBox ID
             }
             
             // Amount slider is not an APVTS parameter - it's handled by updateRouting()
