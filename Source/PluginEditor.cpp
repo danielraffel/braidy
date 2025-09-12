@@ -643,7 +643,7 @@ void BraidyAudioProcessorEditor::setupComponents() {
     DBG("=== All Components Created ===");
     
     // Create modulation overlay LAST so it's on top of everything
-    modulationOverlay_ = std::make_unique<braidy::ModulationSettingsOverlay>(modulationMatrix_, processorRef.getAPVTS());
+    modulationOverlay_ = std::make_unique<braidy::ModulationSettingsOverlay>(modulationMatrix_, processorRef.getAPVTS(), fileLogger_.get());
     modulationOverlay_->setVisible(false);  // Start hidden
     modulationOverlay_->onClose = [this]() {
         modulationOverlay_->hideOverlay();
@@ -658,6 +658,40 @@ void BraidyAudioProcessorEditor::setupComponents() {
         // Sync with menu value (so both UIs stay in sync)
         if (currentMenuPage_ == MenuPage::META) {
             menuValue_ = enabled ? 1 : 0;
+        }
+    };
+    
+    // LFO Enable callback
+    modulationOverlay_->onLfoEnableChanged = [this](int lfoIndex, bool enabled) {
+        juce::String paramId = "lfo" + juce::String(lfoIndex + 1) + "Enable";
+        if (auto* param = processorRef.getAPVTS().getParameter(paramId)) {
+            param->setValueNotifyingHost(enabled ? 1.0f : 0.0f);
+        }
+    };
+    
+    // LFO Shape callback
+    modulationOverlay_->onLfoShapeChanged = [this](int lfoIndex, int shapeIndex) {
+        juce::String paramId = "lfo" + juce::String(lfoIndex + 1) + "Shape";
+        if (auto* param = dynamic_cast<juce::AudioParameterChoice*>(processorRef.getAPVTS().getParameter(paramId))) {
+            float normalizedValue = param->convertTo0to1(shapeIndex);
+            param->setValueNotifyingHost(normalizedValue);
+        }
+    };
+    
+    // LFO Tempo Sync callback
+    modulationOverlay_->onLfoTempoSyncChanged = [this](int lfoIndex, bool synced) {
+        juce::String paramId = "lfo" + juce::String(lfoIndex + 1) + "TempoSync";
+        if (auto* param = processorRef.getAPVTS().getParameter(paramId)) {
+            param->setValueNotifyingHost(synced ? 1.0f : 0.0f);
+        }
+    };
+    
+    // LFO Destination callback
+    modulationOverlay_->onLfoDestChanged = [this](int lfoIndex, int destIndex) {
+        juce::String paramId = "lfo" + juce::String(lfoIndex + 1) + "Dest";
+        if (auto* param = dynamic_cast<juce::AudioParameterChoice*>(processorRef.getAPVTS().getParameter(paramId))) {
+            float normalizedValue = param->convertTo0to1(destIndex);
+            param->setValueNotifyingHost(normalizedValue);
         }
     };
     addChildComponent(*modulationOverlay_);  // Use addChildComponent so it starts hidden
@@ -1243,37 +1277,7 @@ void BraidyAudioProcessorEditor::updateParameterValues() {
             }
         }
                 
-                // If meta mode is enabled, update algorithm display based on processor's current algorithm
-                if (processorRef.isMetaModeEnabled()) {
-                    // Get the algorithm from the processor which has already calculated it based on FM modulation
-                    int modulatedAlgorithm = processorRef.getCurrentAlgorithm();
-                    
-                    // Only update display if algorithm actually changed
-                    static int lastModulatedAlgorithm = -1;
-                    if (modulatedAlgorithm != lastModulatedAlgorithm) {
-                        lastModulatedAlgorithm = modulatedAlgorithm;
-                        
-                        // Update display to show modulated algorithm
-                        if (oledDisplay_ && modulatedAlgorithm >= 0 && modulatedAlgorithm < static_cast<int>(algorithmNames_.size())) {
-                            if (auto* display = dynamic_cast<SimpleOLEDDisplay*>(oledDisplay_.get())) {
-                                display->setText(algorithmNames_[modulatedAlgorithm]);
-                            }
-                        }
-                        
-                        // Update internal algorithm tracking for encoder visual feedback
-                        currentAlgorithm_ = modulatedAlgorithm;
-                        
-                        // Update encoder visual position
-                        if (editEncoder_) {
-                            editEncoder_->repaint();
-                        }
-                        
-                        if (fileLogger_) {
-                            fileLogger_->logMessage(juce::String("[META MODULATION] Algorithm modulated to: ") + 
-                                juce::String(algorithmNames_[modulatedAlgorithm]) + " (" + juce::String(modulatedAlgorithm) + ")");
-                        }
-                    }
-                }
+                // Algorithm display is now handled in timerCallback() for META mode
     }
     
     // Update other knobs with modulation
@@ -1903,11 +1907,46 @@ void BraidyAudioProcessorEditor::timerCallback() {
     // Update parameter values from processor
     updateParameterValues();
     
+    // Update algorithm display
+    if (displayMode_ == DisplayMode::Algorithm) {
+        int displayAlgorithm = currentAlgorithm_;
+        
+        // In META mode, show the modulated algorithm in the display
+        // but DON'T update currentAlgorithm_ (which controls the knob position)
+        if (processorRef.isMetaModeEnabled()) {
+            displayAlgorithm = processorRef.getMetaModeAlgorithm();
+        } else {
+            displayAlgorithm = processorRef.getCurrentAlgorithm();
+            // Only sync currentAlgorithm_ when NOT in META mode
+            if (displayAlgorithm != currentAlgorithm_) {
+                currentAlgorithm_ = displayAlgorithm;
+            }
+        }
+        
+        // Only update display if algorithm actually changed
+        static int lastDisplayedAlgorithm = -1;
+        if (displayAlgorithm != lastDisplayedAlgorithm) {
+            lastDisplayedAlgorithm = displayAlgorithm;
+            // DON'T update currentAlgorithm_ here when in META mode
+            // currentAlgorithm_ = displayAlgorithm;  // REMOVED THIS LINE
+            
+            // Update display to show current/modulated algorithm
+            if (oledDisplay_ && displayAlgorithm >= 0 && displayAlgorithm < static_cast<int>(algorithmNames_.size())) {
+                if (auto* display = dynamic_cast<SimpleOLEDDisplay*>(oledDisplay_.get())) {
+                    display->setText(algorithmNames_[displayAlgorithm]);
+                    
+                    // Debug output for algorithm changes
+                    if (processorRef.isMetaModeEnabled()) {
+                        DBG("[META MODE DISPLAY] Algorithm display updated to: " + 
+                            juce::String(algorithmNames_[displayAlgorithm]) + " (" + juce::String(displayAlgorithm) + ")");
+                    }
+                }
+            }
+        }
+    }
+    
     // Don't automatically grab keyboard focus in timer
     // This interferes with host (Logic) keyboard shortcuts like Cmd+K
-    
-    // Don't update display from timer - let encoder events handle it
-    // This prevents duplicate display updates and lag
     
     // Repaint LEDs to show parameter activity
     // With 33Hz timer, repaint every 2 ticks = ~60ms for smooth LED updates

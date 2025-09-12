@@ -299,6 +299,15 @@ void BraidsSynthesiser::updatePerformanceStats(double renderTime, int activeVoic
     }
 }
 
+void BraidsSynthesiser::setModulationMatrix(braidy::ModulationMatrix* matrix) {
+    // Pass the modulation matrix to all voices for real-time modulation
+    for (int i = 0; i < getNumVoices(); ++i) {
+        if (auto* braidsVoice = dynamic_cast<BraidsVoice*>(getVoice(i))) {
+            braidsVoice->setModulationMatrix(matrix);
+        }
+    }
+}
+
 // BraidsManager implementation
 
 BraidsManager::BraidsManager(int numVoices)

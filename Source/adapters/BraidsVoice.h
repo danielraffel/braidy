@@ -17,6 +17,7 @@
 
 #include <JuceHeader.h>
 #include "BraidsEngine.h"
+#include "../Modulation/ModulationMatrix.h"
 
 namespace BraidyAdapter {
 
@@ -68,12 +69,16 @@ public:
     // Get the underlying Braids engine
     BraidsEngine* getBraidsEngine() { return &braidsEngine_; }
     const BraidsEngine* getBraidsEngine() const { return &braidsEngine_; }
+    
+    // Set modulation matrix reference for real-time modulation
+    void setModulationMatrix(braidy::ModulationMatrix* matrix) { modulationMatrix_ = matrix; }
 
 private:
     void updatePitch();
     float midiNoteToFrequency(float midiNote) const;
     
     BraidsEngine braidsEngine_;
+    braidy::ModulationMatrix* modulationMatrix_ = nullptr;
     
     // Voice state
     bool isActive_;

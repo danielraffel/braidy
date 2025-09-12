@@ -17,6 +17,7 @@
 
 #include <JuceHeader.h>
 #include "BraidsVoice.h"
+#include "../Modulation/ModulationMatrix.h"
 #include <atomic>
 #include <mutex>
 
@@ -87,6 +88,9 @@ public:
     
     // Thread-safe parameter updates
     void updateParameterThreadSafe(int parameterIndex, float value);
+    
+    // Modulation matrix for real-time modulation
+    void setModulationMatrix(braidy::ModulationMatrix* matrix);
     
 private:
     void initializeVoices(int numVoices);

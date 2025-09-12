@@ -168,12 +168,68 @@ void BraidsVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer, int st
         }
     }
     
-    // Apply parameter updates
-    if (pitchChanged) {
+    // Apply real-time modulation if modulation matrix is available
+    if (modulationMatrix_ && isActive_) {
+        // Get modulated pitch offset (DETUNE + OCTAVE)
+        float detuneMod = modulationMatrix_->getModulation(braidy::ModulationMatrix::DETUNE);
+        float octaveMod = modulationMatrix_->getModulation(braidy::ModulationMatrix::OCTAVE);
+        
+        // Apply detune modulation (-2 to +2 semitones range)
+        float detuneOffset = detuneMod * 2.0f;
+        
+        // Apply octave modulation (-2 to +2 octaves range)
+        float octaveOffset = octaveMod * 24.0f;  // 24 semitones = 2 octaves
+        
+        // Combined pitch offset in semitones
+        float totalPitchOffset = pitchOffset_ + detuneOffset + octaveOffset;
+        
+        // Convert pitch bend from range [-1, 1] to semitones (±2 semitones)
+        float pitchBendSemitones = pitchBend_ * 2.0f;
+        
+        // Apply pitch modulation to the engine
+        float targetFreq = midiNoteToFrequency(static_cast<float>(currentMidiNote_) + totalPitchOffset + pitchBendSemitones);
+        braidsEngine_.setPitch(targetFreq);
+        
+        // Get modulated timbre parameters
+        float timbreMod = modulationMatrix_->getModulation(braidy::ModulationMatrix::TIMBRE);
+        float colorMod = modulationMatrix_->getModulation(braidy::ModulationMatrix::COLOR);
+        
+        // Apply timbre and color modulation
+        float modulatedParam1 = juce::jlimit(0.0f, 1.0f, smoothedParam1_.getCurrentValue() + timbreMod);
+        float modulatedParam2 = juce::jlimit(0.0f, 1.0f, smoothedParam2_.getCurrentValue() + colorMod);
+        braidsEngine_.setParameters(modulatedParam1, modulatedParam2);
+        
+        // Get FM modulation
+        float fmMod = modulationMatrix_->getModulation(braidy::ModulationMatrix::FM_AMOUNT);
+        float envTimbreMod = modulationMatrix_->getModulation(braidy::ModulationMatrix::ENV_TIMBRE_AMOUNT);
+        
+        // Apply FM modulation (affects internal pitch modulation)
+        float modulatedFM = juce::jlimit(0.0f, 1.0f, fmAmount_ + fmMod);
+        braidsEngine_.setFMParameter(modulatedFM);  // Use the correct method name
+        
+        // TODO: Apply ENV_TIMBRE_AMOUNT modulation when BraidsEngine supports it
+        // For now, we can use it to modulate the timbre parameter further
+        if (std::abs(envTimbreMod) > 0.001f) {
+            float timbreWithEnv = juce::jlimit(0.0f, 1.0f, modulatedParam1 + envTimbreMod * 0.5f);
+            braidsEngine_.setParameters(timbreWithEnv, modulatedParam2);
+        }
+    } else {
+        // No modulation matrix - apply static parameters
+        if (pitchChanged) {
+            updatePitch();
+        }
+        
+        if (paramsChanged) {
+            braidsEngine_.setParameters(smoothedParam1_.getCurrentValue(), smoothedParam2_.getCurrentValue());
+        }
+    }
+    
+    // Apply parameter updates (for backward compatibility)
+    if (pitchChanged && !modulationMatrix_) {
         updatePitch();
     }
     
-    if (paramsChanged) {
+    if (paramsChanged && !modulationMatrix_) {
         braidsEngine_.setParameters(smoothedParam1_.getCurrentValue(), smoothedParam2_.getCurrentValue());
     }
     

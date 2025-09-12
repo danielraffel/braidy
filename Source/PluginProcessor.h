@@ -63,6 +63,7 @@ public:
     
     // Get current algorithm (for META mode display updates)
     int getCurrentAlgorithm() const { return currentAlgorithm_.load(); }
+    int getMetaModeAlgorithm() const { return metaModeAlgorithm_.load(); }
     
     // Get modulated parameter values for UI display
     float getModulatedTimbre() const;
@@ -103,6 +104,7 @@ private:
     std::atomic<float> currentParam1_{0.5f};
     std::atomic<float> currentParam2_{0.5f};
     std::atomic<float> currentVolume_{0.7f};
+    std::atomic<int> metaModeAlgorithm_{0};  // For META mode display updates
     
     // Recursion guard for parameter updates
     std::atomic<bool> isUpdatingParameters_{false};
