@@ -108,7 +108,9 @@ public:
         oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
         
         // Initialize oscillator parameters properly
-        oscillator_.set_parameters(32768, 32768); // Center position
+        // Note: Braids uses signed 16-bit range (-32768 to 32767)
+        // Center position should be 0, not 32768
+        oscillator_.set_parameters(0, 0); // Center position (was incorrectly 32768)
         oscillator_.set_pitch(60 << 7); // MIDI note 60 (middle C) in Braids format
     }
 
@@ -134,7 +136,7 @@ public:
         // Initialize the oscillator properly (don't use memset on C++ objects!)
         oscillator_.Init();
         oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
-        oscillator_.set_parameters(32768, 32768);
+        oscillator_.set_parameters(0, 0);
         updatePitch();
         updateParameters();
         
@@ -168,7 +170,7 @@ public:
                 oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm));
                 
                 // Reset parameters to safe defaults
-                oscillator_.set_parameters(32768, 32768);
+                oscillator_.set_parameters(0, 0);
                 
                 // Force parameter update when algorithm changes
                 updateParameters();
@@ -189,14 +191,14 @@ public:
                 algorithm_ = 0; // CSAW
                 oscillator_.Init();
                 oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(0));
-                oscillator_.set_parameters(32768, 32768);
+                oscillator_.set_parameters(0, 0);
             } catch (...) {
                 std::cerr << "[ERROR] Unknown error setting algorithm " << algorithm << std::endl;
                 // Fall back to a safe algorithm
                 algorithm_ = 0; // CSAW
                 oscillator_.Init();
                 oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(0));
-                oscillator_.set_parameters(32768, 32768);
+                oscillator_.set_parameters(0, 0);
             }
         }
     }
@@ -267,7 +269,7 @@ public:
                     // This is expensive but necessary for algorithm switching
                     oscillator_.Init();
                     oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
-                    oscillator_.set_parameters(32768, 32768);
+                    oscillator_.set_parameters(0, 0);
                     
                     std::cout << "[DEBUG] Meta mode algorithm change via FM: " << algorithm_ 
                               << " (" << getAlgorithmName() << ")" << std::endl;
@@ -424,7 +426,7 @@ private:
                               << recoveryAttempts << ")" << std::endl;
                     oscillator_.Init();
                     oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
-                    oscillator_.set_parameters(32768, 32768);
+                    oscillator_.set_parameters(0, 0);
                     updatePitch();
                     updateParameters();
                     initialized_ = true;
@@ -498,6 +500,12 @@ private:
         // We preserve fractional MIDI notes for proper pitch bend support
         int16_t braidsPitch = static_cast<int16_t>(currentPitch_ * 128.0f);
         oscillator_.set_pitch(braidsPitch);
+        
+        static int debugCounter = 0;
+        if (++debugCounter % 100 == 0) {
+            std::cout << "[DEBUG] BraidsEngine::updatePitch - MIDI note=" << currentPitch_ 
+                      << " -> Braids pitch=" << braidsPitch << " (expected for 60.0: " << (60.0f * 128.0f) << ")" << std::endl;
+        }
     }
 
     void updateParameters() {

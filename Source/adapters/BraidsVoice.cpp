@@ -29,6 +29,9 @@ BraidsVoice::BraidsVoice()
     smoothedPitch_.setCurrentAndTargetValue(60.0f);
     smoothedParam1_.setCurrentAndTargetValue(0.5f);
     smoothedParam2_.setCurrentAndTargetValue(0.5f);
+    
+    // Ensure pitch offset is explicitly initialized to zero
+    pitchOffset_ = 0.0f;
 }
 
 BraidsVoice::~BraidsVoice() = default;
@@ -56,6 +59,10 @@ void BraidsVoice::startNote(int midiNoteNumber, float velocity, juce::Synthesise
     // Apply pitch bend (±2 semitones range)
     float targetPitch = basePitch + pitchBend_ * 2.0f;
     smoothedPitch_.setTargetValue(targetPitch);
+    
+    std::cout << "[DEBUG] BraidsVoice::startNote - Pitch calculation: midiNote=" << midiNoteNumber 
+              << " pitchOffset=" << pitchOffset_ << " pitchBend=" << pitchBend_ 
+              << " -> targetPitch=" << targetPitch << std::endl;
     
     // Initialize the Braids engine if not already done
     if (!braidsEngine_.isInitialized()) {
@@ -187,8 +194,9 @@ void BraidsVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer, int st
         float pitchBendSemitones = pitchBend_ * 2.0f;
         
         // Apply pitch modulation to the engine
-        float targetFreq = midiNoteToFrequency(static_cast<float>(currentMidiNote_) + totalPitchOffset + pitchBendSemitones);
-        braidsEngine_.setPitch(targetFreq);
+        // BraidsEngine expects MIDI note numbers, not frequencies
+        float targetMidiNote = static_cast<float>(currentMidiNote_) + totalPitchOffset + pitchBendSemitones;
+        braidsEngine_.setPitch(targetMidiNote);
         
         // Get modulated timbre parameters
         float timbreMod = modulationMatrix_->getModulation(braidy::ModulationMatrix::TIMBRE);
