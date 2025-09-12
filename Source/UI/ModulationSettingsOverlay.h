@@ -356,8 +356,8 @@ public:
         isVisible_ = true;
         grabKeyboardFocus();  // Grab focus to receive ESC key
         
-        // Refresh UI state to show current routings
-        refreshUIFromMatrix();
+        // Load current APVTS parameter values into UI
+        loadCurrentParameters();
         
         // Start timer for real-time UI updates (30Hz for smooth knob movement)
         startTimer(33);
@@ -409,6 +409,59 @@ public:
                 DBG("[MODULATION] Refreshed UI - LFO" + juce::String(lfoIndex + 1) + " -> None");
             }
         }
+    }
+    
+    void loadCurrentParameters()
+    {
+        // Load current APVTS parameter values into UI controls
+        for (int lfoIndex = 0; lfoIndex < 2; ++lfoIndex)
+        {
+            auto& lfo = lfoSections_[lfoIndex];
+            juce::String lfoPrefix = "lfo" + juce::String(lfoIndex + 1);
+            
+            // Load LFO Enable
+            if (auto* param = apvts_.getRawParameterValue(lfoPrefix + "Enable"))
+            {
+                lfo.enableButton.setToggleState(param->load() > 0.5f, juce::dontSendNotification);
+            }
+            
+            // Load LFO Shape
+            if (auto* param = apvts_.getRawParameterValue(lfoPrefix + "Shape"))
+            {
+                int shapeIndex = static_cast<int>(param->load() * 5.0f); // Denormalize 0-1 to 0-5
+                lfo.shapeCombo.setSelectedId(shapeIndex + 1, juce::dontSendNotification);
+            }
+            
+            // Load LFO Rate
+            if (auto* param = apvts_.getRawParameterValue(lfoPrefix + "Rate"))
+            {
+                lfo.rateSlider.setValue(param->load(), juce::dontSendNotification);
+            }
+            
+            // Load LFO Depth
+            if (auto* param = apvts_.getRawParameterValue(lfoPrefix + "Depth"))
+            {
+                lfo.depthSlider.setValue(param->load(), juce::dontSendNotification);
+            }
+            
+            // Load LFO Tempo Sync
+            if (auto* param = apvts_.getRawParameterValue(lfoPrefix + "TempoSync"))
+            {
+                lfo.tempoSyncButton.setToggleState(param->load() > 0.5f, juce::dontSendNotification);
+            }
+            
+            // Load LFO Destination
+            if (auto* param = apvts_.getRawParameterValue(lfoPrefix + "Dest"))
+            {
+                int destIndex = static_cast<int>(param->load() * 5.0f); // Denormalize 0-1 to 0-5
+                lfo.destCombo.setSelectedId(destIndex + 1, juce::dontSendNotification);
+            }
+            
+            // Amount slider is not an APVTS parameter - it's handled by updateRouting()
+            // For now, keep it at current value
+        }
+        
+        DBG("[UI] Loaded current APVTS parameters into modulation overlay");
     }
     
     void hideOverlay()
