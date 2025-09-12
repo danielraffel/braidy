@@ -425,7 +425,7 @@ BraidyAudioProcessorEditor::BraidyAudioProcessorEditor(BraidyAudioProcessor& p)
         
         // Force immediate write by logging directly
         fileLogger_->logMessage("[STARTUP] Debug logging enabled to: " + fileLogger_->getLogFile().getFullPathName());
-        fileLogger_->logMessage("[STARTUP] Plugin version: 1.1.118");
+        fileLogger_->logMessage("[STARTUP] Plugin version: " + juce::String(JucePlugin_VersionString));
         fileLogger_->logMessage("[STARTUP] Build type: DEBUG");
         fileLogger_->logMessage("[STARTUP] Initial display mode: Algorithm");
         fileLogger_->logMessage("[STARTUP] Initial algorithm: CSAW (0)");

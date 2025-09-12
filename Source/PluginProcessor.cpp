@@ -428,8 +428,18 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
             auto* metaModeParam = apvts_.getRawParameterValue("metaMode");
             bool metaMode = metaModeParam ? (metaModeParam->load() > 0.5f) : false;
             
-            // META mode algorithm selection
-            if (metaMode) {
+            // Debug META mode state
+            static int metaDebugCounter = 0;
+            if (++metaDebugCounter % 100 == 0) {  // Log every 100 blocks
+                if (metaMode) {
+                    std::cout << "[META MODE] Enabled - FM: " << fmAmount 
+                              << ", FM modulated: " << modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT) 
+                              << std::endl;
+                }
+            }
+            
+            // META mode algorithm selection - RE-ENABLED with crash-safe approach
+            if (metaMode && metaModeParam && metaModeParam->load() > 0.5f) {
                 int targetAlgorithm = newAlgorithm; // Start with current algorithm selection
                 bool shouldModulateAlgorithm = false;
                 
@@ -440,33 +450,90 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                         braidy::ModulationMatrix::ALGORITHM_SELECTION, newAlgorithm, 0, 46);
                     shouldModulateAlgorithm = true;
                     
-                    DBG("[META MODULATION] LFO modulating algorithm to index " + juce::String(targetAlgorithm));
+                    std::cout << "[META MODULATION] LFO modulating algorithm to index " << targetAlgorithm << std::endl;
                 }
-                // Priority 2: Check if FM parameter is significantly different from its default (0.0)
-                // Only use FM to control algorithm if FM is being actively modulated or set to non-zero
-                else if (fmAmount > 0.01f || modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT)) {
-                    // Traditional META mode: FM parameter controls algorithm (only when FM has meaningful value)
+                // Priority 2: Use FM to control algorithm when META is enabled
+                // Check if FM is being modulated OR has a non-zero value
+                else if (modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT) || fmAmount > 0.01f) {
+                    // Traditional META mode: FM parameter controls algorithm
                     targetAlgorithm = static_cast<int>(fmAmount * 46.0f);
                     targetAlgorithm = juce::jlimit(0, 46, targetAlgorithm);
                     shouldModulateAlgorithm = true;
                     
-                    if (targetAlgorithm != currentAlgorithm_) {
-                        DBG("[META MODULATION] FM controlling algorithm to index " + juce::String(targetAlgorithm) + " (FM=" + juce::String(fmAmount) + ")");
+                    // Always log when META mode is active to help debug
+                    static int metaLogCounter = 0;
+                    if (++metaLogCounter % 50 == 0) {  // Log every 50 blocks
+                        std::cout << "[META MODULATION] FM controlling algorithm to index " << targetAlgorithm
+                                  << " (FM=" << fmAmount << ", modulated=" 
+                                  << modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT) << ")" << std::endl;
                     }
                 }
                 // Priority 3: No modulation active - stay on current algorithm, don't cycle
                 
                 // Apply algorithm change only if we should modulate and target changed
-                if (shouldModulateAlgorithm && targetAlgorithm != currentAlgorithm_) {
-                    // THREAD SAFETY: Stop all voices before changing algorithm
-                    synthesiser_->allNotesOff(0, true);
-                    
-                    currentAlgorithm_ = targetAlgorithm;
-                    newAlgorithm = targetAlgorithm;
-                    synthesiser_->setAlgorithm(targetAlgorithm);
-                    
-                    // Store for editor to update display
+                if (shouldModulateAlgorithm) {
+                    // Store the modulated algorithm for display purposes
                     metaModeAlgorithm_.store(targetAlgorithm);
+                    
+                    // Only actually change the synthesis algorithm if it's significantly different
+                    // This prevents rapid switching that causes crashes
+                    if (targetAlgorithm != currentAlgorithm_) {
+                        // Add hysteresis: only switch if we've moved by more than 1 algorithm
+                        // or if enough time has passed since last switch
+                        static int lastSwitchCounter = 0;
+                        static int lastAlgorithm = -1;
+                        
+                        // Increment counter every process block
+                        lastSwitchCounter++;
+                        
+                        // Only allow algorithm changes with rate limiting
+                        // Increase minimum blocks if tempo sync is active to prevent crashes
+                        bool isTempoSynced = false;
+                        if (auto* lfo1TempoSync = apvts_.getRawParameterValue("lfo1TempoSync")) {
+                            isTempoSynced = lfo1TempoSync->load() > 0.5f;
+                        }
+                        const int MIN_BLOCKS_BETWEEN_SWITCHES = isTempoSynced ? 8 : 4;
+                        
+                        bool shouldSwitch = false;
+                        
+                        // Allow immediate switch if algorithm changed by more than 1 step (reduced from 2)
+                        if (std::abs(targetAlgorithm - currentAlgorithm_) > 1) {
+                            shouldSwitch = true;
+                        }
+                        // Or if enough time has passed since last switch
+                        else if (lastSwitchCounter >= MIN_BLOCKS_BETWEEN_SWITCHES) {
+                            shouldSwitch = true;
+                        }
+                        
+                        if (shouldSwitch) {
+                            // SAFE META MODE: Only update algorithm when no voices are active
+                            if (synthesiser_ && targetAlgorithm >= 0 && targetAlgorithm <= 46) {
+                                int activeVoices = synthesiser_->getActiveVoiceCount();
+                                
+                                if (activeVoices == 0) {
+                                    // Safe to change algorithm when no voices are playing
+                                    currentAlgorithm_ = targetAlgorithm;
+                                    newAlgorithm = targetAlgorithm;
+                                    
+                                    try {
+                                        synthesiser_->setAlgorithm(targetAlgorithm);
+                                        std::cout << "[META MODE] Safely switched to algorithm " << targetAlgorithm 
+                                                  << " (no active voices)" << std::endl;
+                                    } catch (...) {
+                                        std::cout << "[ERROR] Failed to set algorithm " << targetAlgorithm << std::endl;
+                                    }
+                                    
+                                    lastAlgorithm = targetAlgorithm;
+                                    lastSwitchCounter = 0;
+                                } else {
+                                    // Defer algorithm change until voices stop
+                                    std::cout << "[META MODE] Deferring algorithm change to " << targetAlgorithm 
+                                              << " (" << activeVoices << " voices active)" << std::endl;
+                                    lastSwitchCounter = 0; // Reset to try again next block
+                                }
+                            }
+                        }
+                    }
                 }
             }
             else {

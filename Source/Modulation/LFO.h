@@ -63,18 +63,41 @@ public:
     {
         if (!enabled_) return;
         
+        // Safety check for buffer size
+        if (numSamples <= 0 || numSamples > 8192) {
+            return; // Skip processing for invalid buffer sizes
+        }
+        
         double phaseIncrement;
         if (tempoSync_)
         {
             // Tempo-synced mode: rate_ is in beats
-            double samplesPerBeat = (60.0 * sampleRate) / bpm;
-            phaseIncrement = 1.0 / (samplesPerBeat * rate_);
+            // Add safety checks to prevent division by zero or extreme values
+            if (bpm < 1.0 || bpm > 999.0 || rate_ < 0.01 || sampleRate < 1000.0) {
+                // Fallback to free-running mode if values are unsafe
+                phaseIncrement = 1.0 / sampleRate; // 1 Hz fallback
+            } else {
+                double samplesPerBeat = (60.0 * sampleRate) / bpm;
+                double denominator = samplesPerBeat * rate_;
+                if (denominator < 0.0001) {
+                    phaseIncrement = 1.0 / sampleRate; // 1 Hz fallback
+                } else {
+                    phaseIncrement = 1.0 / denominator;
+                }
+            }
         }
         else
         {
             // Free-running mode: rate_ is in Hz
-            phaseIncrement = rate_ / sampleRate;
+            if (sampleRate > 0.0) {
+                phaseIncrement = rate_ / sampleRate;
+            } else {
+                phaseIncrement = 0.0;
+            }
         }
+        
+        // Clamp phase increment to prevent extreme values that could cause crashes
+        phaseIncrement = std::clamp(phaseIncrement, 0.0, 0.1); // Max 10% of sample rate
         
         for (int i = 0; i < numSamples; ++i)
         {
