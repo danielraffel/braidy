@@ -465,14 +465,27 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                 int baseAlgorithm = newAlgorithm;
                 
                 // Check if META destination is being modulated by LFO
+                // This includes both explicit META routing AND auto-routing when destination is "None"
                 bool metaIsLfoDestination = false;
+                bool hasNoneDestination = false;
+                
                 if (auto* lfo1Dest = apvts_.getRawParameterValue("lfo1Dest")) {
-                    metaIsLfoDestination = (static_cast<int>(lfo1Dest->load()) == 1); // 1 = META
+                    int dest = static_cast<int>(lfo1Dest->load());
+                    metaIsLfoDestination = (dest == 1); // 1 = META
+                    hasNoneDestination = (dest == 0);   // 0 = None (triggers auto-routing)
                 }
                 if (!metaIsLfoDestination) {
                     if (auto* lfo2Dest = apvts_.getRawParameterValue("lfo2Dest")) {
-                        metaIsLfoDestination = (static_cast<int>(lfo2Dest->load()) == 1); // 1 = META
+                        int dest = static_cast<int>(lfo2Dest->load());
+                        metaIsLfoDestination = (dest == 1); // 1 = META
+                        hasNoneDestination = hasNoneDestination || (dest == 0); // Either LFO has None
                     }
+                }
+                
+                // In META mode with "None" destination, auto-routing creates META modulation
+                if (!metaIsLfoDestination && hasNoneDestination && metaMode) {
+                    metaIsLfoDestination = true;
+                    std::cout << "[META AUTO-ROUTING] Using algorithm cycling with None destination" << std::endl;
                 }
                 
                 int targetAlgorithm = baseAlgorithm;
@@ -493,21 +506,17 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                                   << ", Target: " << targetAlgorithm << std::endl;
                     }
                 }
-                else if (fmIsLfoDestination) {
-                    // FM is being modulated - the modulated FM value directly selects the algorithm
-                    // This matches original Braids behavior where FM CV sweeps through algorithms
-                    targetAlgorithm = static_cast<int>(fmAmount * 46.0f);
-                    
-                    static int fmMetaLogCounter = 0;
-                    if (++fmMetaLogCounter % 50 == 0) {
-                        std::cout << "[META FM] FM Amount: " << fmAmount 
-                                  << " -> Algorithm: " << targetAlgorithm << std::endl;
-                    }
-                }
                 else {
                     // Manual META mode - FM knob directly controls algorithm offset
                     int algorithmRange = static_cast<int>(baseFmAmount * 46.0f);
                     targetAlgorithm = baseAlgorithm + algorithmRange;
+                    
+                    static int manualMetaLogCounter = 0;
+                    if (++manualMetaLogCounter % 50 == 0) {
+                        std::cout << "[META MANUAL] Base: " << baseAlgorithm 
+                                  << ", Range: " << algorithmRange
+                                  << ", Target: " << targetAlgorithm << std::endl;
+                    }
                 }
                 
                 // Wrap around algorithm selection
@@ -530,11 +539,16 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                         synthesiser_->setAlgorithm(targetAlgorithm);
                         pendingAlgorithmUpdate_.store(targetAlgorithm);
                         
-                        static int algoChangeCounter = 0;
-                        if (++algoChangeCounter % 10 == 0) {  // Log every 10th change
-                            std::cout << "[META] Algorithm changed to " << targetAlgorithm << std::endl;
-                        }
+                        std::cout << "[META ALGORITHM CHANGE] " << currentAlgorithm_ 
+                                  << " -> " << targetAlgorithm << " (Active voices: " 
+                                  << synthesiser_->getActiveVoiceCount() << ")" << std::endl;
+                    } else {
+                        std::cout << "[META BLOCKED] Algorithm change blocked - " 
+                                  << synthesiser_->getActiveVoiceCount() << " active voices" << std::endl;
                     }
+                } else {
+                    // Always update the meta mode display algorithm even if audio algorithm doesn't change
+                    metaModeAlgorithm_.store(targetAlgorithm);
                 }
             }
             else {
@@ -707,13 +721,14 @@ void BraidyAudioProcessor::updateModulationFromParameters()
                     if (metaMode) {
                         // Route LFO to META for automatic algorithm cycling
                         modulationMatrix_.setRouting(0, braidy::ModulationMatrix::ALGORITHM_SELECTION, depth);
-                        std::cout << "[LFO1] No destination set - routing to META for algorithm cycling" << std::endl;
+                        std::cout << "[LFO1 AUTO-ROUTING] None destination + META mode -> routing to ALGORITHM_SELECTION (depth=" 
+                                  << depth << ")" << std::endl;
                         
-                        // Debug: Verify that TIMBRE routing is NOT active
-                        bool timbreModulated = modulationMatrix_.isModulated(braidy::ModulationMatrix::TIMBRE);
+                        // Debug: Verify that routing was applied correctly
                         bool metaModulated = modulationMatrix_.isModulated(braidy::ModulationMatrix::ALGORITHM_SELECTION);
-                        std::cout << "[ROUTING DEBUG] TIMBRE modulated: " << timbreModulated 
-                                  << ", META modulated: " << metaModulated << std::endl;
+                        float metaModValue = modulationMatrix_.getModulation(braidy::ModulationMatrix::ALGORITHM_SELECTION);
+                        std::cout << "[ROUTING DEBUG] META modulated: " << metaModulated 
+                                  << ", Current META modulation: " << metaModValue << std::endl;
                     }
                 }
             }

@@ -77,7 +77,7 @@ private:
     std::unique_ptr<BraidsEncoder> editEncoder_;
     
     // Control knobs (smaller, Braids-style)
-    class BraidsKnob : public juce::Component {
+    class BraidsKnob : public juce::Component, public juce::Timer {
     public:
         BraidsKnob(bool isBipolar = false, uint32_t indicatorColor = 0);
         void paint(juce::Graphics& g) override;
@@ -92,7 +92,10 @@ private:
         
         // Mouse interaction tracking for modulation system
         void mouseUp(const juce::MouseEvent& e) override;
-        bool isBeingManipulated() const { return isPressed_; }
+        bool isBeingManipulated() const { return isPressed_ || wasRecentlyManipulated_; }
+        
+        // Add timer support for recent manipulation tracking
+        void timerCallback() override;
         
         std::function<void(float)> onValueChange;
         
@@ -104,6 +107,8 @@ private:
         float dragStartY_ = 0;
         float dragStartValue_ = 0;
         bool isPressed_ = false;
+        bool wasRecentlyManipulated_ = false;
+        int64_t lastManipulationTime_ = 0;
     };
     
     // Pitch controls

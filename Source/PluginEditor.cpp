@@ -212,6 +212,10 @@ BraidyAudioProcessorEditor::BraidsKnob::BraidsKnob(bool isBipolar, uint32_t indi
         value_ = 0.0f;  // Start at minimum for unipolar
         defaultValue_ = 0.0f;
     }
+    
+    // Initialize manipulation tracking
+    wasRecentlyManipulated_ = false;
+    lastManipulationTime_ = 0;
 }
 
 void BraidyAudioProcessorEditor::BraidsKnob::paint(juce::Graphics& g) {
@@ -320,6 +324,19 @@ void BraidyAudioProcessorEditor::BraidsKnob::resetToDefault() {
 
 void BraidyAudioProcessorEditor::BraidsKnob::mouseUp(const juce::MouseEvent& e) {
     isPressed_ = false;
+    
+    // Set manipulation flag and start timer for brief hold period
+    wasRecentlyManipulated_ = true;
+    lastManipulationTime_ = juce::Time::currentTimeMillis();
+    startTimer(100); // Check every 100ms
+}
+
+void BraidyAudioProcessorEditor::BraidsKnob::timerCallback() {
+    // Clear manipulation flag after 500ms of no interaction
+    if (juce::Time::currentTimeMillis() - lastManipulationTime_ > 500) {
+        wasRecentlyManipulated_ = false;
+        stopTimer();
+    }
 }
 
 //==============================================================================
