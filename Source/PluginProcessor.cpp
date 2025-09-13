@@ -502,10 +502,10 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                     int algorithmRange;
                     if (hasNoneDestination && !metaIsLfoDestination) {
                         // This is auto-routing due to "None" destination - shouldn't happen due to line 490-492 logic
-                        algorithmRange = 23; // Default to half range (46/2) for auto-routing
+                        algorithmRange = 46; // Use full range for complete algorithm cycling
                     } else if (hasNoneDestination) {
-                        // Auto-routing from "None" destination - use default range regardless of FM knob
-                        algorithmRange = 23; // Default to half range (46/2) for auto-routing  
+                        // Auto-routing from "None" destination - use full range for complete cycling
+                        algorithmRange = 46; // Full algorithm range for auto-routing
                     } else {
                         // Explicit META routing - FM knob controls range (original behavior)
                         algorithmRange = static_cast<int>(fmAmount * 46.0f);
