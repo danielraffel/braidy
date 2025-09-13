@@ -1188,8 +1188,15 @@ void BraidyAudioProcessorEditor::updateParameterValues() {
             
             // Only update if the parameter differs from our current UI state
             // This prevents feedback loops while still syncing with host changes
+            // IMPORTANT: Add flag to prevent infinite loop from loadModelDefaults triggering parameter updates
+            static bool updatingFromParameterSync = false;
+            
             if (paramAlgorithm != currentAlgorithm_ && !updatingAlgorithmFromEncoder_ && 
-                editEncoder_ && !editEncoder_->isBeingManipulated()) {
+                !updatingFromParameterSync && editEncoder_ && !editEncoder_->isBeingManipulated()) {
+                
+                // Set flag to prevent re-entry
+                updatingFromParameterSync = true;
+                
                 // Host changed the algorithm (e.g., via Logic dropdown)
                 currentAlgorithm_ = paramAlgorithm;
                 
@@ -1201,13 +1208,27 @@ void BraidyAudioProcessorEditor::updateParameterValues() {
                 // Update display to reflect the change
                 updateDisplay();
                 
-                // Load defaults for the new algorithm
-                loadModelDefaults(currentAlgorithm_);
+                // Only load defaults if META mode is NOT active
+                // When META mode is cycling, we don't want to reset parameters
+                bool metaModeActive = false;
+                if (auto* braidyProcessor = dynamic_cast<BraidyAudioProcessor*>(&processor)) {
+                    if (auto* metaModeParam = braidyProcessor->getAPVTS().getRawParameterValue("metaMode")) {
+                        metaModeActive = metaModeParam->load() > 0.5f;
+                    }
+                }
+                
+                if (!metaModeActive) {
+                    // Load defaults for the new algorithm (this can trigger parameter changes)
+                    loadModelDefaults(currentAlgorithm_);
+                }
                 
                 if (fileLogger_) {
                     fileLogger_->logMessage("[PARAM SYNC] Algorithm changed from host to: " + 
                         juce::String(algorithmNames_[currentAlgorithm_]) + " (" + juce::String(currentAlgorithm_) + ")");
                 }
+                
+                // Clear flag after processing
+                updatingFromParameterSync = false;
             }
         }
     }
@@ -1379,8 +1400,18 @@ void BraidyAudioProcessorEditor::handleEncoderRotation(int delta) {
                 // Update the audio parameter thread-safely
                 updateAlgorithmParameter();
                 
-                // Load default parameters for the new algorithm
-                loadModelDefaults(currentAlgorithm_);
+                // Only load defaults if META mode is NOT active
+                bool isMetaModeActive = false;
+                if (auto* braidyProcessor = dynamic_cast<BraidyAudioProcessor*>(&processor)) {
+                    if (auto* metaModeParam = braidyProcessor->getAPVTS().getRawParameterValue("metaMode")) {
+                        isMetaModeActive = metaModeParam->load() > 0.5f;
+                    }
+                }
+                
+                if (!isMetaModeActive) {
+                    // Load default parameters for the new algorithm
+                    loadModelDefaults(currentAlgorithm_);
+                }
                 
                 // Clear the pending flag after safe completion
                 algorithmChangePending_.store(false);

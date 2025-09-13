@@ -8,7 +8,8 @@
 /**
  * BraidyAudioProcessor - JUCE plugin wrapping Mutable Instruments Braids
  */
-class BraidyAudioProcessor : public juce::AudioProcessor
+class BraidyAudioProcessor : public juce::AudioProcessor,
+                              private juce::Timer
 {
 public:
     BraidyAudioProcessor();
@@ -105,9 +106,13 @@ private:
     std::atomic<float> currentParam2_{0.5f};
     std::atomic<float> currentVolume_{0.7f};
     std::atomic<int> metaModeAlgorithm_{0};  // For META mode display updates
+    std::atomic<int> pendingAlgorithmUpdate_{-1};  // For thread-safe algorithm parameter updates
     
     // Recursion guard for parameter updates
     std::atomic<bool> isUpdatingParameters_{false};
+    
+    // Timer callback for thread-safe parameter updates
+    void timerCallback() override;
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BraidyAudioProcessor)
 };

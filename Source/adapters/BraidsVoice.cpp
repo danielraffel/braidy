@@ -211,15 +211,30 @@ void BraidsVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer, int st
         float fmMod = modulationMatrix_->getModulation(braidy::ModulationMatrix::FM_AMOUNT);
         float envTimbreMod = modulationMatrix_->getModulation(braidy::ModulationMatrix::ENV_TIMBRE_AMOUNT);
         
+        // Debug: Log modulation values periodically
+        static int modulationLogCounter = 0;
+        if (++modulationLogCounter % 100 == 0) {  // Log every 100 blocks
+            if (std::abs(fmMod) > 0.001f || std::abs(envTimbreMod) > 0.001f) {
+                std::cout << "[MODULATION] Voice - FM: " << fmMod << ", EnvTimbre: " << envTimbreMod << std::endl;
+            }
+        }
+        
         // Apply FM modulation (affects internal pitch modulation)
         float modulatedFM = juce::jlimit(0.0f, 1.0f, fmAmount_ + fmMod);
         braidsEngine_.setFMParameter(modulatedFM);  // Use the correct method name
         
-        // TODO: Apply ENV_TIMBRE_AMOUNT modulation when BraidsEngine supports it
-        // For now, we can use it to modulate the timbre parameter further
+        // Apply ENV_TIMBRE_AMOUNT modulation
+        // This modulates the "Modulation" knob which affects the timbre parameter
         if (std::abs(envTimbreMod) > 0.001f) {
             float timbreWithEnv = juce::jlimit(0.0f, 1.0f, modulatedParam1 + envTimbreMod * 0.5f);
             braidsEngine_.setParameters(timbreWithEnv, modulatedParam2);
+            
+            // Log when modulation is applied
+            static int envTimbreLogCounter = 0;
+            if (++envTimbreLogCounter % 50 == 0) {  // Log every 50 blocks when active
+                std::cout << "[MODULATION] Modulation knob updated: " << modulatedParam1 << " -> " << timbreWithEnv 
+                          << " (mod: " << envTimbreMod << ")" << std::endl;
+            }
         }
     } else {
         // No modulation matrix - apply static parameters
@@ -375,6 +390,18 @@ float BraidsVoice::midiNoteToFrequency(float midiNote) const {
 void BraidsVoice::setMetaMode(bool enabled) { 
     metaMode_ = enabled;
     braidsEngine_.setMetaMode(enabled);
+}
+
+void BraidsVoice::setTimbre(float value) {
+    // Clamp value to valid range and apply smoothing
+    float clampedValue = std::clamp(value, 0.0f, 1.0f);
+    smoothedParam1_.setTargetValue(clampedValue);
+}
+
+void BraidsVoice::setColor(float value) {
+    // Clamp value to valid range and apply smoothing
+    float clampedValue = std::clamp(value, 0.0f, 1.0f);
+    smoothedParam2_.setTargetValue(clampedValue);
 }
 
 void BraidsVoice::setPitchOffset(float semitones) {

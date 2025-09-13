@@ -149,7 +149,20 @@ public:
         if (!lfo.isEnabled()) return 0.0f;
         
         float value = routing.bipolar ? lfo.getValue() : lfo.getUnipolarValue();
-        return value * routing.amount;
+        float modulation = value * routing.amount;
+        
+        // Debug: Log modulation values for ENV_TIMBRE_AMOUNT
+        if (dest == ENV_TIMBRE_AMOUNT && std::abs(modulation) > 0.001f) {
+            static int debugCounter = 0;
+            if (++debugCounter % 100 == 0) {  // Log every 100 calls
+                const char* destName = getDestinationName(dest);
+                std::cout << "[MODULATION MATRIX] " << destName << " - LFO" << (routing.sourceId + 1) 
+                          << " value: " << value << ", amount: " << routing.amount 
+                          << ", result: " << modulation << std::endl;
+            }
+        }
+        
+        return modulation;
     }
     
     // Apply modulation to a parameter value

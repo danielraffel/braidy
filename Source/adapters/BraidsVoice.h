@@ -58,6 +58,10 @@ public:
     // Set meta modulation mode - enables algorithm modulation
     void setMetaMode(bool enabled);
     
+    // Set synthesis parameters
+    void setTimbre(float value);
+    void setColor(float value);
+    
     // Voice state queries  
     bool isActive() const;
     int getCurrentMidiNote() const;
