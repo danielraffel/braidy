@@ -73,6 +73,9 @@ public:
     float getModulatedFine() const;
     float getModulatedCoarse() const;
     float getModulatedTimbreMod() const;
+    
+    // Public method for UI to trigger modulation updates
+    void updateModulationFromParameters();
 
 private:
     // Braids synthesiser
@@ -98,7 +101,6 @@ private:
     
     // Parameter update handling
     void updateSynthesiserFromParameters();
-    void updateModulationFromParameters();
     
     // Current state
     std::atomic<int> currentAlgorithm_{0};

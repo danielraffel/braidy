@@ -709,6 +709,9 @@ void BraidyAudioProcessorEditor::setupComponents() {
         if (auto* param = dynamic_cast<juce::AudioParameterChoice*>(processorRef.getAPVTS().getParameter(paramId))) {
             float normalizedValue = param->convertTo0to1(destIndex);
             param->setValueNotifyingHost(normalizedValue);
+            
+            // Trigger audio-side routing update to handle META mode auto-routing
+            processorRef.updateModulationFromParameters();
         }
     };
     addChildComponent(*modulationOverlay_);  // Use addChildComponent so it starts hidden

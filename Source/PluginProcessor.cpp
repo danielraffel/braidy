@@ -12,6 +12,10 @@ BraidyAudioProcessor::BraidyAudioProcessor()
     // Create synthesiser with 8 voices
     synthesiser_ = std::make_unique<BraidyAdapter::BraidsSynthesiser>(8);
     
+    // Debug: Test debug logging system at startup
+    std::cout << "[STARTUP DEBUG] BraidyAudioProcessor constructed, testing debug output..." << std::endl;
+    std::cout.flush();
+    
     // Start timer for thread-safe parameter updates (50Hz)
     startTimer(20);
 }
@@ -493,17 +497,32 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                 if (metaIsLfoDestination) {
                     // LFO modulates META - apply algorithm sweep via LFO
                     float modulation = modulationMatrix_.getModulation(braidy::ModulationMatrix::ALGORITHM_SELECTION);
-                    int algorithmRange = static_cast<int>(fmAmount * 46.0f); // FM knob controls range
+                    
+                    // Determine algorithm range based on routing type
+                    int algorithmRange;
+                    if (hasNoneDestination && !metaIsLfoDestination) {
+                        // This is auto-routing due to "None" destination - shouldn't happen due to line 490-492 logic
+                        algorithmRange = 23; // Default to half range (46/2) for auto-routing
+                    } else if (hasNoneDestination) {
+                        // Auto-routing from "None" destination - use default range regardless of FM knob
+                        algorithmRange = 23; // Default to half range (46/2) for auto-routing  
+                    } else {
+                        // Explicit META routing - FM knob controls range (original behavior)
+                        algorithmRange = static_cast<int>(fmAmount * 46.0f);
+                    }
+                    
                     int offset = static_cast<int>(modulation * algorithmRange);
                     targetAlgorithm = baseAlgorithm + offset;
                     
                     // Debug logging
                     static int metaLogCounter = 0;
                     if (++metaLogCounter % 50 == 0) {
-                        std::cout << "[META LFO] Base: " << baseAlgorithm 
+                        std::string routingType = hasNoneDestination ? "AUTO" : "EXPLICIT";
+                        std::cout << "[META LFO " << routingType << "] Base: " << baseAlgorithm 
                                   << ", Range: " << algorithmRange
                                   << ", Offset: " << offset
-                                  << ", Target: " << targetAlgorithm << std::endl;
+                                  << ", Target: " << targetAlgorithm 
+                                  << ", Modulation: " << modulation << std::endl;
                     }
                 }
                 else {
@@ -610,6 +629,21 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
 
 void BraidyAudioProcessor::updateModulationFromParameters()
 {
+    // Debug: Log when this function is called and check META mode state
+    auto* metaModeParam = apvts_.getRawParameterValue("metaMode");
+    bool metaMode = metaModeParam ? (metaModeParam->load() > 0.5f) : false;
+    
+    std::cout.flush();  // Force flush to ensure debug output appears immediately
+    
+    static int updateCounter = 0;
+    ++updateCounter;
+    
+    // Log more frequently during startup and testing
+    if (updateCounter <= 5 || updateCounter % 50 == 0) {  // First 5 calls, then every 50th
+        std::cout << "[UPDATE MODULATION] Called (count: " << updateCounter 
+                  << "), META mode: " << (metaMode ? "ON" : "OFF") << std::endl;
+    }
+    
     // Update LFO 1 settings from APVTS
     if (auto* lfo1Enable = apvts_.getRawParameterValue("lfo1Enable")) {
         bool enabled = lfo1Enable->load() > 0.5f;
@@ -709,6 +743,10 @@ void BraidyAudioProcessor::updateModulationFromParameters()
                     // If META mode is enabled, automatically route to META for algorithm cycling
                     auto* metaModeParam = apvts_.getRawParameterValue("metaMode");
                     bool metaMode = metaModeParam ? (metaModeParam->load() > 0.5f) : false;
+                    
+                    // Debug: Always log when we hit the "None" destination case
+                    std::cout << "[LFO1 NONE DEST] LFO1 destination set to None. META mode: " 
+                              << (metaMode ? "ON" : "OFF") << ", depth: " << depth << std::endl;
                     
                     // Clear all routings for LFO 1 first
                     for (int i = 0; i < static_cast<int>(braidy::ModulationMatrix::NUM_DESTINATIONS); ++i) {
