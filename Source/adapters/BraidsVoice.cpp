@@ -426,4 +426,18 @@ void BraidsVoice::setFMAmount(float amount) {
     }
 }
 
+void BraidsVoice::clearCurrentNote() {
+    // Clear MIDI note state
+    currentMidiNote_ = -1;
+    currentVelocity_ = 0.0f;
+    pitchBend_ = 0.0f;
+    
+    // Reset smoothed values to defaults
+    smoothedPitch_.setCurrentAndTargetValue(60.0f);
+    smoothedParam1_.setCurrentAndTargetValue(parameter1_);
+    smoothedParam2_.setCurrentAndTargetValue(parameter2_);
+    
+    std::cout << "[DEBUG] BraidsVoice::clearCurrentNote - Voice cleared" << std::endl;
+}
+
 } // namespace BraidyAdapter

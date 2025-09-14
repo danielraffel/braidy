@@ -52,6 +52,9 @@ public:
     // Strike all active voices (useful for percussion algorithms)
     void strikeAllVoices();
     
+    // Force immediate shutdown of all voices (for algorithm changes)
+    void forceStopAllVoices();
+    
     // Voice allocation settings
     enum class VoiceStealingMode {
         Oldest,      // Steal oldest voice

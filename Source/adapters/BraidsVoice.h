@@ -64,6 +64,7 @@ public:
     
     // Voice state queries  
     bool isActive() const;
+    bool isVoiceActive() const { return isActive(); }  // Alias for synthesizer compatibility
     int getCurrentMidiNote() const;
     float getCurrentVelocity() const;
     
@@ -79,6 +80,7 @@ public:
 
 private:
     void updatePitch();
+    void clearCurrentNote();
     float midiNoteToFrequency(float midiNote) const;
     
     BraidsEngine braidsEngine_;

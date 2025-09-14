@@ -125,6 +125,19 @@ void BraidsSynthesiser::strikeAllVoices() {
     }
 }
 
+void BraidsSynthesiser::forceStopAllVoices() {
+    // Force immediate stop of all voices without tail-off
+    for (int i = 0; i < getNumVoices(); ++i) {
+        if (auto* braidsVoice = dynamic_cast<BraidsVoice*>(getVoice(i))) {
+            if (braidsVoice->isVoiceActive()) {
+                braidsVoice->stopNote(0.0f, false);  // Force immediate stop, no tail-off
+            }
+        }
+    }
+    std::cout << "[DEBUG] forceStopAllVoices - All voices force stopped. Active count: " 
+              << getActiveVoiceCount() << std::endl;
+}
+
 void BraidsSynthesiser::setVoiceStealingMode(VoiceStealingMode mode) {
     voiceStealingMode_ = mode;
 }
