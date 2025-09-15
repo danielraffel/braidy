@@ -325,18 +325,14 @@ void BraidyAudioProcessorEditor::BraidsKnob::resetToDefault() {
 void BraidyAudioProcessorEditor::BraidsKnob::mouseUp(const juce::MouseEvent& e) {
     isPressed_ = false;
     
-    // Set manipulation flag and start timer for brief hold period
-    wasRecentlyManipulated_ = true;
-    lastManipulationTime_ = juce::Time::currentTimeMillis();
-    startTimer(100); // Check every 100ms
+    // Clear manipulation flag immediately to allow modulation to resume
+    wasRecentlyManipulated_ = false;
+    stopTimer();  // Ensure timer is stopped
 }
 
 void BraidyAudioProcessorEditor::BraidsKnob::timerCallback() {
-    // Clear manipulation flag after 500ms of no interaction
-    if (juce::Time::currentTimeMillis() - lastManipulationTime_ > 500) {
-        wasRecentlyManipulated_ = false;
-        stopTimer();
-    }
+    // Timer no longer needed - we clear manipulation flag immediately on mouseUp
+    stopTimer();
 }
 
 //==============================================================================
@@ -566,6 +562,7 @@ void BraidyAudioProcessorEditor::setupComponents() {
     fmKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     fmKnob_->onValueChange = [this](float value) {
         // FM amount: 0-100% modulation depth
+        // Always update the parameter - modulation will be applied on top
         if (auto* param = processorRef.getAPVTS().getParameter("fmAmount")) {
             param->setValueNotifyingHost(value);
         }
@@ -579,6 +576,7 @@ void BraidyAudioProcessorEditor::setupComponents() {
     timbreKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     timbreKnob_->onValueChange = [this](float value) {
         // Update parameter 1 (timbre)
+        // Always update the parameter - modulation will be applied on top
         if (auto* param = processorRef.getAPVTS().getParameter("param1")) {
             param->setValueNotifyingHost(value);
         }
@@ -590,7 +588,8 @@ void BraidyAudioProcessorEditor::setupComponents() {
     colorKnob_ = std::make_unique<BraidsKnob>(false, 0xFFE74C3C);  // Red indicator
     colorKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     colorKnob_->onValueChange = [this](float value) {
-        // Update parameter 2 (color) 
+        // Update parameter 2 (color)
+        // Always update the parameter - modulation will be applied on top  
         if (auto* param = processorRef.getAPVTS().getParameter("param2")) {
             param->setValueNotifyingHost(value);
         }

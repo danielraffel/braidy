@@ -1061,6 +1061,43 @@ void BraidyAudioProcessor::timerCallback()
     }
 }
 
+// Helper method to check if a parameter is being modulated
+bool BraidyAudioProcessor::isParameterModulated(const juce::String& parameterID) const {
+    // Map parameter IDs to modulation destinations
+    if (parameterID == "fmAmount") {
+        return modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT);
+    } else if (parameterID == "param1") {
+        return modulationMatrix_.isModulated(braidy::ModulationMatrix::TIMBRE);
+    } else if (parameterID == "param2") {
+        return modulationMatrix_.isModulated(braidy::ModulationMatrix::COLOR);
+    } else if (parameterID == "fineTune") {
+        return modulationMatrix_.isModulated(braidy::ModulationMatrix::DETUNE);
+    } else if (parameterID == "coarseTune") {
+        return modulationMatrix_.isModulated(braidy::ModulationMatrix::OCTAVE);
+    } else if (parameterID == "envTimbreAmount") {
+        return modulationMatrix_.isModulated(braidy::ModulationMatrix::ENV_TIMBRE_AMOUNT);
+    }
+    return false;
+}
+
+// Helper method to set the base value for a modulated parameter
+void BraidyAudioProcessor::setModulatedParameterBaseValue(const juce::String& parameterID, float newBaseValue) {
+    // When a modulated parameter is manually adjusted, we update the base parameter value
+    // The modulation will continue to oscillate around this new base value
+    
+    // First, update the actual parameter value
+    if (auto* param = apvts_.getParameter(parameterID)) {
+        // Temporarily disable modulation application by setting the parameter directly
+        // This becomes the new "center point" for modulation
+        param->setValueNotifyingHost(param->convertTo0to1(newBaseValue));
+        
+        // Log for debugging
+        std::cout << "[MANUAL ADJUST] Parameter '" << parameterID 
+                  << "' manually adjusted to: " << newBaseValue 
+                  << " (modulation will continue around this value)" << std::endl;
+    }
+}
+
 // This creates new instances of the plugin
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {

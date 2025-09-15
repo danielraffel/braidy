@@ -76,6 +76,10 @@ public:
     
     // Public method for UI to trigger modulation updates
     void updateModulationFromParameters();
+    
+    // Helper methods for handling manual adjustment of modulated parameters
+    bool isParameterModulated(const juce::String& parameterID) const;
+    void setModulatedParameterBaseValue(const juce::String& parameterID, float newBaseValue);
 
 private:
     // Braids synthesiser
