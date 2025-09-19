@@ -169,11 +169,16 @@ public:
                 oscillator_.Init();
                 oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm));
                 
-                // Reset parameters to safe defaults
-                oscillator_.set_parameters(0, 0);
-                
-                // Force parameter update when algorithm changes
-                updateParameters();
+                // Set reasonable default parameters for the algorithm
+                // Most algorithms work well with center position (0, 0)
+                // But also update from current target values if they're valid
+                if (targetParam1_ > 0.0f || targetParam2_ > 0.0f) {
+                    updateParameters();  // Use current parameter values
+                } else {
+                    // Use center position as safe default
+                    oscillator_.set_parameters(0, 0);
+                    std::cout << "[DEBUG] Algorithm " << algorithm << " initialized with default parameters (0, 0)" << std::endl;
+                }
                 
                 // Special handling for percussion algorithms that might need striking
                 if (algorithm == 28 || algorithm == 32 || algorithm == 33 || algorithm == 34 || algorithm == 35 || algorithm == 36) { 
@@ -510,11 +515,24 @@ private:
 
     void updateParameters() {
         // Convert 0.0-1.0 range to int16_t range for Braids
-        int16_t param1 = static_cast<int16_t>((targetParam1_ * 2.0f - 1.0f) * 32767.0f);
-        int16_t param2 = static_cast<int16_t>((targetParam2_ * 2.0f - 1.0f) * 32767.0f);
-        
+        // 0.0 -> -32768, 0.5 -> 0, 1.0 -> 32767
+        int16_t param1 = static_cast<int16_t>((targetParam1_ - 0.5f) * 65535.0f);
+        int16_t param2 = static_cast<int16_t>((targetParam2_ - 0.5f) * 65535.0f);
+
+        // Clamp to valid int16_t range
+        param1 = std::clamp(param1, static_cast<int16_t>(-32768), static_cast<int16_t>(32767));
+        param2 = std::clamp(param2, static_cast<int16_t>(-32768), static_cast<int16_t>(32767));
+
+        // Debug logging to verify parameter conversion
+        static int debugCounter = 0;
+        if (++debugCounter % 100 == 0) {
+            std::cout << "[BRAIDS] Parameters: UI(" << targetParam1_ << "," << targetParam2_
+                      << ") -> Engine(" << param1 << "," << param2 << ")"
+                      << " Algorithm: " << algorithm_ << std::endl;
+        }
+
         oscillator_.set_parameters(param1, param2);
-        
+
         currentParam1_ = targetParam1_;
         currentParam2_ = targetParam2_;
     }

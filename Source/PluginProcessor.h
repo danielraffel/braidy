@@ -81,6 +81,9 @@ public:
     bool isParameterModulated(const juce::String& parameterID) const;
     void setModulatedParameterBaseValue(const juce::String& parameterID, float newBaseValue);
 
+    // Parameter update handling (public so it can be called from editor)
+    void updateSynthesiserFromParameters();
+
 private:
     // Braids synthesiser
     std::unique_ptr<BraidyAdapter::BraidsSynthesiser> synthesiser_;
@@ -103,9 +106,6 @@ private:
     // Parameter layout creation
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     
-    // Parameter update handling
-    void updateSynthesiserFromParameters();
-    
     // Current state
     std::atomic<int> currentAlgorithm_{0};
     std::atomic<float> currentParam1_{0.5f};
@@ -114,11 +114,30 @@ private:
     std::atomic<int> metaModeAlgorithm_{0};  // For META mode display updates
     std::atomic<int> pendingAlgorithmUpdate_{-1};  // For thread-safe algorithm parameter updates
     
-    // Recursion guard for parameter updates
-    std::atomic<bool> isUpdatingParameters_{false};
-    
+    // Using Griddy's simpler approach - no need for these complex tracking variables
+
     // Timer callback for thread-safe parameter updates
     void timerCallback() override;
-    
+
+    // Parameter listener for immediate algorithm updates
+    class AlgorithmParameterListener : public juce::AudioProcessorParameter::Listener
+    {
+    public:
+        AlgorithmParameterListener(BraidyAudioProcessor& p) : processor(p) {}
+
+        void parameterValueChanged(int /*parameterIndex*/, float /*newValue*/) override
+        {
+            processor.algorithmParameterChanged();
+        }
+
+        void parameterGestureChanged(int /*parameterIndex*/, bool /*gestureIsStarting*/) override {}
+
+    private:
+        BraidyAudioProcessor& processor;
+    };
+
+    void algorithmParameterChanged();
+    std::unique_ptr<AlgorithmParameterListener> algorithmListener_;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BraidyAudioProcessor)
 };

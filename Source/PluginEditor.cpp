@@ -212,10 +212,8 @@ BraidyAudioProcessorEditor::BraidsKnob::BraidsKnob(bool isBipolar, uint32_t indi
         value_ = 0.0f;  // Start at minimum for unipolar
         defaultValue_ = 0.0f;
     }
-    
-    // Initialize manipulation tracking
-    wasRecentlyManipulated_ = false;
-    lastManipulationTime_ = 0;
+
+    // Removed timer-related initialization - no longer needed
 }
 
 void BraidyAudioProcessorEditor::BraidsKnob::paint(juce::Graphics& g) {
@@ -278,6 +276,7 @@ void BraidyAudioProcessorEditor::BraidsKnob::mouseDown(const juce::MouseEvent& e
     isPressed_ = true;
     dragStartY_ = e.position.y;
     dragStartValue_ = value_;
+    DBG("[KNOB] Mouse down - isPressed now true");
 }
 
 void BraidyAudioProcessorEditor::BraidsKnob::mouseDrag(const juce::MouseEvent& e) {
@@ -324,16 +323,12 @@ void BraidyAudioProcessorEditor::BraidsKnob::resetToDefault() {
 
 void BraidyAudioProcessorEditor::BraidsKnob::mouseUp(const juce::MouseEvent& e) {
     isPressed_ = false;
-    
-    // Clear manipulation flag immediately to allow modulation to resume
-    wasRecentlyManipulated_ = false;
-    stopTimer();  // Ensure timer is stopped
+    DBG("[KNOB] Mouse up - isPressed now false, modulation should resume");
+    // Modulation will resume immediately on next timer tick
 }
 
-void BraidyAudioProcessorEditor::BraidsKnob::timerCallback() {
-    // Timer no longer needed - we clear manipulation flag immediately on mouseUp
-    stopTimer();
-}
+// Removed unused timerCallback - BraidsKnob no longer inherits from Timer
+// This was causing timer conflicts and stopping modulation
 
 //==============================================================================
 // CvJack Implementation
@@ -532,8 +527,7 @@ void BraidyAudioProcessorEditor::setupComponents() {
     fineKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     fineKnob_->onValueChange = [this](float value) {
         // Fine tuning: +/- 100 cents (1 semitone)
-        // Store as parameter that will be applied to all voices
-        DBG("Fine knob changed: " + juce::String(value));
+        // Using Griddy's approach: always update APVTS directly
         if (auto* param = processorRef.getAPVTS().getParameter("fineTune")) {
             param->setValueNotifyingHost(value);
         }
@@ -546,11 +540,10 @@ void BraidyAudioProcessorEditor::setupComponents() {
     coarseKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     coarseKnob_->onValueChange = [this](float value) {
         // Coarse tuning: Braids hardware has 5 octave positions (-2, -1, 0, +1, +2)
-        // Convert continuous value to discrete octave selection
-        DBG("Coarse knob changed: " + juce::String(value));
+        // Map 0-1 to 5 discrete positions
+        float discreteValue = std::round(value * 4.0f) / 4.0f;
+        // Using Griddy's approach: always update APVTS directly
         if (auto* param = processorRef.getAPVTS().getParameter("coarseTune")) {
-            // Map 0-1 to 5 discrete positions
-            float discreteValue = std::round(value * 4.0f) / 4.0f;
             param->setValueNotifyingHost(discreteValue);
         }
     };
@@ -562,7 +555,7 @@ void BraidyAudioProcessorEditor::setupComponents() {
     fmKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     fmKnob_->onValueChange = [this](float value) {
         // FM amount: 0-100% modulation depth
-        // Always update the parameter - modulation will be applied on top
+        // Using Griddy's approach: always update APVTS directly
         if (auto* param = processorRef.getAPVTS().getParameter("fmAmount")) {
             param->setValueNotifyingHost(value);
         }
@@ -576,7 +569,7 @@ void BraidyAudioProcessorEditor::setupComponents() {
     timbreKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     timbreKnob_->onValueChange = [this](float value) {
         // Update parameter 1 (timbre)
-        // Always update the parameter - modulation will be applied on top
+        // Using Griddy's approach: always update APVTS directly
         if (auto* param = processorRef.getAPVTS().getParameter("param1")) {
             param->setValueNotifyingHost(value);
         }
@@ -589,7 +582,7 @@ void BraidyAudioProcessorEditor::setupComponents() {
     colorKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     colorKnob_->onValueChange = [this](float value) {
         // Update parameter 2 (color)
-        // Always update the parameter - modulation will be applied on top  
+        // Using Griddy's approach: always update APVTS directly
         if (auto* param = processorRef.getAPVTS().getParameter("param2")) {
             param->setValueNotifyingHost(value);
         }
@@ -1298,26 +1291,48 @@ void BraidyAudioProcessorEditor::updateParameterValues() {
     }
     
     // Update FM knob with modulation and meta mode algorithm display
-    if (fmKnob_ && !fmKnob_->isBeingManipulated()) {
-        // Get modulated value from processor (includes LFO if active)
-        float modulatedValue = processorRef.getModulatedFM();
-        float currentKnobValue = fmKnob_->getValue();
+    if (fmKnob_) {
+        // Skip updates only while actively dragging
+        bool isManipulated = fmKnob_->isBeingManipulated();
         
-        // Only update if value actually changed to reduce CPU usage
-        if (std::abs(modulatedValue - currentKnobValue) > 0.001f) {
-            fmKnob_->setValue(modulatedValue);  // No callback triggered
-            
-            // Debug logging to verify modulation is working
-            static int logCounter = 0;
-            if (++logCounter % 30 == 0) {  // Log every 30 frames (~1 second at 30Hz)
+        // Debug logging for manipulation status
+        static int debugCounter = 0;
+        if (++debugCounter % 60 == 0) {  // Log every 2 seconds
+            DBG("[MODULATION] FM knob isBeingManipulated: " + juce::String(isManipulated ? "YES" : "NO"));
+        }
+        
+        if (!isManipulated) {
+            // Get modulated value from processor (includes LFO if active)
+            float modulatedValue = processorRef.getModulatedFM();
+            float currentKnobValue = fmKnob_->getValue();
+
+            // Debug: Always log the values to see what's happening
+            static int valueLogCounter = 0;
+            if (++valueLogCounter % 30 == 0) {  // Every second
+                DBG("[MODULATION] FM values - Modulated: " + juce::String(modulatedValue, 3) +
+                    ", Current knob: " + juce::String(currentKnobValue, 3) +
+                    ", Diff: " + juce::String(std::abs(modulatedValue - currentKnobValue), 6));
                 if (fileLogger_) {
-                    fileLogger_->logMessage("[MODULATION] FM knob updated: " + 
-                        juce::String(currentKnobValue, 3) + " -> " + juce::String(modulatedValue, 3));
+                    fileLogger_->logMessage("[DEBUG] FM modulated value: " + juce::String(modulatedValue, 3) +
+                        ", knob value: " + juce::String(currentKnobValue, 3));
+                }
+            }
+
+            // Only update if value actually changed to reduce CPU usage
+            if (std::abs(modulatedValue - currentKnobValue) > 0.001f) {
+                fmKnob_->setValue(modulatedValue);  // No callback triggered
+                
+                // Debug logging to verify modulation is working
+                static int logCounter = 0;
+                if (++logCounter % 30 == 0) {  // Log every 30 frames (~1 second at 30Hz)
+                    if (fileLogger_) {
+                        fileLogger_->logMessage("[MODULATION] FM knob updated: " + 
+                            juce::String(currentKnobValue, 3) + " -> " + juce::String(modulatedValue, 3));
+                    }
                 }
             }
         }
-                
-                // Algorithm display is now handled in timerCallback() for META mode
+        // Algorithm display is now handled in timerCallback() for META mode
     }
     
     // Update other knobs with modulation
@@ -1349,13 +1364,18 @@ void BraidyAudioProcessorEditor::updateParameterFromKnob(BraidsKnob* knob, const
 // Encoder Handling
 //==============================================================================
 void BraidyAudioProcessorEditor::handleEncoderRotation(int delta) {
+    // CRITICAL DEBUG: Log every single encoder event to understand why it's not working in AU
+    std::cout << "[ENCODER] Rotation event received! Delta: " << delta
+              << ", Display mode: " << static_cast<int>(displayMode_)
+              << ", Current algorithm: " << currentAlgorithm_ << std::endl;
+
     if (fileLogger_) {
         fileLogger_->logMessage("=== ENCODER ROTATION DEBUG ===");
         fileLogger_->logMessage("Delta: " + juce::String(delta));
-        fileLogger_->logMessage("Display Mode: " + juce::String(static_cast<int>(displayMode_)) + 
+        fileLogger_->logMessage("Display Mode: " + juce::String(static_cast<int>(displayMode_)) +
             " (0=Algorithm, 1=Value, 2=Menu, 3=Startup)");
         fileLogger_->logMessage("Current Algorithm Index: " + juce::String(currentAlgorithm_));
-        
+
         // Log the conceptual rotation position (treating 47 algorithms as positions on a dial)
         // With 47 algorithms, each would be ~7.66 degrees apart for full 360 coverage
         // But we're making it change every 90 degrees for easier control
@@ -1887,28 +1907,34 @@ void BraidyAudioProcessorEditor::updateAlgorithmParameter() {
     juce::MessageManager::callAsync([this]() {
         // Update the algorithm parameter in APVTS based on current algorithm
         if (auto* param = processorRef.getAPVTS().getParameter("algorithm")) {
-            // Always use normalized value for parameters
-            float normalizedValue = static_cast<float>(currentAlgorithm_) / 46.0f;
-            normalizedValue = juce::jlimit(0.0f, 1.0f, normalizedValue); // Extra safety clamp
-            
+            // For AudioParameterChoice, use the parameter's conversion method
+            // The parameter expects an index (0-46) converted to normalized (0.0-1.0)
+            float normalizedValue = param->convertTo0to1(static_cast<float>(currentAlgorithm_));
+
             DBG("Found 'algorithm' parameter in APVTS");
             DBG("Setting algorithm index: " + juce::String(currentAlgorithm_));
             DBG("Normalized value: " + juce::String(normalizedValue, 4));
-            
+
             float oldValue = param->getValue();
-            
+
             // Use proper change gesture for automation
             param->beginChangeGesture();
             param->setValueNotifyingHost(normalizedValue);
             param->endChangeGesture();
-            
+
             float newValue = param->getValue();
-            
+
             DBG("Parameter value changed from " + juce::String(oldValue, 4) + " to " + juce::String(newValue, 4));
-            
+
             if (fileLogger_) {
-                fileLogger_->logMessage("[PARAMETER CHANGE] Algorithm parameter updated: " + 
+                fileLogger_->logMessage("[PARAMETER CHANGE] Algorithm parameter updated: " +
                     juce::String(oldValue, 4) + " -> " + juce::String(newValue, 4));
+            }
+
+            // CRITICAL FIX: Force immediate update to synthesizer
+            // This ensures algorithm changes are applied immediately
+            if (auto* braidyProcessor = dynamic_cast<BraidyAudioProcessor*>(&processorRef)) {
+                braidyProcessor->updateSynthesiserFromParameters();
             }
         } else {
             DBG("ERROR: 'algorithm' parameter NOT FOUND in APVTS!");
@@ -1954,6 +1980,15 @@ void BraidyAudioProcessorEditor::buttonClicked(juce::Button* button) {
 }
 
 void BraidyAudioProcessorEditor::timerCallback() {
+    // Debug: Log that timer is still running
+    static int timerCounter = 0;
+    if (++timerCounter % 30 == 0) { // Every second
+        DBG("[EDITOR TIMER] Still running, count: " + juce::String(timerCounter));
+        if (fileLogger_) {
+            fileLogger_->logMessage("[EDITOR TIMER] Still running, count: " + juce::String(timerCounter));
+        }
+    }
+
     // Update parameter values from processor
     updateParameterValues();
     

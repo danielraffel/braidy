@@ -139,17 +139,45 @@ public:
     float getModulation(Destination dest) const
     {
         if (dest < 0 || dest >= NUM_DESTINATIONS) return 0.0f;
-        
+
         const auto& routing = routings_[dest];
-        if (!routing.enabled) return 0.0f;
-        
+        if (!routing.enabled) {
+            // Debug why routing is disabled
+            if (dest == FM_AMOUNT) {
+                static int debugCounter = 0;
+                if (++debugCounter % 100 == 0) {
+                    DBG("[MODMATRIX] FM routing disabled!");
+                }
+            }
+            return 0.0f;
+        }
+
         if (routing.sourceId < 0 || routing.sourceId >= static_cast<int>(lfos_.size())) return 0.0f;
-        
+
         const auto& lfo = lfos_[routing.sourceId];
-        if (!lfo.isEnabled()) return 0.0f;
-        
+        if (!lfo.isEnabled()) {
+            // Debug why LFO is disabled
+            if (dest == FM_AMOUNT) {
+                static int debugCounter = 0;
+                if (++debugCounter % 100 == 0) {
+                    DBG("[MODMATRIX] LFO " + juce::String(routing.sourceId) + " disabled for FM!");
+                }
+            }
+            return 0.0f;
+        }
+
         float value = routing.bipolar ? lfo.getValue() : lfo.getUnipolarValue();
         float modulation = value * routing.amount;
+
+        // Debug FM modulation values
+        if (dest == FM_AMOUNT) {
+            static int fmDebugCounter = 0;
+            if (++fmDebugCounter % 100 == 0) {
+                DBG("[MODMATRIX] FM - LFO value: " + juce::String(value, 3) +
+                    ", amount: " + juce::String(routing.amount, 3) +
+                    ", modulation: " + juce::String(modulation, 3));
+            }
+        }
         
         // Debug: Log modulation values for ENV_TIMBRE_AMOUNT
         if (dest == ENV_TIMBRE_AMOUNT && std::abs(modulation) > 0.001f) {

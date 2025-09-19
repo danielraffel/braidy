@@ -61,7 +61,13 @@ public:
     // Advance the LFO by one audio block
     void advance(double sampleRate, int numSamples, double bpm = 120.0)
     {
-        if (!enabled_) return;
+        if (!enabled_) {
+            static int disabledCounter = 0;
+            if (++disabledCounter % 1000 == 0) {
+                DBG("[LFO] Advance called but LFO is disabled");
+            }
+            return;
+        }
         
         // Safety check for buffer size
         if (numSamples <= 0 || numSamples > 8192) {
@@ -120,7 +126,13 @@ public:
     // Get current LFO value (-1 to +1)
     float getValue() const
     {
-        if (!enabled_) return 0.0f;
+        if (!enabled_) {
+            static int notEnabledCounter = 0;
+            if (++notEnabledCounter % 100 == 0) {
+                DBG("[LFO] getValue called but LFO disabled");
+            }
+            return 0.0f;
+        }
         
         float effectivePhase = phase_ + phaseOffset_;
         while (effectivePhase >= 1.0f) effectivePhase -= 1.0f;
