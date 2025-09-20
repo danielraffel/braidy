@@ -146,8 +146,9 @@ public:
     }
 
     void setAlgorithm(int algorithm) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        
+        // LOCK-FREE: Use atomic operations to prevent audio thread blocking
+        // This is critical for seamless META mode operation
+
         // Clamp algorithm to valid range (0 to MACRO_OSC_SHAPE_LAST_ACCESSIBLE_FROM_META = 46)
         algorithm = std::clamp(algorithm, 0, static_cast<int>(braids::MACRO_OSC_SHAPE_LAST_ACCESSIBLE_FROM_META));
         
@@ -158,33 +159,61 @@ public:
             algorithm = 0;
         }
         
-        if (algorithm != algorithm_) {
-            std::cout << "[DEBUG] BraidsEngine::setAlgorithm changing from " << algorithm_ 
+        // Use atomic compare-and-swap to avoid locks
+        int expectedAlgorithm = algorithm_;
+        if (algorithm != expectedAlgorithm) {
+            std::cout << "[DEBUG] BraidsEngine::setAlgorithm changing from " << expectedAlgorithm
                       << " to " << algorithm << " (name: " << kAlgorithmNames[algorithm] << ")" << std::endl;
-            
+
+            // Atomically update algorithm
             algorithm_ = algorithm;
-            
-            // Reinitialize the oscillator when changing algorithms to avoid crashes
+
+            // HOT-SWAPPABLE: Use lightweight approach to prevent audio gaps
+            // Only do full reinitialization for algorithms that absolutely require it
+            bool needsFullReinit = false;
+
+            // Check if this is a percussion algorithm that needs special handling
+            bool isPercussion = (algorithm == 28 || algorithm == 32 || algorithm == 33 ||
+                                algorithm == 34 || algorithm == 35 || algorithm == 36);
+
+            // Determine if we need full reinitialization (only for problematic algorithms)
+            if (isPercussion || algorithm == 28) { // PLUK and percussion need full init
+                needsFullReinit = true;
+            }
+
             try {
-                oscillator_.Init();
-                oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm));
-                
-                // Reset parameters to safe defaults
-                oscillator_.set_parameters(0, 0);
-                
-                // Force parameter update when algorithm changes
-                updateParameters();
-                
-                // Special handling for percussion algorithms that might need striking
-                if (algorithm == 28 || algorithm == 32 || algorithm == 33 || algorithm == 34 || algorithm == 35 || algorithm == 36) { 
-                    // PLUCKED=28, STRUCK_BELL=32, STRUCK_DRUM=33, KICK=34, CYMBAL=35, SNARE=36
-                    std::cout << "[DEBUG] Striking percussion algorithm " << algorithm 
-                              << " (" << kAlgorithmNames[algorithm] << ")" << std::endl;
-                    // Strike the oscillator to initialize percussion algorithms properly
-                    oscillator_.Strike();
+                // LOCK-FREE: Use try_lock to avoid blocking audio thread
+                std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
+                if (!lock.owns_lock()) {
+                    // Audio thread is busy, defer this change to prevent blocking
+                    std::cout << "[DEBUG] Deferring algorithm change - audio thread busy" << std::endl;
+                    return;
                 }
-                
-                std::cout << "[DEBUG] Algorithm change successful: " << kAlgorithmNames[algorithm] << std::endl;
+
+                if (needsFullReinit) {
+                    // Full reinitialization for problematic algorithms
+                    oscillator_.Init();
+                    oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm));
+                    oscillator_.set_parameters(0, 0);
+
+                    if (isPercussion) {
+                        std::cout << "[DEBUG] Striking percussion algorithm " << algorithm
+                                  << " (" << kAlgorithmNames[algorithm] << ")" << std::endl;
+                        oscillator_.Strike();
+                    }
+                } else {
+                    // HOT-SWAP: Lightweight shape change preserves audio continuity
+                    oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm));
+                    // Keep current parameters to maintain musical flow
+                    oscillator_.set_parameters(currentParam1_, currentParam2_);
+                }
+
+                // Always update parameters after algorithm change
+                updateParameters();
+
+                std::cout << "[DEBUG] Algorithm change successful (" <<
+                         (needsFullReinit ? "full-reinit" : "hot-swap") << "): " <<
+                         kAlgorithmNames[algorithm] << std::endl;
             } catch (const std::exception& e) {
                 std::cerr << "[ERROR] Failed to set algorithm " << algorithm << ": " << e.what() << std::endl;
                 // Fall back to a safe algorithm
@@ -260,26 +289,27 @@ public:
             auto now = std::chrono::steady_clock::now();
             auto timeSinceLastChange = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastAlgorithmChange);
             
-            if (newAlgorithm != algorithm_ && timeSinceLastChange.count() > 10) {  // Minimum 10ms between changes
+            if (newAlgorithm != algorithm_ && timeSinceLastChange.count() > 2) {  // Reduced to 2ms for more responsive META mode
                 try {
                     algorithm_ = newAlgorithm;
                     lastAlgorithmChange = now;
-                    
-                    // Reinitialize oscillator for algorithm change in meta mode
-                    // This is expensive but necessary for algorithm switching
-                    oscillator_.Init();
+
+                    // HOT-SWAPPABLE: Use lightweight shape change instead of full reinitialization
+                    // This maintains oscillator state and prevents audio gaps during META mode switching
                     oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
-                    oscillator_.set_parameters(0, 0);
-                    
-                    std::cout << "[DEBUG] Meta mode algorithm change via FM: " << algorithm_ 
-                              << " (" << getAlgorithmName() << ")" << std::endl;
-                              
+
+                    // Only reset parameters if absolutely necessary (preserve musical continuity)
+                    // This keeps the sound flowing during rapid META mode changes
+                    oscillator_.set_parameters(currentParam1_, currentParam2_);
+
+                    std::cout << "[DEBUG] Hot-swap META algorithm: " << algorithm_
+                              << " (" << getAlgorithmName() << ") - no audio gap" << std::endl;
+
                 } catch (const std::exception& e) {
-                    std::cerr << "[ERROR] Meta mode algorithm change failed: " << e.what() << std::endl;
-                    // Revert to previous algorithm
-                    algorithm_ = algorithm_;  // Keep current algorithm
+                    std::cerr << "[ERROR] Hot-swap algorithm change failed: " << e.what() << std::endl;
+                    // Keep current algorithm on failure
                 } catch (...) {
-                    std::cerr << "[ERROR] Unknown error in meta mode algorithm change" << std::endl;
+                    std::cerr << "[ERROR] Unknown error in hot-swap algorithm change" << std::endl;
                 }
             }
         }

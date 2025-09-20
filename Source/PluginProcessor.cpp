@@ -509,23 +509,23 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                         // Increment counter every process block
                         lastSwitchCounter++;
                         
-                        // Only allow algorithm changes with rate limiting
-                        // Reduced minimum blocks for more responsive META mode
+                        // MUSICAL META MODE: Minimal rate limiting for intense, responsive algorithm switching
+                        // This creates the "hyper" character while preventing audio thread overload
                         bool isTempoSynced = false;
                         if (auto* lfo1TempoSync = apvts_.getRawParameterValue("lfo1TempoSync")) {
                             isTempoSynced = lfo1TempoSync->load() > 0.5f;
                         }
-                        const int MIN_BLOCKS_BETWEEN_SWITCHES = isTempoSynced ? 4 : 2;  // More responsive
-                        
+                        const int MIN_BLOCKS_BETWEEN_SWITCHES = isTempoSynced ? 2 : 1;  // Very responsive for musical META mode
+
                         bool shouldSwitch = false;
-                        
-                        // Allow immediate switch if algorithm changed by more than 1 step (reduced from 2)
-                        if (std::abs(targetAlgorithm - currentAlgorithm_) > 1) {
+
+                        // Allow immediate switch for any algorithm change (more musical)
+                        if (targetAlgorithm != currentAlgorithm_) {
                             shouldSwitch = true;
                         }
-                        // Or if enough time has passed since last switch
-                        else if (lastSwitchCounter >= MIN_BLOCKS_BETWEEN_SWITCHES) {
-                            shouldSwitch = true;
+                        // Still respect minimal rate limiting to prevent audio thread issues
+                        if (lastSwitchCounter < MIN_BLOCKS_BETWEEN_SWITCHES) {
+                            shouldSwitch = false;
                         }
                         
                         if (shouldSwitch) {
