@@ -510,13 +510,27 @@ private:
 
     void updateParameters() {
         // Convert 0.0-1.0 range to int16_t range for Braids
-        int16_t param1 = static_cast<int16_t>((targetParam1_ * 2.0f - 1.0f) * 32767.0f);
-        int16_t param2 = static_cast<int16_t>((targetParam2_ * 2.0f - 1.0f) * 32767.0f);
-        
+        // CRITICAL FIX: Use correct conversion formula
+        // 0.0 -> -32768, 0.5 -> 0, 1.0 -> 32767
+        int16_t param1 = static_cast<int16_t>((targetParam1_ - 0.5f) * 65535.0f);
+        int16_t param2 = static_cast<int16_t>((targetParam2_ - 0.5f) * 65535.0f);
+
+        // Clamp to valid int16_t range
+        param1 = std::max<int16_t>(-32768, std::min<int16_t>(32767, param1));
+        param2 = std::max<int16_t>(-32768, std::min<int16_t>(32767, param2));
+
         oscillator_.set_parameters(param1, param2);
-        
+
         currentParam1_ = targetParam1_;
         currentParam2_ = targetParam2_;
+
+        // Debug logging to verify parameters
+        static int paramLogCounter = 0;
+        if (++paramLogCounter % 100 == 0) {  // Log every 100th call
+            std::cout << "[BRAIDS] Parameters: UI(" << targetParam1_ << "," << targetParam2_
+                      << ") -> Braids(" << param1 << "," << param2 << ")"
+                      << " Algorithm: " << kAlgorithmNames[algorithm_] << std::endl;
+        }
     }
 
     mutable std::mutex mutex_;

@@ -1,7 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "adapters/BraidsEngine.h"
-#include <iostream>
 #include <cmath>
 
 BraidyAudioProcessor::BraidyAudioProcessor()
@@ -198,8 +197,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout BraidyAudioProcessor::create
 
 void BraidyAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    std::cout << "[DEBUG] prepareToPlay: sampleRate=" << sampleRate 
-              << " samplesPerBlock=" << samplesPerBlock << std::endl;
+    DBG("[DEBUG] prepareToPlay: sampleRate=" + juce::String(sampleRate) +
+        " samplesPerBlock=" + juce::String(samplesPerBlock));
     synthesiser_->setCurrentPlaybackSampleRate(sampleRate);
     
     // Connect modulation matrix to synthesizer for real-time modulation
@@ -241,10 +240,10 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
         for (const auto metadata : midiMessages) {
             auto msg = metadata.getMessage();
             if (msg.isNoteOn()) {
-                std::cout << "[DEBUG] ProcessBlock MIDI NoteOn: note=" << msg.getNoteNumber() 
-                          << " vel=" << msg.getVelocity() << std::endl;
+                DBG("[DEBUG] ProcessBlock MIDI NoteOn: note=" + juce::String(msg.getNoteNumber()) +
+                    " vel=" + juce::String(msg.getVelocity()));
             } else if (msg.isNoteOff()) {
-                std::cout << "[DEBUG] ProcessBlock MIDI NoteOff: note=" << msg.getNoteNumber() << std::endl;
+                DBG("[DEBUG] ProcessBlock MIDI NoteOff: note=" + juce::String(msg.getNoteNumber()));
             }
         }
     }
@@ -303,8 +302,8 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     
     static int debugCounter = 0;
     if (++debugCounter % 100 == 0) {  // Print every 100 blocks
-        std::cout << "[DEBUG] Audio max sample: " << maxSample 
-                  << " Active voices: " << synthesiser_->getActiveVoiceCount() << std::endl;
+        DBG("[DEBUG] Audio max sample: " + juce::String(maxSample) +
+            " Active voices: " + juce::String(synthesiser_->getActiveVoiceCount()));
     }
     
     // Apply volume
@@ -344,8 +343,8 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
         // Debug output
         static int debugCount = 0;
         if (++debugCount % 50 == 0) {  // Log every 50th call to avoid flooding
-            std::cout << "[DEBUG] Algorithm index: raw=" << algorithmIndex 
-                      << " -> rounded=" << newAlgorithm << std::endl;
+            DBG("[DEBUG] Algorithm index: raw=" + juce::String(algorithmIndex) +
+                " -> rounded=" + juce::String(newAlgorithm));
         }
         
         float newParam1 = param1->load();
@@ -372,9 +371,9 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
         // META mode algorithm modulation will be handled in FM section to avoid duplication
         
         if (newParam1 != currentParam1_ || newParam2 != currentParam2_) {
-            std::cout << "[DEBUG] PluginProcessor: Parameters changed - param1: " 
-                      << currentParam1_ << " -> " << newParam1 
-                      << ", param2: " << currentParam2_ << " -> " << newParam2 << std::endl;
+            DBG("[DEBUG] PluginProcessor: Parameters changed - param1: " +
+                juce::String(currentParam1_) + " -> " + juce::String(newParam1) +
+                ", param2: " + juce::String(currentParam2_) + " -> " + juce::String(newParam2));
             currentParam1_ = newParam1;
             currentParam2_ = newParam2;
             synthesiser_->setParameters(newParam1, newParam2);
@@ -432,9 +431,8 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
             static int metaDebugCounter = 0;
             if (++metaDebugCounter % 100 == 0) {  // Log every 100 blocks
                 if (metaMode) {
-                    std::cout << "[META MODE] Enabled - FM: " << fmAmount 
-                              << ", FM modulated: " << modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT) 
-                              << std::endl;
+                    DBG("[META MODE] Enabled - FM: " + juce::String(fmAmount) +
+                        ", FM modulated: " + juce::String(modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT) ? "true" : "false"));
                 }
             }
             
@@ -450,7 +448,7 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                         braidy::ModulationMatrix::ALGORITHM_SELECTION, newAlgorithm, 0, 46);
                     shouldModulateAlgorithm = true;
                     
-                    std::cout << "[META MODULATION] LFO modulating algorithm to index " << targetAlgorithm << std::endl;
+                    DBG("[META MODULATION] LFO modulating algorithm to index " + juce::String(targetAlgorithm));
                 }
                 // Priority 2: Use FM to control algorithm when META is enabled
                 // Check if FM is being modulated OR has a non-zero value
@@ -463,9 +461,9 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                     // Always log when META mode is active to help debug
                     static int metaLogCounter = 0;
                     if (++metaLogCounter % 50 == 0) {  // Log every 50 blocks
-                        std::cout << "[META MODULATION] FM controlling algorithm to index " << targetAlgorithm
-                                  << " (FM=" << fmAmount << ", modulated=" 
-                                  << modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT) << ")" << std::endl;
+                        DBG("[META MODULATION] FM controlling algorithm to index " + juce::String(targetAlgorithm) +
+                            " (FM=" + juce::String(fmAmount) + ", modulated=" +
+                            juce::String(modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT) ? "true" : "false") + ")");
                     }
                 }
                 // Priority 3: No modulation active - stay on current algorithm, don't cycle
@@ -514,21 +512,30 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                                     // Safe to change algorithm when no voices are playing
                                     currentAlgorithm_ = targetAlgorithm;
                                     newAlgorithm = targetAlgorithm;
-                                    
+
                                     try {
                                         synthesiser_->setAlgorithm(targetAlgorithm);
-                                        std::cout << "[META MODE] Safely switched to algorithm " << targetAlgorithm 
-                                                  << " (no active voices)" << std::endl;
+
+                                        // CRITICAL: Set parameters for the new algorithm
+                                        synthesiser_->setParameters(newParam1, newParam2);
+
+                                        // Also update the tracked current values to stay in sync
+                                        currentParam1_ = newParam1;
+                                        currentParam2_ = newParam2;
+
+                                        DBG("[META MODE] Safely switched to algorithm " + juce::String(targetAlgorithm) +
+                                            " (no active voices) with params (" + juce::String(newParam1) +
+                                            ", " + juce::String(newParam2) + ")");
                                     } catch (...) {
-                                        std::cout << "[ERROR] Failed to set algorithm " << targetAlgorithm << std::endl;
+                                        DBG("[ERROR] Failed to set algorithm " + juce::String(targetAlgorithm));
                                     }
-                                    
+
                                     lastAlgorithm = targetAlgorithm;
                                     lastSwitchCounter = 0;
                                 } else {
                                     // Defer algorithm change until voices stop
-                                    std::cout << "[META MODE] Deferring algorithm change to " << targetAlgorithm 
-                                              << " (" << activeVoices << " voices active)" << std::endl;
+                                    DBG("[META MODE] Deferring algorithm change to " + juce::String(targetAlgorithm) +
+                                        " (" + juce::String(activeVoices) + " voices active)");
                                     lastSwitchCounter = 0; // Reset to try again next block
                                 }
                             }
@@ -539,9 +546,23 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
             else {
                 // Not in META mode, ensure we're using the selected algorithm
                 if (newAlgorithm != currentAlgorithm_) {
+                    DBG("[ALGORITHM CHANGE] Switching from " + juce::String(currentAlgorithm_) +
+                        " to " + juce::String(newAlgorithm) + " (normal mode)");
+
                     synthesiser_->allNotesOff(0, true);
                     currentAlgorithm_ = newAlgorithm;
                     synthesiser_->setAlgorithm(newAlgorithm);
+
+                    // CRITICAL FIX: Use NEW parameters (newParam1, newParam2) not old ones!
+                    // This ensures the new algorithm gets the correct parameters immediately
+                    synthesiser_->setParameters(newParam1, newParam2);
+
+                    // Also update the tracked current values to stay in sync
+                    currentParam1_ = newParam1;
+                    currentParam2_ = newParam2;
+
+                    DBG("[ALGORITHM CHANGE] Parameters set to (" +
+                        juce::String(newParam1) + ", " + juce::String(newParam2) + ")");
                 }
             }
             
@@ -636,7 +657,7 @@ void BraidyAudioProcessor::updateModulationFromParameters()
                             break;
                         default:
                             validDest = false;
-                            std::cout << "[MODULATION] ERROR: No mapping defined for APVTS index " << destIndex << std::endl;
+                            DBG("[MODULATION] ERROR: No mapping defined for APVTS index " + juce::String(destIndex));
                             break;
                     }
                     
@@ -754,7 +775,7 @@ void BraidyAudioProcessor::updateModulationFromParameters()
                             break;
                         default:
                             validDest = false;
-                            std::cout << "[MODULATION] ERROR: No mapping defined for APVTS index " << destIndex << std::endl;
+                            DBG("[MODULATION] ERROR: No mapping defined for APVTS index " + juce::String(destIndex));
                             break;
                     }
                     
