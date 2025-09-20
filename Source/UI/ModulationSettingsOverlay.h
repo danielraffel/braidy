@@ -157,7 +157,15 @@ public:
         bitCrusherEnableButton_.setToggleState(false, juce::dontSendNotification);
         bitCrusherEnableButton_.addListener(this);
         addAndMakeVisible(bitCrusherEnableButton_);
-        
+
+        // Panic button for stuck notes
+        panicButton_.setButtonText("Kill Stuck Notes");
+        panicButton_.setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF663333));
+        panicButton_.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xFF884444));
+        panicButton_.setColour(juce::TextButton::textColourOffId, juce::Colour(0xFFFFAAAA));
+        panicButton_.addListener(this);
+        addAndMakeVisible(panicButton_);
+
         // Set component properties
         setOpaque(true);
         setAlpha(0.98f);  // Higher opacity to reduce transparency
@@ -249,11 +257,15 @@ public:
         
         // Global settings at bottom - adjust Y position to account for taller LFO sections
         int globalY = bounds.getHeight() - 90;
-        int buttonWidth = (bounds.getWidth() - 40) / 3;
-        
+        int buttonWidth = (bounds.getWidth() - 50) / 3;
+
         metaModeButton_.setBounds(10, globalY, buttonWidth, 30);
         quantizerEnableButton_.setBounds(20 + buttonWidth, globalY, buttonWidth, 30);
         bitCrusherEnableButton_.setBounds(30 + buttonWidth * 2, globalY, buttonWidth, 30);
+
+        // Panic button below the other buttons
+        int panicY = bounds.getHeight() - 45;
+        panicButton_.setBounds(bounds.getWidth() / 2 - 80, panicY, 160, 35);
     }
     
     void buttonClicked(juce::Button* button) override
@@ -298,12 +310,18 @@ public:
             // Global settings callbacks
             if (button == &metaModeButton_ && onMetaModeChanged)
                 onMetaModeChanged(metaModeButton_.getToggleState());
-            
+
             if (button == &quantizerEnableButton_ && onQuantizerChanged)
                 onQuantizerChanged(quantizerEnableButton_.getToggleState());
-            
+
             if (button == &bitCrusherEnableButton_ && onBitCrusherChanged)
                 onBitCrusherChanged(bitCrusherEnableButton_.getToggleState());
+
+            // Panic button to kill stuck notes
+            if (button == &panicButton_ && onPanicButton) {
+                logMessage("[PANIC] Kill stuck notes button pressed");
+                onPanicButton();
+            }
         }
     }
     
@@ -710,6 +728,7 @@ public:
     std::function<void(bool)> onMetaModeChanged;
     std::function<void(bool)> onQuantizerChanged;
     std::function<void(bool)> onBitCrusherChanged;
+    std::function<void()> onPanicButton;  // Kill stuck notes
     
     // LFO Callbacks
     std::function<void(int, bool)> onLfoEnableChanged;    // (lfoIndex, enabled)
@@ -871,10 +890,13 @@ private:
     };
     
     LFOSection lfoSections_[2];
-    
+
     juce::ToggleButton metaModeButton_;
     juce::ToggleButton quantizerEnableButton_;
     juce::ToggleButton bitCrusherEnableButton_;
+
+    // Panic button for stuck notes
+    juce::TextButton panicButton_;
     
     juce::FileLogger* fileLogger_;
     

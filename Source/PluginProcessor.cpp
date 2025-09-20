@@ -251,13 +251,19 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     // Clear any input audio
     for (auto i = getTotalNumInputChannels(); i < getTotalNumOutputChannels(); ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
-    
-    // Update parameters if changed
+
+    // Update synthesizer parameters - this includes real-time modulation
+    // The recursion guard prevents issues if this is called from parameter listeners
     updateSynthesiserFromParameters();
-    
-    // Update modulation matrix from APVTS parameters
-    updateModulationFromParameters();
-    
+
+    // Only update modulation configuration if LFO parameters changed
+    // This is lightweight and needed for real-time modulation routing
+    static int modUpdateCounter = 0;
+    if (++modUpdateCounter >= 32) {  // Update every 32 blocks to reduce CPU load
+        modUpdateCounter = 0;
+        updateModulationFromParameters();
+    }
+
     // Process modulation LFOs (Item #2: Connect LFO processing to audio thread)
     double bpm = 120.0; // Default BPM
     if (auto* playHead = getPlayHead()) {
@@ -417,15 +423,23 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
         if (fmAmountParam) {
             float fmAmount = fmAmountParam->load();
             
-            // Apply FM modulation from LFO
-            if (modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT)) {
-                fmAmount = modulationMatrix_.applyModulation(
-                    braidy::ModulationMatrix::FM_AMOUNT, fmAmount, 0.0f, 1.0f);
-            }
-            
-            // Check META mode
+            // Check META mode first
             auto* metaModeParam = apvts_.getRawParameterValue("metaMode");
             bool metaMode = metaModeParam ? (metaModeParam->load() > 0.5f) : false;
+
+            // Store the original FM value before any modulation
+            float originalFmAmount = fmAmount;
+
+            // CRITICAL FIX: Only apply FM modulation when META mode is OFF
+            // When META mode is ON, FM controls algorithm selection and shouldn't be modulated
+            if (!metaMode && modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT)) {
+                fmAmount = modulationMatrix_.applyModulation(
+                    braidy::ModulationMatrix::FM_AMOUNT, fmAmount, 0.0f, 1.0f);
+
+                DBG("[FM MODULATION] Applied LFO modulation - FM: " + juce::String(fmAmount));
+            } else if (metaMode && modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT)) {
+                DBG("[META MODE] FM modulation blocked - META mode controls FM for algorithm selection");
+            }
             
             // Debug META mode state
             static int metaDebugCounter = 0;
@@ -451,10 +465,20 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                     DBG("[META MODULATION] LFO modulating algorithm to index " + juce::String(targetAlgorithm));
                 }
                 // Priority 2: Use FM to control algorithm when META is enabled
-                // Check if FM is being modulated OR has a non-zero value
-                else if (modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT) || fmAmount > 0.01f) {
+                // In META mode, FM parameter ALWAYS controls algorithm selection (even at 0)
+                else {
+                    // For META mode algorithm selection, calculate what the modulated FM would be
+                    // This ensures the LED display cycles even when FM modulation is blocked
+                    float metaFmValue = originalFmAmount;
+                    if (modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT)) {
+                        // Calculate modulated FM value for display purposes
+                        metaFmValue = modulationMatrix_.applyModulation(
+                            braidy::ModulationMatrix::FM_AMOUNT, originalFmAmount, 0.0f, 1.0f);
+                    }
+
                     // Traditional META mode: FM parameter controls algorithm
-                    targetAlgorithm = static_cast<int>(fmAmount * 46.0f);
+                    // FM value of 0.0 = algorithm 0, FM value of 1.0 = algorithm 46
+                    targetAlgorithm = static_cast<int>(metaFmValue * 46.0f);
                     targetAlgorithm = juce::jlimit(0, 46, targetAlgorithm);
                     shouldModulateAlgorithm = true;
                     
@@ -462,8 +486,9 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                     static int metaLogCounter = 0;
                     if (++metaLogCounter % 50 == 0) {  // Log every 50 blocks
                         DBG("[META MODULATION] FM controlling algorithm to index " + juce::String(targetAlgorithm) +
-                            " (FM=" + juce::String(fmAmount) + ", modulated=" +
-                            juce::String(modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT) ? "true" : "false") + ")");
+                            " (original FM=" + juce::String(originalFmAmount) +
+                            ", meta FM=" + juce::String(metaFmValue) +
+                            ", modulated=" + juce::String(modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT) ? "true" : "false") + ")");
                     }
                 }
                 // Priority 3: No modulation active - stay on current algorithm, don't cycle
@@ -485,12 +510,12 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                         lastSwitchCounter++;
                         
                         // Only allow algorithm changes with rate limiting
-                        // Increase minimum blocks if tempo sync is active to prevent crashes
+                        // Reduced minimum blocks for more responsive META mode
                         bool isTempoSynced = false;
                         if (auto* lfo1TempoSync = apvts_.getRawParameterValue("lfo1TempoSync")) {
                             isTempoSynced = lfo1TempoSync->load() > 0.5f;
                         }
-                        const int MIN_BLOCKS_BETWEEN_SWITCHES = isTempoSynced ? 8 : 4;
+                        const int MIN_BLOCKS_BETWEEN_SWITCHES = isTempoSynced ? 4 : 2;  // More responsive
                         
                         bool shouldSwitch = false;
                         
@@ -504,40 +529,34 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                         }
                         
                         if (shouldSwitch) {
-                            // SAFE META MODE: Only update algorithm when no voices are active
+                            // META MODE: Allow algorithm switching even with active voices
+                            // This ensures real-time response and smooth transitions
                             if (synthesiser_ && targetAlgorithm >= 0 && targetAlgorithm <= 46) {
-                                int activeVoices = synthesiser_->getActiveVoiceCount();
-                                
-                                if (activeVoices == 0) {
-                                    // Safe to change algorithm when no voices are playing
-                                    currentAlgorithm_ = targetAlgorithm;
-                                    newAlgorithm = targetAlgorithm;
+                                // Update algorithm immediately for real-time response
+                                currentAlgorithm_ = targetAlgorithm;
+                                newAlgorithm = targetAlgorithm;
 
-                                    try {
-                                        synthesiser_->setAlgorithm(targetAlgorithm);
+                                try {
+                                    synthesiser_->setAlgorithm(targetAlgorithm);
 
-                                        // CRITICAL: Set parameters for the new algorithm
-                                        synthesiser_->setParameters(newParam1, newParam2);
+                                    // CRITICAL: Set parameters for the new algorithm
+                                    synthesiser_->setParameters(newParam1, newParam2);
 
-                                        // Also update the tracked current values to stay in sync
-                                        currentParam1_ = newParam1;
-                                        currentParam2_ = newParam2;
+                                    // DON'T update currentParam1_ and currentParam2_ here!
+                                    // Let the normal parameter update logic handle it below
 
-                                        DBG("[META MODE] Safely switched to algorithm " + juce::String(targetAlgorithm) +
-                                            " (no active voices) with params (" + juce::String(newParam1) +
-                                            ", " + juce::String(newParam2) + ")");
-                                    } catch (...) {
-                                        DBG("[ERROR] Failed to set algorithm " + juce::String(targetAlgorithm));
-                                    }
-
-                                    lastAlgorithm = targetAlgorithm;
-                                    lastSwitchCounter = 0;
-                                } else {
-                                    // Defer algorithm change until voices stop
-                                    DBG("[META MODE] Deferring algorithm change to " + juce::String(targetAlgorithm) +
-                                        " (" + juce::String(activeVoices) + " voices active)");
-                                    lastSwitchCounter = 0; // Reset to try again next block
+                                    // Log the change with voice count for debugging
+                                    int activeVoices = synthesiser_->getActiveVoiceCount();
+                                    DBG("[META MODE] Switched to algorithm " + juce::String(targetAlgorithm) +
+                                        " (voices: " + juce::String(activeVoices) +
+                                        ") with params (" + juce::String(newParam1) +
+                                        ", " + juce::String(newParam2) + ")");
+                                } catch (...) {
+                                    DBG("[ERROR] Failed to set algorithm " + juce::String(targetAlgorithm));
                                 }
+
+                                lastAlgorithm = targetAlgorithm;
+                                lastSwitchCounter = 0;
                             }
                         }
                     }
@@ -549,7 +568,8 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                     DBG("[ALGORITHM CHANGE] Switching from " + juce::String(currentAlgorithm_) +
                         " to " + juce::String(newAlgorithm) + " (normal mode)");
 
-                    synthesiser_->allNotesOff(0, true);
+                    // REMOVED allNotesOff() - allow smooth transition with active voices
+                    // This ensures continuous sound when changing algorithms
                     currentAlgorithm_ = newAlgorithm;
                     synthesiser_->setAlgorithm(newAlgorithm);
 
@@ -557,9 +577,9 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                     // This ensures the new algorithm gets the correct parameters immediately
                     synthesiser_->setParameters(newParam1, newParam2);
 
-                    // Also update the tracked current values to stay in sync
-                    currentParam1_ = newParam1;
-                    currentParam2_ = newParam2;
+                    // DON'T update currentParam1_ and currentParam2_ here!
+                    // Let the normal parameter update logic handle it below
+                    // This prevents the parameter check from being skipped
 
                     DBG("[ALGORITHM CHANGE] Parameters set to (" +
                         juce::String(newParam1) + ", " + juce::String(newParam2) + ")");

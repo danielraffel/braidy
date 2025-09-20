@@ -20,9 +20,9 @@ BraidsVoice::BraidsVoice()
 {
     // Initialize ADSR with reasonable defaults
     adsrParams_.attack = 0.01f;   // 10ms attack
-    adsrParams_.decay = 0.1f;     // 100ms decay  
+    adsrParams_.decay = 0.1f;     // 100ms decay
     adsrParams_.sustain = 0.8f;   // 80% sustain level
-    adsrParams_.release = 0.3f;   // 300ms release
+    adsrParams_.release = 0.15f;   // 150ms release (reduced for more responsive note-off)
     adsr_.setParameters(adsrParams_);
     
     // Initialize smoothed values
@@ -85,9 +85,14 @@ void BraidsVoice::startNote(int midiNoteNumber, float velocity, juce::Synthesise
 
 void BraidsVoice::stopNote(float velocity, bool allowTailOff) {
     juce::ignoreUnused(velocity);
-    
+
+    std::cout << "[DEBUG] BraidsVoice::stopNote - note=" << currentMidiNote_
+              << " allowTailOff=" << allowTailOff << std::endl;
+
     if (allowTailOff) {
+        // Trigger envelope release - voice will stop when envelope completes
         adsr_.noteOff();
+        // Don't set isActive_ to false here - let the envelope complete
     } else {
         // Force immediate stop
         isActive_ = false;
@@ -262,12 +267,20 @@ void BraidsVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer, int st
     // Apply ADSR envelope and add to output buffer
     for (int channel = 0; channel < outputBuffer.getNumChannels(); ++channel) {
         float* channelData = outputBuffer.getWritePointer(channel, startSample);
-        
+
         for (int sample = 0; sample < numSamples; ++sample) {
             float envelopeValue = adsr_.getNextSample();
             float processedSample = audioData[sample] * envelopeValue * currentVelocity_;
             channelData[sample] += processedSample;
         }
+    }
+
+    // Check again if envelope has finished after processing
+    // This ensures we stop the voice as soon as the envelope completes
+    if (!adsr_.isActive()) {
+        isActive_ = false;
+        clearCurrentNote();
+        std::cout << "[DEBUG] BraidsVoice - envelope completed, stopping voice for note: " << currentMidiNote_ << std::endl;
     }
 }
 

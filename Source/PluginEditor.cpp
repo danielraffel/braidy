@@ -472,8 +472,9 @@ BraidyAudioProcessorEditor::BraidyAudioProcessorEditor(BraidyAudioProcessor& p)
     // User can click on the plugin to give it focus when needed
     DBG("[FOCUS] Plugin ready - click to focus for keyboard input");
     
-    // Start timer for parameter updates (reduce frequency to avoid issues)
-    startTimer(30);  // 33Hz for smooth real-time modulation display
+    // Restore timer for visual updates - carefully implemented to avoid previous issues
+    // 30Hz provides smooth visual feedback without overwhelming the UI thread
+    startTimer(30);  // 33ms interval for smooth modulation display
     
     DBG("[STARTUP] Constructor complete with MIDI keyboard support");
 }
@@ -660,7 +661,17 @@ void BraidyAudioProcessorEditor::setupComponents() {
             menuValue_ = enabled ? 1 : 0;
         }
     };
-    
+
+    // Panic button callback - kill all stuck notes
+    modulationOverlay_->onPanicButton = [this]() {
+        DBG("[PANIC] Killing all stuck notes");
+        if (auto* synth = processorRef.getSynthesiser()) {
+            synth->allNotesOff(0, true);  // Force stop all notes
+        }
+        // Also clear any pending MIDI messages
+        processorRef.getMidiCollector().reset(44100.0);  // Clear MIDI collector
+    };
+
     // LFO Enable callback
     modulationOverlay_->onLfoEnableChanged = [this](int lfoIndex, bool enabled) {
         juce::String paramId = "lfo" + juce::String(lfoIndex + 1) + "Enable";
@@ -1212,91 +1223,68 @@ void BraidyAudioProcessorEditor::updateParameterValues() {
         }
     }
     
-    // ALWAYS update knobs with modulation (not just when overlay is hidden!)
-    // This is what makes the knobs move with LFO modulation
-    
-    // Update Timbre knob with modulation (skip only when knob being manually manipulated)
+    // Update knobs with modulated values for visual feedback
+    // Only update when not being manually manipulated to avoid conflicts
+
+    // Timbre knob modulation animation
     if (timbreKnob_ && !timbreKnob_->isBeingManipulated()) {
-        // Get modulated value from processor (includes LFO if active)
         float modulatedValue = processorRef.getModulatedTimbre();
-        float currentKnobValue = timbreKnob_->getValue();
-        
-        // Only update if value actually changed to reduce CPU usage
-        if (std::abs(modulatedValue - currentKnobValue) > 0.001f) {
-            timbreKnob_->setValue(modulatedValue);  // No callback triggered
-            
-            // Debug logging to verify modulation is working
-            static int logCounter = 0;
-            if (++logCounter % 30 == 0) {  // Log every 30 frames (~1 second at 30Hz)
-                if (fileLogger_) {
-                    fileLogger_->logMessage("[MODULATION] Timbre knob updated: " + 
-                        juce::String(currentKnobValue, 3) + " -> " + juce::String(modulatedValue, 3));
-                }
-            }
+        float currentValue = timbreKnob_->getValue();
+
+        // Only update if value changed significantly (reduces CPU usage)
+        if (std::abs(modulatedValue - currentValue) > 0.001f) {
+            timbreKnob_->setValue(modulatedValue);  // Visual update only, no callback
         }
     }
-    
-    // Update Color knob with modulation (skip only when knob being manually manipulated)
+
+    // Color knob modulation animation
     if (colorKnob_ && !colorKnob_->isBeingManipulated()) {
-        // Get modulated value from processor (includes LFO if active)
         float modulatedValue = processorRef.getModulatedColor();
-        float currentKnobValue = colorKnob_->getValue();
-        
-        // Only update if value actually changed to reduce CPU usage
-        if (std::abs(modulatedValue - currentKnobValue) > 0.001f) {
-            colorKnob_->setValue(modulatedValue);  // No callback triggered
-            
-            // Debug logging to verify modulation is working
-            static int logCounter = 0;
-            if (++logCounter % 30 == 0) {  // Log every 30 frames (~1 second at 30Hz)
-                if (fileLogger_) {
-                    fileLogger_->logMessage("[MODULATION] Color knob updated: " + 
-                        juce::String(currentKnobValue, 3) + " -> " + juce::String(modulatedValue, 3));
-                }
-            }
+        float currentValue = colorKnob_->getValue();
+
+        if (std::abs(modulatedValue - currentValue) > 0.001f) {
+            colorKnob_->setValue(modulatedValue);  // Visual update only
         }
     }
-    
-    // Update FM knob with modulation and meta mode algorithm display
-    if (fmKnob_ && !fmKnob_->isBeingManipulated()) {
-        // Get modulated value from processor (includes LFO if active)
+
+    // FM knob modulation animation (only when not in META mode)
+    if (fmKnob_ && !fmKnob_->isBeingManipulated() && !processorRef.isMetaModeEnabled()) {
         float modulatedValue = processorRef.getModulatedFM();
-        float currentKnobValue = fmKnob_->getValue();
-        
-        // Only update if value actually changed to reduce CPU usage
-        if (std::abs(modulatedValue - currentKnobValue) > 0.001f) {
-            fmKnob_->setValue(modulatedValue);  // No callback triggered
-            
-            // Debug logging to verify modulation is working
-            static int logCounter = 0;
-            if (++logCounter % 30 == 0) {  // Log every 30 frames (~1 second at 30Hz)
-                if (fileLogger_) {
-                    fileLogger_->logMessage("[MODULATION] FM knob updated: " + 
-                        juce::String(currentKnobValue, 3) + " -> " + juce::String(modulatedValue, 3));
-                }
-            }
+        float currentValue = fmKnob_->getValue();
+
+        if (std::abs(modulatedValue - currentValue) > 0.001f) {
+            fmKnob_->setValue(modulatedValue);  // Visual update only
         }
-                
-                // Algorithm display is now handled in timerCallback() for META mode
     }
-    
-    // Update other knobs with modulation
+
+    // Fine tune knob modulation animation
     if (fineKnob_ && !fineKnob_->isBeingManipulated()) {
-        // Get modulated value from processor (includes LFO if active)
         float modulatedValue = processorRef.getModulatedFine();
-        fineKnob_->setValue(modulatedValue);  // No callback triggered
+        float currentValue = fineKnob_->getValue();
+
+        if (std::abs(modulatedValue - currentValue) > 0.001f) {
+            fineKnob_->setValue(modulatedValue);  // Visual update only
+        }
     }
-    
+
+    // Coarse tune knob modulation animation
     if (coarseKnob_ && !coarseKnob_->isBeingManipulated()) {
-        // Get modulated value from processor (includes LFO if active)
         float modulatedValue = processorRef.getModulatedCoarse();
-        coarseKnob_->setValue(modulatedValue);  // No callback triggered
+        float currentValue = coarseKnob_->getValue();
+
+        if (std::abs(modulatedValue - currentValue) > 0.001f) {
+            coarseKnob_->setValue(modulatedValue);  // Visual update only
+        }
     }
-    
+
+    // Timbre Mod knob modulation animation
     if (timbreModKnob_ && !timbreModKnob_->isBeingManipulated()) {
-        // Get modulated value from processor (includes LFO if active)
         float modulatedValue = processorRef.getModulatedTimbreMod();
-        timbreModKnob_->setValue(modulatedValue);  // No callback triggered
+        float currentValue = timbreModKnob_->getValue();
+
+        if (std::abs(modulatedValue - currentValue) > 0.001f) {
+            timbreModKnob_->setValue(modulatedValue);  // Visual update only
+        }
     }
 }
 
