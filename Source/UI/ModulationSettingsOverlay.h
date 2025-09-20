@@ -158,11 +158,12 @@ public:
         bitCrusherEnableButton_.addListener(this);
         addAndMakeVisible(bitCrusherEnableButton_);
 
-        // Panic button for stuck notes
+        // Panic button for stuck notes - subtle outline style
         panicButton_.setButtonText("Kill Stuck Notes");
-        panicButton_.setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF663333));
-        panicButton_.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xFF884444));
-        panicButton_.setColour(juce::TextButton::textColourOffId, juce::Colour(0xFFFFAAAA));
+        panicButton_.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+        panicButton_.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xFF444444));  // Subtle dark fill when pressed
+        panicButton_.setColour(juce::TextButton::textColourOffId, juce::Colour(0xFFCCCCCC));  // Light grey text
+        panicButton_.setColour(juce::TextButton::textColourOnId, juce::Colour(0xFFFFFFFF));   // White text when pressed
         panicButton_.addListener(this);
         addAndMakeVisible(panicButton_);
 
