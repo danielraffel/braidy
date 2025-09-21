@@ -98,6 +98,8 @@ private:
     // Parameter update handling
     void updateSynthesiserFromParameters();
     void updateModulationFromParameters();
+    void applyQuantizationToMidiMessages(juce::MidiBuffer& midiMessages);
+    int quantizeNote(int originalNote, int scale, int root);
     
     // Current state
     std::atomic<int> currentAlgorithm_{0};
@@ -112,6 +114,27 @@ private:
     // Stuck-note protection (META+FM scenarios)
     std::atomic<int> heldNotes_{0};
     std::atomic<int> samplesSinceLastNoteEvent_{0};
-    
+
+    // LFO modulation tracking for automation gestures
+    struct ModulationTracker {
+        float lastModulationValue = 0.0f;
+        bool isGestureActive = false;
+        int samplesUntilNextUpdate = 0;
+        float significantChangeThreshold = 0.01f; // 1% change threshold
+    };
+
+    // Track modulation for parameters that need automation gestures
+    ModulationTracker timbreModTracker_;
+    ModulationTracker colorModTracker_;
+    ModulationTracker fmModTracker_;
+
+    // Automation gesture management
+    void updateModulationTracking();
+    void checkAndTriggerAutomationGesture(const braidy::ModulationMatrix::Destination dest,
+                                         const juce::String& paramId,
+                                         ModulationTracker& tracker);
+
+    static constexpr int MODULATION_UPDATE_INTERVAL_SAMPLES = 512; // Update every ~11ms at 44.1kHz
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BraidyAudioProcessor)
 };

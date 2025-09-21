@@ -153,45 +153,68 @@ juce::AudioProcessorValueTreeState::ParameterLayout BraidyAudioProcessor::create
         "LFO 2 Enable",
         false
     ));
-    
+
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"lfo2Shape", 1},
         "LFO 2 Shape",
         juce::StringArray{"Sine", "Triangle", "Square", "Saw", "Random", "Sample & Hold"},
         0  // Default to Sine
     ));
-    
+
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"lfo2Rate", 1},
         "LFO 2 Rate",
         juce::NormalisableRange<float>(0.01f, 20.0f, 0.01f, 0.5f),  // Logarithmic skew
         1.0f  // 1 Hz default
     ));
-    
+
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"lfo2Depth", 1},
         "LFO 2 Depth",
         juce::NormalisableRange<float>(0.0f, 1.0f),
         0.5f
     ));
-    
+
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"lfo2TempoSync", 1},
         "LFO 2 Tempo Sync",
         false
     ));
-    
+
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"lfo2Dest", 1},
         "LFO 2 Destination",
         juce::StringArray{"None", "META", "Timbre", "Color", "FM", "Modulation",
                          "Coarse (Pitch)", "Fine (Detune)", "Coarse (Octave)", "Env Attack", "Env Decay", "Env Sustain", "Env Release",
-                         "Env FM", "Env Timbre", "Env Color", "Bit Depth", 
-                         "Sample Rate", "Volume", "Pan", "Quantize Scale", "Quantize Root", 
+                         "Env FM", "Env Timbre", "Env Color", "Bit Depth",
+                         "Sample Rate", "Volume", "Pan", "Quantize Scale", "Quantize Root",
                          "Vibrato Amount", "Vibrato Rate"},
         0  // Default to None
     ));
-    
+
+    // Quantizer Parameters
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"quantizerEnable", 1},
+        "Quantizer Enable",
+        false  // Default to off
+    ));
+
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"quantizerScale", 1},
+        "Quantizer Scale",
+        juce::StringArray{"Off", "Semitones", "Ionian (Major)", "Dorian", "Phrygian",
+                         "Lydian", "Mixolydian", "Aeolian (Minor)", "Locrian",
+                         "Blues Major", "Blues Minor", "Pentatonic Major", "Pentatonic Minor"},
+        0  // Default to Off
+    ));
+
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"quantizerRoot", 1},
+        "Quantizer Root",
+        juce::StringArray{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"},
+        0  // Default to C
+    ));
+
     return layout;
 }
 
@@ -234,7 +257,10 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     for (const auto metadata : collectedMidi) {
         midiMessages.addEvent(metadata.getMessage(), metadata.samplePosition);
     }
-    
+
+    // Apply quantization to MIDI messages if enabled
+    applyQuantizationToMidiMessages(midiMessages);
+
     // Debug MIDI messages
     if (!midiMessages.isEmpty()) {
         for (const auto metadata : midiMessages) {
@@ -286,7 +312,15 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     // The recursion guard prevents issues if this is called from parameter listeners
     // NOTE: This must happen AFTER LFOs are processed to use current values
     updateSynthesiserFromParameters();
-    
+
+    // Update modulation tracking for automation gestures
+    // This must happen after LFO processing to capture current modulation values
+    static int automationTrackingCounter = 0;
+    if (++automationTrackingCounter >= (MODULATION_UPDATE_INTERVAL_SAMPLES / buffer.getNumSamples())) {
+        automationTrackingCounter = 0;
+        updateModulationTracking();
+    }
+
     // Process MIDI and generate audio using JUCE's built-in synthesiser renderNextBlock
     synthesiser_->renderNextBlock(buffer, midiMessages, 0, buffer.getNumSamples());
     
@@ -367,6 +401,11 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
     auto* fineTuneParam = apvts_.getRawParameterValue("fineTune");
     auto* coarseTuneParam = apvts_.getRawParameterValue("coarseTune");
     auto* fmAmountParam = apvts_.getRawParameterValue("fmAmount");
+
+    // Get quantizer parameters
+    auto* quantizerEnableParam = apvts_.getRawParameterValue("quantizerEnable");
+    auto* quantizerScaleParam = apvts_.getRawParameterValue("quantizerScale");
+    auto* quantizerRootParam = apvts_.getRawParameterValue("quantizerRoot");
     
     if (algorithmParam && param1 && param2 && volumeParam) {
         // For AudioParameterChoice, the raw value is already the index (0-46)
@@ -656,6 +695,16 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                 }
             }
             
+            // Apply quantizer settings to synthesizer
+            if (quantizerEnableParam && quantizerScaleParam && quantizerRootParam) {
+                bool quantizerEnabled = quantizerEnableParam->load() > 0.5f;
+                int quantizerScale = static_cast<int>(std::round(quantizerScaleParam->load() * 12.0f));
+                int quantizerRoot = static_cast<int>(std::round(quantizerRootParam->load() * 11.0f));
+
+                // Apply quantizer settings to synthesizer
+                synthesiser_->setQuantizerSettings(quantizerEnabled, quantizerScale, quantizerRoot);
+            }
+
             // Pass values to voices
             for (int i = 0; i < synthesiser_->getNumVoices(); ++i) {
                 if (auto* voice = dynamic_cast<BraidyAdapter::BraidsVoice*>(synthesiser_->getVoice(i))) {
@@ -1000,6 +1049,188 @@ void BraidyAudioProcessor::setStateInformation(const void* data, int sizeInBytes
         updateSynthesiserFromParameters();
         updateModulationFromParameters();
     }
+}
+
+void BraidyAudioProcessor::applyQuantizationToMidiMessages(juce::MidiBuffer& midiMessages)
+{
+    // Get quantizer parameters
+    auto* quantizerEnableParam = apvts_.getRawParameterValue("quantizerEnable");
+    auto* quantizerScaleParam = apvts_.getRawParameterValue("quantizerScale");
+    auto* quantizerRootParam = apvts_.getRawParameterValue("quantizerRoot");
+
+    // Early exit if quantizer is disabled or parameters are missing
+    if (!quantizerEnableParam || !quantizerScaleParam || !quantizerRootParam ||
+        quantizerEnableParam->load() <= 0.5f) {
+        return;
+    }
+
+    // Get quantizer settings
+    int scale = static_cast<int>(std::round(quantizerScaleParam->load() * 12.0f));
+    int root = static_cast<int>(std::round(quantizerRootParam->load() * 11.0f));
+
+    // Skip if scale is 0 (Off)
+    if (scale <= 0) {
+        return;
+    }
+
+    // Create a new MIDI buffer for quantized messages
+    juce::MidiBuffer quantizedMessages;
+
+    for (const auto metadata : midiMessages) {
+        auto message = metadata.getMessage();
+
+        if (message.isNoteOn() || message.isNoteOff()) {
+            int originalNote = message.getNoteNumber();
+            int quantizedNote = quantizeNote(originalNote, scale, root);
+
+            // Create new message with quantized note
+            juce::MidiMessage newMessage;
+            if (message.isNoteOn()) {
+                newMessage = juce::MidiMessage::noteOn(message.getChannel(), quantizedNote, message.getVelocity());
+            } else {
+                newMessage = juce::MidiMessage::noteOff(message.getChannel(), quantizedNote, message.getVelocity());
+            }
+
+            quantizedMessages.addEvent(newMessage, metadata.samplePosition);
+        } else {
+            // Copy non-note messages unchanged
+            quantizedMessages.addEvent(message, metadata.samplePosition);
+        }
+    }
+
+    // Replace original buffer with quantized messages
+    midiMessages.swapWith(quantizedMessages);
+}
+
+int BraidyAudioProcessor::quantizeNote(int originalNote, int scale, int root)
+{
+    // Define scale patterns (0 = off, 1-12 = different scales)
+    // These match the hardware Braids quantizer scales
+    static const std::vector<std::vector<int>> scalePatterns = {
+        {},                                          // 0: Off (unused)
+        {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11},    // 1: Semitones (chromatic)
+        {0, 2, 4, 5, 7, 9, 11},                     // 2: Ionian (Major)
+        {0, 2, 3, 5, 7, 9, 10},                     // 3: Dorian
+        {0, 1, 3, 5, 7, 8, 10},                     // 4: Phrygian
+        {0, 2, 4, 6, 7, 9, 11},                     // 5: Lydian
+        {0, 2, 4, 5, 7, 9, 10},                     // 6: Mixolydian
+        {0, 2, 3, 5, 7, 8, 10},                     // 7: Aeolian (Minor)
+        {0, 1, 3, 5, 6, 8, 10},                     // 8: Locrian
+        {0, 3, 5, 6, 7, 10},                        // 9: Blues Major
+        {0, 3, 5, 6, 7, 10},                        // 10: Blues Minor
+        {0, 2, 4, 7, 9},                            // 11: Pentatonic Major
+        {0, 3, 5, 7, 10}                            // 12: Pentatonic Minor
+    };
+
+    // Validate scale index
+    if (scale <= 0 || scale >= static_cast<int>(scalePatterns.size())) {
+        return originalNote; // Return unmodified if invalid scale
+    }
+
+    const auto& pattern = scalePatterns[scale];
+    if (pattern.empty()) {
+        return originalNote;
+    }
+
+    // Convert note to octave and semitone within octave
+    int octave = originalNote / 12;
+    int semitone = originalNote % 12;
+
+    // Adjust for root note
+    semitone = (semitone - root + 12) % 12;
+
+    // Find the closest note in the scale
+    int quantizedSemitone = semitone;
+    int minDistance = 12;
+
+    for (int scaleNote : pattern) {
+        int distance = std::abs(semitone - scaleNote);
+        if (distance < minDistance) {
+            minDistance = distance;
+            quantizedSemitone = scaleNote;
+        }
+    }
+
+    // Adjust back for root note and reconstruct MIDI note
+    quantizedSemitone = (quantizedSemitone + root) % 12;
+    int quantizedNote = octave * 12 + quantizedSemitone;
+
+    // Ensure note stays in valid MIDI range
+    return std::clamp(quantizedNote, 0, 127);
+}
+
+void BraidyAudioProcessor::updateModulationTracking()
+{
+    // Check modulation for each tracked parameter
+    checkAndTriggerAutomationGesture(braidy::ModulationMatrix::TIMBRE, "param1", timbreModTracker_);
+    checkAndTriggerAutomationGesture(braidy::ModulationMatrix::COLOR, "param2", colorModTracker_);
+    checkAndTriggerAutomationGesture(braidy::ModulationMatrix::FM_AMOUNT, "fmAmount", fmModTracker_);
+}
+
+void BraidyAudioProcessor::checkAndTriggerAutomationGesture(const braidy::ModulationMatrix::Destination dest,
+                                                          const juce::String& paramId,
+                                                          ModulationTracker& tracker)
+{
+    // Get the current modulation value
+    float currentModulation = modulationMatrix_.getModulation(dest);
+
+    // Calculate absolute change since last check
+    float modulationChange = std::abs(currentModulation - tracker.lastModulationValue);
+
+    // Check if this parameter is actively modulated
+    bool isCurrentlyModulated = modulationMatrix_.isModulated(dest) && modulationChange > 0.001f;
+
+    // Get the parameter reference
+    auto* param = apvts_.getParameter(paramId);
+    if (!param) return;
+
+    // Start gesture if modulation becomes significant and we're not already tracking
+    if (isCurrentlyModulated && !tracker.isGestureActive &&
+        modulationChange > tracker.significantChangeThreshold) {
+
+        param->beginChangeGesture();
+        tracker.isGestureActive = true;
+
+        DBG("[AUTOMATION] Started automation gesture for " + paramId +
+            " - modulation: " + juce::String(currentModulation, 4));
+    }
+
+    // Update parameter value if gesture is active
+    if (tracker.isGestureActive && isCurrentlyModulated) {
+        // Get the base parameter value
+        float baseValue = param->getValue();
+
+        // Apply modulation based on the destination type
+        float modulatedValue = baseValue;
+
+        if (dest == braidy::ModulationMatrix::TIMBRE) {
+            modulatedValue = modulationMatrix_.applyModulation(dest, baseValue, 0.0f, 1.0f);
+        } else if (dest == braidy::ModulationMatrix::COLOR) {
+            modulatedValue = modulationMatrix_.applyModulation(dest, baseValue, 0.0f, 1.0f);
+        } else if (dest == braidy::ModulationMatrix::FM_AMOUNT) {
+            modulatedValue = modulationMatrix_.applyModulation(dest, baseValue, 0.0f, 1.0f);
+        }
+
+        // Set the parameter value to the modulated value
+        // This will trigger automation recording in the host
+        param->setValueNotifyingHost(modulatedValue);
+
+        DBG("[AUTOMATION] Updated " + paramId + " from " +
+            juce::String(baseValue, 4) + " to " + juce::String(modulatedValue, 4));
+    }
+
+    // End gesture if modulation stops being significant
+    if (tracker.isGestureActive && (!isCurrentlyModulated ||
+        modulationChange < tracker.significantChangeThreshold * 0.5f)) {
+
+        param->endChangeGesture();
+        tracker.isGestureActive = false;
+
+        DBG("[AUTOMATION] Ended automation gesture for " + paramId);
+    }
+
+    // Update tracking state
+    tracker.lastModulationValue = currentModulation;
 }
 
 std::vector<std::string> BraidyAudioProcessor::getAlgorithmNames()

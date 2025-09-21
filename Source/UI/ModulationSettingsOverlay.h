@@ -312,8 +312,12 @@ public:
             if (button == &metaModeButton_ && onMetaModeChanged)
                 onMetaModeChanged(metaModeButton_.getToggleState());
 
-            if (button == &quantizerEnableButton_ && onQuantizerChanged)
-                onQuantizerChanged(quantizerEnableButton_.getToggleState());
+            if (button == &quantizerEnableButton_) {
+                // Update APVTS parameter instead of using callback
+                if (auto* param = apvts_.getParameter("quantizerEnable")) {
+                    param->setValueNotifyingHost(quantizerEnableButton_.getToggleState() ? 1.0f : 0.0f);
+                }
+            }
 
             if (button == &bitCrusherEnableButton_ && onBitCrusherChanged)
                 onBitCrusherChanged(bitCrusherEnableButton_.getToggleState());
@@ -675,7 +679,10 @@ public:
             // For now, keep it at current value
             logMessage("[UI DEBUG] " + lfoPrefix + "Amount (not from APVTS): " + juce::String(lfo.amountSlider.getValue()));
         }
-        
+
+        // Sync quantizer button state with parameter
+        syncQuantizerState();
+
         logMessage("[UI DEBUG] ===== FINISHED LOADING PARAMETERS =====");
     }
     
@@ -693,8 +700,15 @@ public:
     bool isOverlayVisible() const { return isVisible_; }
     
     // Sync meta mode state (called from main UI)
-    void setMetaModeState(bool enabled) { 
-        metaModeButton_.setToggleState(enabled, juce::dontSendNotification); 
+    void setMetaModeState(bool enabled) {
+        metaModeButton_.setToggleState(enabled, juce::dontSendNotification);
+    }
+
+    void syncQuantizerState() {
+        if (auto* param = apvts_.getRawParameterValue("quantizerEnable")) {
+            bool enabled = param->load() > 0.5f;
+            quantizerEnableButton_.setToggleState(enabled, juce::dontSendNotification);
+        }
     }
     
     // Timer callback for real-time UI updates

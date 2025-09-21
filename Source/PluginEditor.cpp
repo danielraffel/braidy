@@ -1563,6 +1563,22 @@ void BraidyAudioProcessorEditor::navigateMenu(int delta) {
         case MenuPage::VCA:
             menuValue_ = 0;  // Default VCA mode
             break;
+        case MenuPage::QNTZ:
+            // Read current quantizer scale parameter value
+            if (auto* scaleParam = processorRef.getAPVTS().getRawParameterValue("quantizerScale")) {
+                menuValue_ = static_cast<int>(std::round(scaleParam->load() * 12.0f));
+            } else {
+                menuValue_ = 0;  // Fallback to Off
+            }
+            break;
+        case MenuPage::ROOT:
+            // Read current quantizer root parameter value
+            if (auto* rootParam = processorRef.getAPVTS().getRawParameterValue("quantizerRoot")) {
+                menuValue_ = static_cast<int>(std::round(rootParam->load() * 11.0f));
+            } else {
+                menuValue_ = 0;  // Fallback to C
+            }
+            break;
         default:
             menuValue_ = 0;
             break;
@@ -1788,9 +1804,28 @@ void BraidyAudioProcessorEditor::applyMenuValue() {
                 param->setValueNotifyingHost(menuValue_ / 127.0f);
             }
             break;
+        case MenuPage::QNTZ:
+            // Quantizer scale selection (0=Off, 1-12=various scales)
+            if (auto* enableParam = apvts.getParameter("quantizerEnable")) {
+                enableParam->setValueNotifyingHost(menuValue_ > 0 ? 1.0f : 0.0f);
+            }
+            if (auto* scaleParam = apvts.getParameter("quantizerScale")) {
+                // Convert menu value (0-12) to parameter value (0.0-1.0)
+                float normalizedValue = static_cast<float>(menuValue_) / 12.0f;
+                scaleParam->setValueNotifyingHost(normalizedValue);
+            }
+            break;
+        case MenuPage::ROOT:
+            // Root note selection (0-11 for C-B)
+            if (auto* param = apvts.getParameter("quantizerRoot")) {
+                // Convert menu value (0-11) to parameter value (0.0-1.0)
+                float normalizedValue = static_cast<float>(menuValue_) / 11.0f;
+                param->setValueNotifyingHost(normalizedValue);
+            }
+            break;
         default:
             // For other parameters, we'll just store the values locally for now
-            DBG("Applied menu value " + juce::String(menuValue_) + " for menu item " + 
+            DBG("Applied menu value " + juce::String(menuValue_) + " for menu item " +
                 juce::String(static_cast<int>(currentMenuPage_)));
             break;
     }
