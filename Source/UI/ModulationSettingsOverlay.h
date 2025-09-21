@@ -14,6 +14,7 @@ class ModulationSettingsOverlay : public juce::Component,
                                   public juce::Button::Listener,
                                   public juce::ComboBox::Listener,
                                   public juce::Slider::Listener,
+                                  public juce::TextEditor::Listener,
                                   public juce::Timer
 {
 public:
@@ -67,24 +68,44 @@ public:
             // LFO Rate
             lfo.rateLabel.setText("Rate:", juce::dontSendNotification);
             addAndMakeVisible(lfo.rateLabel);
-            
-            lfo.rateSlider.setRange(0.01, 20.0, 0.01);
-            lfo.rateSlider.setValue(1.0);
-            lfo.rateSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-            lfo.rateSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 80, 20);
-            lfo.rateSlider.addListener(this);
-            addAndMakeVisible(lfo.rateSlider);
-            
+
+            lfo.rateKnob.setRange(0.01, 20.0, 0.01);
+            lfo.rateKnob.setValue(1.0);
+            lfo.rateKnob.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+            lfo.rateKnob.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+            lfo.rateKnob.setMouseDragSensitivity(120);  // Better sensitivity (default is 300)
+            lfo.rateKnob.addListener(this);
+            addAndMakeVisible(lfo.rateKnob);
+
+            // Rate value editor
+            lfo.rateValueEditor.setText("1.00", false);
+            lfo.rateValueEditor.setFont(juce::Font(10.0f));
+            lfo.rateValueEditor.setJustification(juce::Justification::centred);
+            lfo.rateValueEditor.setInputRestrictions(0, "0123456789.");  // Only numbers and decimal point
+            lfo.rateValueEditor.setSelectAllWhenFocused(true);
+            lfo.rateValueEditor.addListener(this);
+            addAndMakeVisible(lfo.rateValueEditor);
+
             // LFO Depth
             lfo.depthLabel.setText("Depth:", juce::dontSendNotification);
             addAndMakeVisible(lfo.depthLabel);
-            
-            lfo.depthSlider.setRange(0.0, 1.0, 0.01);
-            lfo.depthSlider.setValue(0.5);
-            lfo.depthSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-            lfo.depthSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-            lfo.depthSlider.addListener(this);
-            addAndMakeVisible(lfo.depthSlider);
+
+            lfo.depthKnob.setRange(0.0, 1.0, 0.01);
+            lfo.depthKnob.setValue(0.5);
+            lfo.depthKnob.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+            lfo.depthKnob.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+            lfo.depthKnob.setMouseDragSensitivity(120);  // Better sensitivity (default is 300)
+            lfo.depthKnob.addListener(this);
+            addAndMakeVisible(lfo.depthKnob);
+
+            // Depth value editor
+            lfo.depthValueEditor.setText("0.50", false);
+            lfo.depthValueEditor.setFont(juce::Font(10.0f));
+            lfo.depthValueEditor.setJustification(juce::Justification::centred);
+            lfo.depthValueEditor.setInputRestrictions(0, "0123456789.");  // Only numbers and decimal point
+            lfo.depthValueEditor.setSelectAllWhenFocused(true);
+            lfo.depthValueEditor.addListener(this);
+            addAndMakeVisible(lfo.depthValueEditor);
             
             // Tempo Sync
             lfo.tempoSyncButton.setButtonText("Tempo Sync");
@@ -127,13 +148,23 @@ public:
             // Modulation Amount
             lfo.amountLabel.setText("Amount:", juce::dontSendNotification);
             addAndMakeVisible(lfo.amountLabel);
-            
-            lfo.amountSlider.setRange(-1.0, 1.0, 0.01);
-            lfo.amountSlider.setValue(0.0);
-            lfo.amountSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-            lfo.amountSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
-            lfo.amountSlider.addListener(this);
-            addAndMakeVisible(lfo.amountSlider);
+
+            lfo.amountKnob.setRange(-1.0, 1.0, 0.01);
+            lfo.amountKnob.setValue(0.0);
+            lfo.amountKnob.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+            lfo.amountKnob.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+            lfo.amountKnob.setMouseDragSensitivity(120);  // Better sensitivity (default is 300)
+            lfo.amountKnob.addListener(this);
+            addAndMakeVisible(lfo.amountKnob);
+
+            // Amount value editor
+            lfo.amountValueEditor.setText("0.00", false);
+            lfo.amountValueEditor.setFont(juce::Font(10.0f));
+            lfo.amountValueEditor.setJustification(juce::Justification::centred);
+            lfo.amountValueEditor.setInputRestrictions(0, "-0123456789.");  // Numbers, decimal point, and minus sign
+            lfo.amountValueEditor.setSelectAllWhenFocused(true);
+            lfo.amountValueEditor.addListener(this);
+            addAndMakeVisible(lfo.amountValueEditor);
             
             // Bipolar/Unipolar
             lfo.bipolarButton.setButtonText("Bipolar");
@@ -228,13 +259,15 @@ public:
             lfo.shapeCombo.setBounds(xOffset + 55, yPos, lfoSectionWidth - 60, 25);
             yPos += 30;
             
-            lfo.rateLabel.setBounds(xOffset, yPos, 50, 25);
-            lfo.rateSlider.setBounds(xOffset + 55, yPos, lfoSectionWidth - 60, 25);
-            yPos += 30;
-            
-            lfo.depthLabel.setBounds(xOffset, yPos, 50, 25);
-            lfo.depthSlider.setBounds(xOffset + 55, yPos, lfoSectionWidth - 75, 25);
-            yPos += 30;
+            lfo.rateLabel.setBounds(xOffset, yPos + 4, 50, 25);  // Moved down 4px (was 9px, now up 5px)
+            lfo.rateKnob.setBounds(xOffset + 55, yPos, 35, 35);  // Small rotary knob
+            lfo.rateValueEditor.setBounds(xOffset + 95, yPos + 7, 45, 20);  // Center-aligned value field
+            yPos += 40;  // Extra space for knob height
+
+            lfo.depthLabel.setBounds(xOffset, yPos + 4, 50, 25);  // Moved down 4px (was 9px, now up 5px)
+            lfo.depthKnob.setBounds(xOffset + 55, yPos, 35, 35);  // Small rotary knob
+            lfo.depthValueEditor.setBounds(xOffset + 95, yPos + 7, 45, 20);  // Center-aligned value field
+            yPos += 40;  // Extra space for knob height
             
             lfo.tempoSyncButton.setBounds(xOffset, yPos, lfoSectionWidth - 20, 25);
             yPos += 35;
@@ -245,9 +278,10 @@ public:
             lfo.destCombo.setBounds(xOffset, yPos, lfoSectionWidth - 20, 30);
             yPos += 35;
             
-            lfo.amountLabel.setBounds(xOffset, yPos, 60, 25);
-            lfo.amountSlider.setBounds(xOffset + 65, yPos, lfoSectionWidth - 75, 30);
-            yPos += 30;
+            lfo.amountLabel.setBounds(xOffset, yPos + 4, 60, 25);  // Moved down 4px (was 9px, now up 5px)
+            lfo.amountKnob.setBounds(xOffset + 55, yPos, 35, 35);  // Small rotary knob (reduced spacing)
+            lfo.amountValueEditor.setBounds(xOffset + 95, yPos + 7, 45, 20);  // Center-aligned value field
+            yPos += 40;  // Extra space for knob height
             
             lfo.bipolarButton.setBounds(xOffset, yPos, lfoSectionWidth - 20, 25);
             yPos += 30;  // Add spacing after bipolar button
@@ -388,10 +422,11 @@ public:
                 logMessage("[UI DEBUG] LFO" + juce::String(i + 1) + " Destination combo changed - Selected ID: " + juce::String(selectedId) + ", APVTS Index: " + juce::String(apvtsIndex) + ", Text: '" + combo->getText() + "'");
                 
                 // Set a reasonable default amount when selecting a destination (not "None")
-                double currentAmount = lfo.amountSlider.getValue();
+                double currentAmount = lfo.amountKnob.getValue();
                 if (selectedId > 1 && std::abs(currentAmount) < 0.01)
                 {
-                    lfo.amountSlider.setValue(0.5, juce::sendNotification);  // Default to 50% modulation
+                    lfo.amountKnob.setValue(0.5, juce::sendNotification);  // Default to 50% modulation
+                    lfo.amountValueEditor.setText("0.50", false);
                     logMessage("[UI DEBUG] Set default amount of 0.5 for LFO" + juce::String(i + 1));
                 }
                 
@@ -408,18 +443,21 @@ public:
             auto& lfo = lfoSections_[i];
             auto& lfoObj = modulationMatrix_.getLFO(i);
             
-            if (slider == &lfo.rateSlider)
+            if (slider == &lfo.rateKnob)
             {
                 juce::String paramId = "lfo" + juce::String(i + 1) + "Rate";
                 double newValue = slider->getValue();
-                
-                logMessage("[UI DEBUG] LFO" + juce::String(i + 1) + " Rate slider changed - New value: " + juce::String(newValue));
-                
+
+                // Update value editor
+                lfo.rateValueEditor.setText(juce::String(newValue, 2), false);
+
+                logMessage("[UI DEBUG] LFO" + juce::String(i + 1) + " Rate knob changed - New value: " + juce::String(newValue));
+
                 if (auto* param = dynamic_cast<juce::AudioParameterFloat*>(apvts_.getParameter(paramId))) {
                     float normalizedValue = param->convertTo0to1(static_cast<float>(newValue));
                     param->setValueNotifyingHost(normalizedValue);
                     logMessage("[UI DEBUG] APVTS parameter '" + paramId + "' set to: " + juce::String(newValue));
-                    
+
                     // Verify the write was successful
                     if (auto* rawParam = apvts_.getRawParameterValue(paramId)) {
                         float currentValue = rawParam->load();
@@ -429,18 +467,21 @@ public:
                     logMessage("[UI DEBUG] ERROR: Could not find APVTS parameter '" + paramId + "'");
                 }
             }
-            else if (slider == &lfo.depthSlider)
+            else if (slider == &lfo.depthKnob)
             {
                 juce::String paramId = "lfo" + juce::String(i + 1) + "Depth";
                 double newValue = slider->getValue();
-                
-                logMessage("[UI DEBUG] LFO" + juce::String(i + 1) + " Depth slider changed - New value: " + juce::String(newValue));
-                
+
+                // Update value editor
+                lfo.depthValueEditor.setText(juce::String(newValue, 2), false);
+
+                logMessage("[UI DEBUG] LFO" + juce::String(i + 1) + " Depth knob changed - New value: " + juce::String(newValue));
+
                 if (auto* param = dynamic_cast<juce::AudioParameterFloat*>(apvts_.getParameter(paramId))) {
                     float normalizedValue = param->convertTo0to1(static_cast<float>(newValue));
                     param->setValueNotifyingHost(normalizedValue);
                     logMessage("[UI DEBUG] APVTS parameter '" + paramId + "' set to: " + juce::String(newValue));
-                    
+
                     // Verify the write was successful
                     if (auto* rawParam = apvts_.getRawParameterValue(paramId)) {
                         float currentValue = rawParam->load();
@@ -450,14 +491,66 @@ public:
                     logMessage("[UI DEBUG] ERROR: Could not find APVTS parameter '" + paramId + "'");
                 }
             }
-            else if (slider == &lfo.amountSlider)
+            else if (slider == &lfo.amountKnob)
             {
-                logMessage("[UI DEBUG] LFO" + juce::String(i + 1) + " Amount slider changed - New value: " + juce::String(slider->getValue()));
+                double newValue = slider->getValue();
+
+                // Update value editor
+                lfo.amountValueEditor.setText(juce::String(newValue, 2), false);
+
+                logMessage("[UI DEBUG] LFO" + juce::String(i + 1) + " Amount knob changed - New value: " + juce::String(newValue));
                 updateRouting(i);
             }
         }
     }
-    
+
+    // TextEditor listener - handles when user edits value fields
+    void textEditorReturnKeyPressed(juce::TextEditor& editor) override
+    {
+        updateKnobFromTextEditor(editor);
+    }
+
+    void textEditorFocusLost(juce::TextEditor& editor) override
+    {
+        updateKnobFromTextEditor(editor);
+    }
+
+    void updateKnobFromTextEditor(juce::TextEditor& editor)
+    {
+        float newValue = editor.getText().getFloatValue();
+
+        // Find which LFO and parameter this editor belongs to
+        for (int i = 0; i < 2; ++i)
+        {
+            auto& lfo = lfoSections_[i];
+
+            if (&editor == &lfo.rateValueEditor)
+            {
+                // Validate range for rate (0.01 to 20.0)
+                newValue = juce::jlimit(0.01f, 20.0f, newValue);
+                lfo.rateKnob.setValue(newValue, juce::sendNotification);
+                lfo.rateValueEditor.setText(juce::String(newValue, 2), false);
+                logMessage("[UI DEBUG] Rate text changed for LFO" + juce::String(i + 1) + ": " + juce::String(newValue));
+            }
+            else if (&editor == &lfo.depthValueEditor)
+            {
+                // Validate range for depth (0.0 to 1.0)
+                newValue = juce::jlimit(0.0f, 1.0f, newValue);
+                lfo.depthKnob.setValue(newValue, juce::sendNotification);
+                lfo.depthValueEditor.setText(juce::String(newValue, 2), false);
+                logMessage("[UI DEBUG] Depth text changed for LFO" + juce::String(i + 1) + ": " + juce::String(newValue));
+            }
+            else if (&editor == &lfo.amountValueEditor)
+            {
+                // Validate range for amount (-1.0 to 1.0)
+                newValue = juce::jlimit(-1.0f, 1.0f, newValue);
+                lfo.amountKnob.setValue(newValue, juce::sendNotification);
+                lfo.amountValueEditor.setText(juce::String(newValue, 2), false);
+                logMessage("[UI DEBUG] Amount text changed for LFO" + juce::String(i + 1) + ": " + juce::String(newValue));
+            }
+        }
+    }
+
     void showOverlay()
     {
         logMessage("[UI DEBUG] ===== SHOWING MODULATION OVERLAY =====");
@@ -488,8 +581,10 @@ public:
             // Update LFO controls
             lfo.enableButton.setToggleState(lfoObj.isEnabled(), juce::dontSendNotification);
             lfo.shapeCombo.setSelectedId(static_cast<int>(lfoObj.getShape()) + 1, juce::dontSendNotification);
-            lfo.rateSlider.setValue(lfoObj.getRate(), juce::dontSendNotification);
-            lfo.depthSlider.setValue(lfoObj.getDepth(), juce::dontSendNotification);
+            lfo.rateKnob.setValue(lfoObj.getRate(), juce::dontSendNotification);
+            lfo.rateValueEditor.setText(juce::String(lfoObj.getRate(), 2), false);
+            lfo.depthKnob.setValue(lfoObj.getDepth(), juce::dontSendNotification);
+            lfo.depthValueEditor.setText(juce::String(lfoObj.getDepth(), 2), false);
             lfo.tempoSyncButton.setToggleState(lfoObj.isTempoSynced(), juce::dontSendNotification);
             
             // Find active routing for this LFO
@@ -541,7 +636,8 @@ public:
                     }
                     
                     lfo.destCombo.setSelectedId(comboId, juce::dontSendNotification);
-                    lfo.amountSlider.setValue(routing.amount, juce::dontSendNotification);
+                    lfo.amountKnob.setValue(routing.amount, juce::dontSendNotification);
+                    lfo.amountValueEditor.setText(juce::String(routing.amount, 2), false);
                     lfo.bipolarButton.setToggleState(routing.bipolar, juce::dontSendNotification);
                     foundRouting = true;
                     
@@ -554,7 +650,8 @@ public:
             {
                 // No routing found, set to "None"
                 lfo.destCombo.setSelectedId(1, juce::dontSendNotification);
-                lfo.amountSlider.setValue(0.0, juce::dontSendNotification);
+                lfo.amountKnob.setValue(0.0, juce::dontSendNotification);
+                lfo.amountValueEditor.setText("0.00", false);
                 logMessage("[MODULATION] Refreshed UI - LFO" + juce::String(lfoIndex + 1) + " -> None");
             }
         }
@@ -599,17 +696,19 @@ public:
             if (auto* param = apvts_.getRawParameterValue(lfoPrefix + "Rate"))
             {
                 float value = param->load();
-                lfo.rateSlider.setValue(value, juce::dontSendNotification);
+                lfo.rateKnob.setValue(value, juce::dontSendNotification);
+                lfo.rateValueEditor.setText(juce::String(value, 2), false);
                 logMessage("[UI DEBUG] " + lfoPrefix + "Rate: " + juce::String(value));
             } else {
                 logMessage("[UI DEBUG] ERROR: Could not find parameter " + lfoPrefix + "Rate");
             }
-            
+
             // Load LFO Depth
             if (auto* param = apvts_.getRawParameterValue(lfoPrefix + "Depth"))
             {
                 float value = param->load();
-                lfo.depthSlider.setValue(value, juce::dontSendNotification);
+                lfo.depthKnob.setValue(value, juce::dontSendNotification);
+                lfo.depthValueEditor.setText(juce::String(value, 2), false);
                 logMessage("[UI DEBUG] " + lfoPrefix + "Depth: " + juce::String(value));
             } else {
                 logMessage("[UI DEBUG] ERROR: Could not find parameter " + lfoPrefix + "Depth");
@@ -675,9 +774,9 @@ public:
                 logMessage("[UI DEBUG] ERROR: Could not find parameter " + lfoPrefix + "Dest");
             }
             
-            // Amount slider is not an APVTS parameter - it's handled by updateRouting()
+            // Amount knob is not an APVTS parameter - it's handled by updateRouting()
             // For now, keep it at current value
-            logMessage("[UI DEBUG] " + lfoPrefix + "Amount (not from APVTS): " + juce::String(lfo.amountSlider.getValue()));
+            logMessage("[UI DEBUG] " + lfoPrefix + "Amount (not from APVTS): " + juce::String(lfo.amountKnob.getValue()));
         }
 
         // Sync quantizer button state with parameter
@@ -853,7 +952,7 @@ private:
                 
                 if (validDest)
                 {
-                    float amount = static_cast<float>(lfo.amountSlider.getValue());
+                    float amount = static_cast<float>(lfo.amountKnob.getValue());
                     bool bipolar = lfo.bipolarButton.getToggleState();
                     
                     logMessage("[MODULATION] Setting routing: LFO" + juce::String(lfoIndex + 1) + " -> " + juce::String(ModulationMatrix::getDestinationName(dest)) + " (ComboBox ID " + juce::String(selectedId) + " -> APVTS index " + juce::String(apvtsIndex) + " -> enum value " + juce::String(static_cast<int>(dest)) + "), amount: " + juce::String(amount));
@@ -893,14 +992,17 @@ private:
         juce::Label shapeLabel;
         juce::ComboBox shapeCombo;
         juce::Label rateLabel;
-        juce::Slider rateSlider;
+        juce::Slider rateKnob;      // Now configured as rotary knob
+        juce::TextEditor rateValueEditor; // Editable numeric value
         juce::Label depthLabel;
-        juce::Slider depthSlider;
+        juce::Slider depthKnob;     // Now configured as rotary knob
+        juce::TextEditor depthValueEditor; // Editable numeric value
         juce::ToggleButton tempoSyncButton;
         juce::Label destLabel;
         juce::ComboBox destCombo;
         juce::Label amountLabel;
-        juce::Slider amountSlider;
+        juce::Slider amountKnob;    // Now configured as rotary knob
+        juce::TextEditor amountValueEditor; // Editable numeric value
         juce::ToggleButton bipolarButton;
     };
     
