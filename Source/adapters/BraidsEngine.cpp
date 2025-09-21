@@ -289,16 +289,29 @@ public:
             auto now = std::chrono::steady_clock::now();
             auto timeSinceLastChange = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastAlgorithmChange);
             
-            // Increase rate limiting when being modulated to prevent crashes
-            int minDelayMs = 2;  // Default 2ms delay
+            // ENHANCED CRASH PROTECTION: Increase rate limiting when being modulated
+            int minDelayMs = 5;  // Default 5ms delay (increased from 2ms)
 
-            // If FM is changing rapidly (modulated), increase the rate limit
+            // If FM is changing rapidly (modulated), increase the rate limit significantly
             static float lastFmValue = 0.0f;
             float fmDelta = std::abs(fmValue - lastFmValue);
-            if (fmDelta > 0.1f) {
-                minDelayMs = 10;  // Increase to 10ms for rapid modulation
+            if (fmDelta > 0.05f) {  // More sensitive threshold
+                minDelayMs = 20;  // Much safer delay for rapid modulation
             }
             lastFmValue = fmValue;
+
+            // Additional protection: Check if we're switching too frequently
+            static int switchCount = 0;
+            static auto switchCountReset = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - switchCountReset).count() > 1000) {
+                switchCount = 0;  // Reset counter every second
+                switchCountReset = now;
+            }
+
+            // Limit algorithm switches per second to prevent crashes
+            if (switchCount++ > 30) {  // Max 30 switches per second
+                return;  // Skip this switch
+            }
 
             if (newAlgorithm != algorithm_ && timeSinceLastChange.count() > minDelayMs) {
                 try {

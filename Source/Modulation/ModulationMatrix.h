@@ -113,9 +113,26 @@ public:
     // Update LFOs (called from audio thread)
     void processBlock(double sampleRate, int numSamples, double bpm = 120.0)
     {
+        // CRASH PROTECTION: Validate parameters before processing
+        if (sampleRate <= 0.0 || sampleRate > 192000.0) {
+            return;  // Invalid sample rate
+        }
+        if (numSamples <= 0 || numSamples > 8192) {
+            return;  // Invalid buffer size
+        }
+        if (bpm <= 0.0 || bpm > 999.0) {
+            bpm = 120.0;  // Fallback to safe default
+        }
+
+        // Process each LFO with exception handling
         for (auto& lfo : lfos_)
         {
-            lfo.advance(sampleRate, numSamples, bpm);
+            try {
+                lfo.advance(sampleRate, numSamples, bpm);
+            } catch (...) {
+                // If LFO processing fails, disable it to prevent further crashes
+                lfo.setEnabled(false);
+            }
         }
     }
     
@@ -155,6 +172,14 @@ public:
     // Apply modulation to a parameter value
     float applyModulation(Destination dest, float baseValue, float minValue = 0.0f, float maxValue = 1.0f) const
     {
+        // CRASH PROTECTION: Validate inputs
+        if (!std::isfinite(baseValue)) baseValue = 0.5f;
+        if (!std::isfinite(minValue)) minValue = 0.0f;
+        if (!std::isfinite(maxValue)) maxValue = 1.0f;
+        if (minValue >= maxValue) {
+            return baseValue;  // Invalid range, return unmodulated
+        }
+
         float modulation = getModulation(dest);
         float range = maxValue - minValue;
         float modulated = baseValue + (modulation * range);
@@ -164,9 +189,21 @@ public:
     // Apply modulation to integer parameter (for scales, algorithms, etc.)
     int applyModulationInt(Destination dest, int baseValue, int minValue, int maxValue) const
     {
-        float normalized = static_cast<float>(baseValue - minValue) / static_cast<float>(maxValue - minValue);
+        // CRASH PROTECTION: Validate range
+        if (minValue >= maxValue) {
+            return baseValue;  // Invalid range
+        }
+        if (baseValue < minValue) baseValue = minValue;
+        if (baseValue > maxValue) baseValue = maxValue;
+
+        float divisor = static_cast<float>(maxValue - minValue);
+        if (divisor <= 0.0f) {
+            return baseValue;  // Prevent division by zero
+        }
+
+        float normalized = static_cast<float>(baseValue - minValue) / divisor;
         float modulated = applyModulation(dest, normalized, 0.0f, 1.0f);
-        return minValue + static_cast<int>(modulated * (maxValue - minValue));
+        return minValue + static_cast<int>(modulated * divisor);
     }
     
     // Get LFO references for configuration

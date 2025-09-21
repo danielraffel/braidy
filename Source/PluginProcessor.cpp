@@ -252,19 +252,8 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     for (auto i = getTotalNumInputChannels(); i < getTotalNumOutputChannels(); ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
 
-    // Update synthesizer parameters - this includes real-time modulation
-    // The recursion guard prevents issues if this is called from parameter listeners
-    updateSynthesiserFromParameters();
-
-    // Only update modulation configuration if LFO parameters changed
-    // This is lightweight and needed for real-time modulation routing
-    static int modUpdateCounter = 0;
-    if (++modUpdateCounter >= 32) {  // Update every 32 blocks to reduce CPU load
-        modUpdateCounter = 0;
-        updateModulationFromParameters();
-    }
-
-    // Process modulation LFOs (Item #2: Connect LFO processing to audio thread)
+    // CRITICAL FIX: Process modulation LFOs BEFORE applying parameters
+    // This ensures META mode uses fresh LFO values, not stale ones from previous block
     double bpm = 120.0; // Default BPM
     if (auto* playHead = getPlayHead()) {
         if (auto positionInfo = playHead->getPosition()) {
@@ -278,6 +267,19 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
         }
     }
     modulationMatrix_.processBlock(getSampleRate(), buffer.getNumSamples(), bpm);
+
+    // Only update modulation configuration if LFO parameters changed
+    // This is lightweight and needed for real-time modulation routing
+    static int modUpdateCounter = 0;
+    if (++modUpdateCounter >= 32) {  // Update every 32 blocks to reduce CPU load
+        modUpdateCounter = 0;
+        updateModulationFromParameters();
+    }
+
+    // Update synthesizer parameters - this includes real-time modulation
+    // The recursion guard prevents issues if this is called from parameter listeners
+    // NOTE: This must happen AFTER LFOs are processed to use current values
+    updateSynthesiserFromParameters();
     
     // Process MIDI and generate audio using JUCE's built-in synthesiser renderNextBlock
     synthesiser_->renderNextBlock(buffer, midiMessages, 0, buffer.getNumSamples());
@@ -478,8 +480,13 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
 
                     // Traditional META mode: FM parameter controls algorithm
                     // FM value of 0.0 = algorithm 0, FM value of 1.0 = algorithm 46
+                    // ENHANCED BOUNDS CHECKING: Validate FM value before conversion
+                    if (!std::isfinite(metaFmValue)) {
+                        metaFmValue = 0.0f;  // Default to CSAW on invalid values
+                    }
+                    metaFmValue = juce::jlimit(0.0f, 1.0f, metaFmValue);  // Pre-clamp for safety
                     targetAlgorithm = static_cast<int>(metaFmValue * 46.0f);
-                    targetAlgorithm = juce::jlimit(0, 46, targetAlgorithm);
+                    targetAlgorithm = juce::jlimit(0, 46, targetAlgorithm);  // Double-check bounds
                     shouldModulateAlgorithm = true;
                     
                     // Always log when META mode is active to help debug
@@ -509,13 +516,17 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                         // Increment counter every process block
                         lastSwitchCounter++;
                         
-                        // MUSICAL META MODE: Minimal rate limiting for intense, responsive algorithm switching
-                        // This creates the "hyper" character while preventing audio thread overload
+                        // MUSICAL META MODE: Enhanced rate limiting for stable, responsive algorithm switching
+                        // Balance between "hyper" character and crash prevention
                         bool isTempoSynced = false;
+                        bool isModulated = modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT);
                         if (auto* lfo1TempoSync = apvts_.getRawParameterValue("lfo1TempoSync")) {
                             isTempoSynced = lfo1TempoSync->load() > 0.5f;
                         }
-                        const int MIN_BLOCKS_BETWEEN_SWITCHES = isTempoSynced ? 2 : 1;  // Very responsive for musical META mode
+                        // ENHANCED RATE LIMITING: Increase limits when modulated to prevent crashes
+                        const int MIN_BLOCKS_BETWEEN_SWITCHES = isModulated ?
+                            (isTempoSynced ? 4 : 3) :  // More conservative when modulated
+                            (isTempoSynced ? 2 : 1);    // Original values for manual control
 
                         bool shouldSwitch = false;
 
@@ -542,19 +553,28 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                                     auto now = std::chrono::steady_clock::now();
                                     auto timeSinceLastSwitch = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastSafeSwitch);
 
-                                    // If switching too rapidly with modulation, add extra protection
-                                    if (modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT) &&
-                                        timeSinceLastSwitch.count() < 5) {
-                                        // Skip this switch to prevent crash
-                                        return;
+                                    // ENHANCED PROTECTION: Increase time threshold for modulated scenarios
+                                    // This prevents crashes while maintaining musicality
+                                    int minSwitchDelayMs = 5;  // Default for manual changes
+                                    if (modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT)) {
+                                        // Increase protection for modulated scenarios
+                                        minSwitchDelayMs = isTempoSynced ? 20 : 15;  // Much safer threshold
                                     }
 
-                                    synthesiser_->setAlgorithm(targetAlgorithm);
+                                    if (timeSinceLastSwitch.count() < minSwitchDelayMs) {
+                                        // Skip this switch to prevent crash - but don't exit entire function
+                                        // Just skip the algorithm change and continue processing
+                                        lastSwitchCounter = 0;  // Reset counter to try again soon
+                                        lastAlgorithm = currentAlgorithm_;  // Keep current algorithm
+                                    } else {
 
-                                    // CRITICAL: Set parameters for the new algorithm
-                                    synthesiser_->setParameters(newParam1, newParam2);
+                                        synthesiser_->setAlgorithm(targetAlgorithm);
 
-                                    lastSafeSwitch = now;
+                                        // CRITICAL: Set parameters for the new algorithm
+                                        synthesiser_->setParameters(newParam1, newParam2);
+
+                                        lastSafeSwitch = now;
+                                    }
 
                                     // Log the change with voice count for debugging
                                     int activeVoices = synthesiser_->getActiveVoiceCount();
