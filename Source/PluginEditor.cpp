@@ -274,6 +274,11 @@ void BraidyAudioProcessorEditor::BraidsKnob::mouseDown(const juce::MouseEvent& e
     isPressed_ = true;
     dragStartY_ = e.position.y;
     dragStartValue_ = value_;
+
+    // Begin automation gesture for proper automation recording
+    if (parameter_) {
+        parameter_->beginChangeGesture();
+    }
 }
 
 void BraidyAudioProcessorEditor::BraidsKnob::mouseDrag(const juce::MouseEvent& e) {
@@ -320,6 +325,11 @@ void BraidyAudioProcessorEditor::BraidsKnob::resetToDefault() {
 
 void BraidyAudioProcessorEditor::BraidsKnob::mouseUp(const juce::MouseEvent& e) {
     isPressed_ = false;
+
+    // End automation gesture for proper automation recording
+    if (parameter_) {
+        parameter_->endChangeGesture();
+    }
 }
 
 //==============================================================================
@@ -518,6 +528,9 @@ void BraidyAudioProcessorEditor::setupComponents() {
     // Top row knobs (FINE, COARSE, FM)
     fineKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar
     fineKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
+    if (auto* param = processorRef.getAPVTS().getParameter("fineTune")) {
+        fineKnob_->setParameter(param);  // Set parameter for automation gestures
+    }
     fineKnob_->onValueChange = [this](float value) {
         // Fine tuning: +/- 100 cents (1 semitone)
         // Store as parameter that will be applied to all voices
@@ -532,6 +545,9 @@ void BraidyAudioProcessorEditor::setupComponents() {
     
     coarseKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar for +/- range
     coarseKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
+    if (auto* param = processorRef.getAPVTS().getParameter("coarseTune")) {
+        coarseKnob_->setParameter(param);  // Set parameter for automation gestures
+    }
     coarseKnob_->onValueChange = [this](float value) {
         // Coarse tuning: Braids hardware has 5 octave positions (-2, -1, 0, +1, +2)
         // Convert continuous value to discrete octave selection
@@ -548,6 +564,9 @@ void BraidyAudioProcessorEditor::setupComponents() {
     
     fmKnob_ = std::make_unique<BraidsKnob>(false);  // Unipolar (0-100% FM depth)
     fmKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
+    if (auto* param = processorRef.getAPVTS().getParameter("fmAmount")) {
+        fmKnob_->setParameter(param);  // Set parameter for automation gestures
+    }
     fmKnob_->onValueChange = [this](float value) {
         // FM amount: 0-100% modulation depth
         if (auto* param = processorRef.getAPVTS().getParameter("fmAmount")) {
@@ -561,6 +580,9 @@ void BraidyAudioProcessorEditor::setupComponents() {
     // Main parameter knobs with colored indicators (matching hardware)
     timbreKnob_ = std::make_unique<BraidsKnob>(false, 0xFF00CCA3);  // Teal indicator
     timbreKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
+    if (auto* param = processorRef.getAPVTS().getParameter("param1")) {
+        timbreKnob_->setParameter(param);  // Set parameter for automation gestures
+    }
     timbreKnob_->onValueChange = [this](float value) {
         // Update parameter 1 (timbre)
         if (auto* param = processorRef.getAPVTS().getParameter("param1")) {
@@ -573,8 +595,11 @@ void BraidyAudioProcessorEditor::setupComponents() {
     
     colorKnob_ = std::make_unique<BraidsKnob>(false, 0xFFE74C3C);  // Red indicator
     colorKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
+    if (auto* param = processorRef.getAPVTS().getParameter("param2")) {
+        colorKnob_->setParameter(param);  // Set parameter for automation gestures
+    }
     colorKnob_->onValueChange = [this](float value) {
-        // Update parameter 2 (color) 
+        // Update parameter 2 (color)
         if (auto* param = processorRef.getAPVTS().getParameter("param2")) {
             param->setValueNotifyingHost(value);
         }
@@ -586,6 +611,9 @@ void BraidyAudioProcessorEditor::setupComponents() {
     // Modulation attenuverter (center knob)
     timbreModKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar for attenuverter
     timbreModKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
+    if (auto* param = processorRef.getAPVTS().getParameter("envTimbreAmount")) {
+        timbreModKnob_->setParameter(param);  // Set parameter for automation gestures
+    }
     timbreModKnob_->onValueChange = [this](float value) {
         // In original Braids, this is the envelope->timbre modulation amount
         // It controls how much the internal envelope affects the timbre parameter
