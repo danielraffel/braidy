@@ -218,7 +218,11 @@ void BraidsVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer, int st
         
         // Apply FM modulation (affects internal pitch modulation)
         float modulatedFM = juce::jlimit(0.0f, 1.0f, fmAmount_ + fmMod);
-        braidsEngine_.setFMParameter(modulatedFM);  // Use the correct method name
+        // IMPORTANT: When META mode is enabled, the processor drives algorithm switching
+        // based on FM, so avoid calling setFMParameter here to prevent double-switching.
+        if (!metaMode_) {
+            braidsEngine_.setFMParameter(modulatedFM);
+        }
         
         // TODO: Apply ENV_TIMBRE_AMOUNT modulation when BraidsEngine supports it
         // For now, we can use it to modulate the timbre parameter further
@@ -408,7 +412,10 @@ void BraidsVoice::setFMAmount(float amount) {
     // Use instance variable instead of static to avoid cross-voice interference
     if (std::abs(fmAmount_ - lastFMValue_) > 0.005f) {  // Increased threshold for smoother modulation
         lastFMValue_ = fmAmount_;
-        braidsEngine_.setFMParameter(fmAmount_);
+        // In META mode, algorithm switching is handled upstream; avoid engine FM updates here
+        if (!metaMode_) {
+            braidsEngine_.setFMParameter(fmAmount_);
+        }
     }
 }
 

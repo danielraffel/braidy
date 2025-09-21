@@ -1232,8 +1232,9 @@ void BraidyAudioProcessorEditor::updateParameterValues() {
         }
     }
 
-    // FM knob modulation animation (only when not in META mode)
-    if (fmKnob_ && !fmKnob_->isBeingManipulated() && !processorRef.isMetaModeEnabled()) {
+    // FM knob modulation animation
+    // Show FM modulation visually even in META mode so automation is visible
+    if (fmKnob_ && !fmKnob_->isBeingManipulated()) {
         float modulatedValue = processorRef.getModulatedFM();
         float currentValue = fmKnob_->getValue();
 
