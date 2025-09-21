@@ -108,6 +108,10 @@ private:
     
     // Recursion guard for parameter updates
     std::atomic<bool> isUpdatingParameters_{false};
+
+    // Stuck-note protection (META+FM scenarios)
+    std::atomic<int> heldNotes_{0};
+    std::atomic<int> samplesSinceLastNoteEvent_{0};
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BraidyAudioProcessor)
 };

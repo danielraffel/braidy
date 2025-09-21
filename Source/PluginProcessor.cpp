@@ -242,8 +242,14 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
             if (msg.isNoteOn()) {
                 DBG("[DEBUG] ProcessBlock MIDI NoteOn: note=" + juce::String(msg.getNoteNumber()) +
                     " vel=" + juce::String(msg.getVelocity()));
+                // Track active held notes for stuck-note protection
+                heldNotes_++;
+                samplesSinceLastNoteEvent_ = 0;
             } else if (msg.isNoteOff()) {
                 DBG("[DEBUG] ProcessBlock MIDI NoteOff: note=" + juce::String(msg.getNoteNumber()));
+                // Track releases
+                heldNotes_ = std::max(0, heldNotes_.load() - 1);
+                samplesSinceLastNoteEvent_ = 0;
             }
         }
     }
@@ -317,6 +323,26 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     // Apply volume
     float volume = currentVolume_.load();
     buffer.applyGain(volume);
+
+    // Stuck-note watchdog: If META is enabled and FM is being modulated,
+    // and there are no held notes but voices are still active for a while,
+    // force an all-notes-off to clear any lingering voices.
+    // This specifically addresses rare edge-cases during rapid META switching.
+    samplesSinceLastNoteEvent_ += buffer.getNumSamples();
+    const double sr = getSampleRate();
+    const int thresholdSamples = static_cast<int>(0.25 * sr); // 250ms without note activity
+    const bool metaOn = isMetaModeEnabled();
+    const bool fmModulated = modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT) ||
+                             modulationMatrix_.isModulated(braidy::ModulationMatrix::ALGORITHM_SELECTION);
+    if (metaOn && fmModulated && heldNotes_.load() == 0 && samplesSinceLastNoteEvent_.load() > thresholdSamples) {
+        const int active = synthesiser_->getActiveVoiceCount();
+        if (active > 0) {
+            DBG("[WATCHDOG] No held notes, but " + juce::String(active) +
+                " voices active in META+FM. Forcing allNotesOff.");
+            // Immediate cutoff to ensure no hangs
+            synthesiser_->allNotesOff(0, false /* allowTailOff */);
+        }
+    }
 }
 
 void BraidyAudioProcessor::updateSynthesiserFromParameters()

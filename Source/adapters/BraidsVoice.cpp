@@ -310,8 +310,8 @@ void BraidsVoice::setAlgorithm(int algorithm) {
         
         braidsEngine_.setAlgorithm(algorithm);
         
-        // Restart voice if it was active
-        if (wasActive && currentMidiNote_ >= 0) {
+        // Restart voice if it was active (avoid re-trigger in META to reduce stuck tails)
+        if (wasActive && currentMidiNote_ >= 0 && !metaMode_) {
             isActive_ = true;
             adsr_.noteOn();
             braidsEngine_.strike(); // PLUK needs a strike to sound
@@ -321,7 +321,7 @@ void BraidsVoice::setAlgorithm(int algorithm) {
         
         // For percussion algorithms, trigger a strike after algorithm change if note is active
         // Percussion algorithms: BELL(32), DRUM(33), KICK(34), CYMB(35), SNAR(36)
-        if (algorithm >= 32 && algorithm <= 36 && isActive_) {
+        if (algorithm >= 32 && algorithm <= 36 && isActive_ && !metaMode_) {
             braidsEngine_.strike();
             std::cout << "[DEBUG] Triggering strike after algorithm change to: " << algorithm << std::endl;
         }

@@ -651,7 +651,8 @@ void BraidyAudioProcessorEditor::setupComponents() {
     modulationOverlay_->onPanicButton = [this]() {
         DBG("[PANIC] Killing all stuck notes");
         if (auto* synth = processorRef.getSynthesiser()) {
-            synth->allNotesOff(0, true);  // Force stop all notes
+            // Immediate cutoff to guarantee no lingering voices
+            synth->allNotesOff(0, false);
         }
         // Also clear any pending MIDI messages
         processorRef.getMidiCollector().reset(44100.0);  // Clear MIDI collector
