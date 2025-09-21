@@ -537,13 +537,24 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                                 newAlgorithm = targetAlgorithm;
 
                                 try {
+                                    // Extra safety: Check if we're switching too rapidly
+                                    static auto lastSafeSwitch = std::chrono::steady_clock::now();
+                                    auto now = std::chrono::steady_clock::now();
+                                    auto timeSinceLastSwitch = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastSafeSwitch);
+
+                                    // If switching too rapidly with modulation, add extra protection
+                                    if (modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT) &&
+                                        timeSinceLastSwitch.count() < 5) {
+                                        // Skip this switch to prevent crash
+                                        return;
+                                    }
+
                                     synthesiser_->setAlgorithm(targetAlgorithm);
 
                                     // CRITICAL: Set parameters for the new algorithm
                                     synthesiser_->setParameters(newParam1, newParam2);
 
-                                    // DON'T update currentParam1_ and currentParam2_ here!
-                                    // Let the normal parameter update logic handle it below
+                                    lastSafeSwitch = now;
 
                                     // Log the change with voice count for debugging
                                     int activeVoices = synthesiser_->getActiveVoiceCount();
@@ -551,8 +562,21 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
                                         " (voices: " + juce::String(activeVoices) +
                                         ") with params (" + juce::String(newParam1) +
                                         ", " + juce::String(newParam2) + ")");
+                                } catch (const std::exception& e) {
+                                    DBG("[ERROR] Failed to set algorithm " + juce::String(targetAlgorithm) +
+                                        " - Exception: " + juce::String(e.what()));
+                                    // Revert to safe state
+                                    currentAlgorithm_ = 0;  // CSAW
+                                    try {
+                                        synthesiser_->setAlgorithm(0);
+                                    } catch (...) {}
                                 } catch (...) {
-                                    DBG("[ERROR] Failed to set algorithm " + juce::String(targetAlgorithm));
+                                    DBG("[ERROR] Unknown exception setting algorithm " + juce::String(targetAlgorithm));
+                                    // Revert to safe state
+                                    currentAlgorithm_ = 0;  // CSAW
+                                    try {
+                                        synthesiser_->setAlgorithm(0);
+                                    } catch (...) {}
                                 }
 
                                 lastAlgorithm = targetAlgorithm;

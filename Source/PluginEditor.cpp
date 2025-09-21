@@ -587,33 +587,18 @@ void BraidyAudioProcessorEditor::setupComponents() {
     timbreModKnob_ = std::make_unique<BraidsKnob>(true);  // Bipolar for attenuverter
     timbreModKnob_->setWantsKeyboardFocus(false);  // Prevent knob from stealing focus
     timbreModKnob_->onValueChange = [this](float value) {
-        // In original Braids, this is a modulation attenuverter
-        // It controls the amount and polarity of modulation applied to timbre
+        // In original Braids, this is the envelope->timbre modulation amount
+        // It controls how much the internal envelope affects the timbre parameter
         DBG("Timbre modulation knob changed: " + juce::String(value));
-        
-        // Control LFO1 modulation amount for TIMBRE parameter
-        auto& modMatrix = processorRef.getModulationMatrix();
-        
-        // Convert knob value (-1 to +1) to modulation amount
-        float modulationAmount = (value - 0.5f) * 2.0f;  // Convert 0-1 to -1 to +1
-        
-        if (std::abs(modulationAmount) > 0.01f) {
-            // Enable modulation routing: LFO1 -> TIMBRE
-            modMatrix.setRouting(0, braidy::ModulationMatrix::TIMBRE, modulationAmount, true);
-            
-            // Enable LFO1 if it's not already enabled
-            auto& lfo1 = modMatrix.getLFO(0);
-            if (!lfo1.isEnabled()) {
-                lfo1.setEnabled(true);
-                lfo1.setRate(2.0f);  // 2 Hz default rate
-                lfo1.setDepth(1.0f);  // Full depth, controlled by amount
-                lfo1.setShape(braidy::LFO::SINE);  // Sine wave default
-                DBG("Enabled LFO1 for timbre modulation");
-            }
-        } else {
-            // Disable modulation routing when knob is at center
-            modMatrix.clearRouting(braidy::ModulationMatrix::TIMBRE);
+
+        // Update the envTimbreAmount parameter (envelope to timbre modulation depth)
+        if (auto* param = processorRef.getAPVTS().getParameter("envTimbreAmount")) {
+            // Convert bipolar knob value (0-1 range, 0.5 center) to parameter value
+            param->setValueNotifyingHost(value);
         }
+
+        // Note: This should NOT control LFO->Timbre routing
+        // LFO routing should only be controlled from the modulation settings overlay
     };
     addAndMakeVisible(*timbreModKnob_);
     timbreModKnob_->setVisible(true);

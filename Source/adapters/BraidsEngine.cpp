@@ -289,21 +289,42 @@ public:
             auto now = std::chrono::steady_clock::now();
             auto timeSinceLastChange = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastAlgorithmChange);
             
-            if (newAlgorithm != algorithm_ && timeSinceLastChange.count() > 2) {  // Reduced to 2ms for more responsive META mode
+            // Increase rate limiting when being modulated to prevent crashes
+            int minDelayMs = 2;  // Default 2ms delay
+
+            // If FM is changing rapidly (modulated), increase the rate limit
+            static float lastFmValue = 0.0f;
+            float fmDelta = std::abs(fmValue - lastFmValue);
+            if (fmDelta > 0.1f) {
+                minDelayMs = 10;  // Increase to 10ms for rapid modulation
+            }
+            lastFmValue = fmValue;
+
+            if (newAlgorithm != algorithm_ && timeSinceLastChange.count() > minDelayMs) {
                 try {
+                    // Additional safety check - don't change if not initialized
+                    if (!initialized_) {
+                        std::cerr << "[WARNING] Skipping META algorithm change - engine not initialized" << std::endl;
+                        return;
+                    }
+
                     algorithm_ = newAlgorithm;
                     lastAlgorithmChange = now;
 
                     // HOT-SWAPPABLE: Use lightweight shape change instead of full reinitialization
-                    // This maintains oscillator state and prevents audio gaps during META mode switching
-                    oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
-
-                    // Only reset parameters if absolutely necessary (preserve musical continuity)
-                    // This keeps the sound flowing during rapid META mode changes
-                    oscillator_.set_parameters(currentParam1_, currentParam2_);
+                    // Wrap in additional exception handling for META mode stability
+                    try {
+                        oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
+                        oscillator_.set_parameters(currentParam1_, currentParam2_);
+                    } catch (...) {
+                        // If shape change fails, mark as uninitialized to prevent crashes
+                        std::cerr << "[ERROR] META mode shape change failed for algorithm " << algorithm_ << std::endl;
+                        initialized_ = false;
+                        return;
+                    }
 
                     std::cout << "[DEBUG] Hot-swap META algorithm: " << algorithm_
-                              << " (" << getAlgorithmName() << ") - no audio gap" << std::endl;
+                              << " (" << getAlgorithmName() << ") - delay=" << minDelayMs << "ms" << std::endl;
 
                 } catch (const std::exception& e) {
                     std::cerr << "[ERROR] Hot-swap algorithm change failed: " << e.what() << std::endl;
