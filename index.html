@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Braidy</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        line-height: 1.55;
+        margin: 0;
+      }
+      .wrap {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 48px 20px;
+      }
+      h1 { font-size: 2.2rem; margin: 0 0 12px; }
+      h2 { margin-top: 32px; font-size: 1.4rem; }
+      p { margin: 12px 0; }
+      ul { margin: 10px 0 18px 22px; }
+      li { margin: 6px 0; }
+      code, pre {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 0.95em;
+      }
+      pre {
+        padding: 14px 16px;
+        border: 1px solid rgba(127,127,127,0.35);
+        border-radius: 12px;
+        overflow-x: auto;
+        margin: 12px 0 18px;
+      }
+      a { color: inherit; }
+      .download {
+        margin: 18px 0 18px;
+        padding: 16px;
+        border: 1px solid rgba(127,127,127,0.35);
+        border-radius: 16px;
+      }
+      .muted { opacity: 0.85; }
+    </style>
+  </head>
+
+  <body>
+    <main class="wrap">
+      <h1>Braidy</h1>
+
+      <p>
+        Braidy is a macOS software instrument based on Mutable Instruments'
+        <strong>Braids</strong> macro oscillator engine.
+      </p>
+
+      <div class="download">
+        <script
+          src="https://cdn.jsdelivr.net/gh/danielraffel/download-latest@main/download-latest.min.js"
+          data-repo="danielraffel/braidy"
+        ></script>
+      </div>
+
+      <p class="muted">It builds as:</p>
+      <ul>
+        <li>AU (Audio Unit)</li>
+        <li>VST3</li>
+        <li>Standalone app</li>
+      </ul>
+
+      <p>
+        This repository targets Braids code (not Grids code) and JUCE.
+      </p>
+
+      <h2>Features</h2>
+      <ul>
+        <li>Braids oscillator models adapted for desktop plugin use</li>
+        <li>MIDI-input synth workflow for DAWs and standalone app use</li>
+        <li>AU/VST3/Standalone outputs from one CMake project</li>
+        <li>Built-in modulation UI and performance controls</li>
+        <li>Automated version bumping + signing/notarization/release packaging pipeline</li>
+      </ul>
+
+      <h2>Requirements</h2>
+      <ul>
+        <li>macOS</li>
+        <li>Xcode + Command Line Tools</li>
+        <li>CMake</li>
+        <li>Apple Developer certificates (for signing/notarization/publish)</li>
+        <li>GitHub CLI (<code>gh</code>) authenticated (for release publishing)</li>
+      </ul>
+
+      <h2>Build</h2>
+      <p>From project root:</p>
+
+      <pre><code># AU only
+./scripts/build.sh au local
+
+# All formats (AU + VST3 + Standalone)
+./scripts/build.sh all local</code></pre>
+
+      <p>Artifacts/install locations:</p>
+      <ul>
+        <li>AU: <code>~/Library/Audio/Plug-Ins/Components/Braidy.component</code></li>
+        <li>VST3: <code>~/Library/Audio/Plug-Ins/VST3/Braidy.vst3</code></li>
+        <li>
+          Standalone:
+          <code>build-release/Braidy_artefacts/Release/Standalone/Braidy.app</code>
+        </li>
+      </ul>
+
+      <h2>Publish Release</h2>
+
+      <pre><code>./scripts/build.sh all publish</code></pre>
+
+      <p>The publish flow performs:</p>
+      <ol>
+        <li>Version bump (<code>.env</code> and <code>CMakeLists.txt</code>)</li>
+        <li>Build AU, VST3, Standalone</li>
+        <li>Code signing and notarization</li>
+        <li>Signed installer package + DMG + ZIP creation</li>
+        <li>GitHub release creation with binaries + license docs attached</li>
+      </ol>
+
+      <p>Release artifacts are created on <code>~/Desktop</code> before upload.</p>
+
+      <h2>Configuration</h2>
+      <p>Project and release settings are loaded from <code>.env</code>.</p>
+
+      <p>Key variables include:</p>
+      <ul>
+        <li><code>PROJECT_NAME</code>, <code>PROJECT_BUNDLE_ID</code></li>
+        <li><code>VERSION_MAJOR</code>, <code>VERSION_MINOR</code>, <code>VERSION_PATCH</code></li>
+        <li><code>APPLE_ID</code>, <code>TEAM_ID</code>, <code>APP_CERT</code>, <code>INSTALLER_CERT</code></li>
+        <li><code>APP_SPECIFIC_PASSWORD</code></li>
+        <li><code>GITHUB_USER</code>, <code>GITHUB_REPO</code></li>
+      </ul>
+
+      <h2>DAW Notes (Logic Pro)</h2>
+      <p>
+        After installing a new AU build/version, run a plugin rescan in Logic Plugin Manager
+        if it does not appear immediately.
+      </p>
+
+      <h2>Licensing and Acknowledgements</h2>
+      <ul>
+        <li>
+          Mutable Instruments Braids source reference:
+          <a href="https://github.com/pichenettes/eurorack/tree/master/braids" rel="noopener noreferrer" target="_blank">
+            https://github.com/pichenettes/eurorack/tree/master/braids
+          </a>
+        </li>
+        <li>
+          JUCE framework:
+          <a href="https://github.com/juce-framework/JUCE" rel="noopener noreferrer" target="_blank">
+            https://github.com/juce-framework/JUCE
+          </a>
+        </li>
+      </ul>
+
+      <p>Project license/attribution files:</p>
+      <ul>
+        <li><code>LICENSE</code></li>
+        <li><code>LICENSES.md</code></li>
+        <li><code>braidy-licenses.html</code></li>
+        <li><code>installer/THIRD_PARTY_LICENSES.md</code></li>
+      </ul>
+    </main>
+  </body>
+</html>
