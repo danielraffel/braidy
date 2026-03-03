@@ -9,8 +9,6 @@ It builds as:
 - VST3
 - Standalone app
 
-This repository targets Braids code (not Grids code) and JUCE.
-
 ## Features
 
 - Braids oscillator models adapted for desktop plugin use
