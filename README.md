@@ -2,7 +2,7 @@
 
 Braidy is a macOS software instrument based on Mutable Instruments' **Braids** macro oscillator engine.
 
-<a href="https://github.com/danielraffel/braidy/releases/download/v1.2.74/Braidy_1.2.74.pkg">Download the macOS installer</a>
+<a href="https://github.com/danielraffel/braidy/releases/download/v1.2.77/Braidy_1.2.77.pkg">Download the macOS installer</a>
 
 It builds as:
 - AU (Audio Unit)
