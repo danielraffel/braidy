@@ -43,7 +43,10 @@ public:
     
     void setGlobalParameters(float param1, float param2);
     std::pair<float, float> getGlobalParameters() const;
-    
+
+    // Quantizer settings
+    void setQuantizerSettings(bool enabled, int scale, int root);
+
     // Voice management
     void setMaxPolyphony(int numVoices);
     int getMaxPolyphony() const;
@@ -105,6 +108,11 @@ private:
     std::atomic<int> globalAlgorithm_;
     std::atomic<float> globalParam1_;
     std::atomic<float> globalParam2_;
+
+    // Quantizer state
+    std::atomic<bool> quantizerEnabled_;
+    std::atomic<int> quantizerScale_;
+    std::atomic<int> quantizerRoot_;
     
     // Voice management
     int maxPolyphony_;

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Braidy Third-Party Credits & Licensing</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.55;
+            color: #222;
+            background: #f4f5f7;
+            margin: 0;
+            padding: 24px;
+        }
+        .container {
+            max-width: 920px;
+            margin: 0 auto;
+            background: #fff;
+            border-radius: 10px;
+            padding: 28px 30px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+        }
+        h1 {
+            margin: 0 0 8px 0;
+            font-size: 1.9rem;
+            border-bottom: 3px solid #45a37a;
+            padding-bottom: 10px;
+        }
+        h2 { margin-top: 28px; }
+        .entry {
+            background: #f8faf9;
+            border-left: 4px solid #45a37a;
+            border-radius: 6px;
+            padding: 16px 18px;
+            margin: 20px 0;
+        }
+        .meta { margin: 8px 0; }
+        .meta strong { color: #444; }
+        .notice {
+            background: #fff6da;
+            border: 1px solid #f0dca3;
+            border-left: 4px solid #d9a82a;
+            border-radius: 6px;
+            padding: 12px 14px;
+            margin: 16px 0;
+        }
+        code, pre {
+            background: #f1f3f5;
+            border: 1px solid #dfe3e8;
+            border-radius: 6px;
+            padding: 2px 6px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        }
+        pre {
+            white-space: pre-wrap;
+            padding: 12px;
+            margin-top: 10px;
+        }
+        a { color: #1f6fb2; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .footer {
+            margin-top: 26px;
+            padding-top: 16px;
+            border-top: 1px solid #e5e8ec;
+            color: #68707a;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Third-Party Credits & Licensing</h1>
+        <p>Braidy includes open-source software and derived code. This page provides attribution and licensing disclosures for distributed builds.</p>
+
+        <div class="entry">
+            <h2>Mutable Instruments Braids</h2>
+            <p class="meta"><strong>Original project:</strong> <a href="https://github.com/pichenettes/eurorack/tree/master/braids">https://github.com/pichenettes/eurorack/tree/master/braids</a></p>
+            <p class="meta"><strong>License:</strong> GNU General Public License v3.0 (GPLv3)</p>
+            <p class="meta"><strong>Copyright:</strong> Emilie Gillet / Mutable Instruments</p>
+            <p><strong>Used for:</strong> Macro oscillator DSP algorithms and associated resources.</p>
+            <div class="notice">
+                <strong>Compliance:</strong> Because Braidy includes GPLv3 Braids code, distributed derivatives must comply with GPLv3 terms.
+            </div>
+            <p><strong>Clarification:</strong> Braidy does not include Mutable Instruments Grids code.</p>
+        </div>
+
+        <div class="entry">
+            <h2>JUCE Framework</h2>
+            <p class="meta"><strong>Website:</strong> <a href="https://juce.com/">https://juce.com/</a></p>
+            <p class="meta"><strong>Source:</strong> <a href="https://github.com/juce-framework/JUCE">https://github.com/juce-framework/JUCE</a></p>
+            <p class="meta"><strong>License model:</strong> Dual-license model as provided by JUCE (GPL/AGPL options and commercial licensing)</p>
+            <p class="meta"><strong>Copyright:</strong> Raw Material Software Limited</p>
+            <p><strong>Used for:</strong> Plugin/runtime framework, GUI, audio/MIDI processing infrastructure.</p>
+        </div>
+
+        <div class="entry">
+            <h2>Build and Distribution Tooling</h2>
+            <ul>
+                <li>CMake (BSD 3-Clause)</li>
+                <li>GitHub CLI <code>gh</code> (MIT)</li>
+                <li>Apple Xcode and notarization/signing tooling (Apple licenses apply)</li>
+            </ul>
+        </div>
+
+        <div class="entry">
+            <h2>License Files Included in Release Artifacts</h2>
+            <p>Release outputs include:</p>
+            <ul>
+                <li><code>LICENSE</code></li>
+                <li><code>LICENSES.md</code></li>
+                <li><code>braidy-licenses.html</code></li>
+            </ul>
+        </div>
+
+        <div class="footer">
+            Last updated: March 3, 2026
+        </div>
+    </div>
+</body>
+</html>

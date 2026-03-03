@@ -4,7 +4,6 @@
 
 #include "BraidsVoice.h"
 #include <algorithm>
-#include <iostream>
 #include <cmath>
 
 namespace BraidyAdapter {
@@ -20,9 +19,9 @@ BraidsVoice::BraidsVoice()
 {
     // Initialize ADSR with reasonable defaults
     adsrParams_.attack = 0.01f;   // 10ms attack
-    adsrParams_.decay = 0.1f;     // 100ms decay  
+    adsrParams_.decay = 0.1f;     // 100ms decay
     adsrParams_.sustain = 0.8f;   // 80% sustain level
-    adsrParams_.release = 0.3f;   // 300ms release
+    adsrParams_.release = 0.15f;   // 150ms release (reduced for more responsive note-off)
     adsr_.setParameters(adsrParams_);
     
     // Initialize smoothed values
@@ -42,10 +41,7 @@ bool BraidsVoice::canPlaySound(juce::SynthesiserSound* sound) {
 
 void BraidsVoice::startNote(int midiNoteNumber, float velocity, juce::SynthesiserSound* sound, int currentPitchWheelPosition) {
     juce::ignoreUnused(sound);
-    
-    std::cout << "[DEBUG] BraidsVoice::startNote - note=" << midiNoteNumber 
-              << " velocity=" << velocity << std::endl;
-    
+
     isActive_ = true;
     currentMidiNote_ = midiNoteNumber;
     currentVelocity_ = velocity;
@@ -59,11 +55,7 @@ void BraidsVoice::startNote(int midiNoteNumber, float velocity, juce::Synthesise
     // Apply pitch bend (±2 semitones range)
     float targetPitch = basePitch + pitchBend_ * 2.0f;
     smoothedPitch_.setTargetValue(targetPitch);
-    
-    std::cout << "[DEBUG] BraidsVoice::startNote - Pitch calculation: midiNote=" << midiNoteNumber 
-              << " pitchOffset=" << pitchOffset_ << " pitchBend=" << pitchBend_ 
-              << " -> targetPitch=" << targetPitch << std::endl;
-    
+
     // Initialize the Braids engine if not already done
     if (!braidsEngine_.isInitialized()) {
         braidsEngine_.initialize(sampleRate_);
@@ -77,7 +69,6 @@ void BraidsVoice::startNote(int midiNoteNumber, float velocity, juce::Synthesise
     // Percussion algorithms: BELL(32), DRUM(33), KICK(34), CYMB(35), SNAR(36)
     if (algorithm >= 32 && algorithm <= 36) {
         braidsEngine_.strike();
-        std::cout << "[DEBUG] Triggering strike for percussion algorithm: " << algorithm << std::endl;
     }
     
     updatePitch();
@@ -85,9 +76,11 @@ void BraidsVoice::startNote(int midiNoteNumber, float velocity, juce::Synthesise
 
 void BraidsVoice::stopNote(float velocity, bool allowTailOff) {
     juce::ignoreUnused(velocity);
-    
+
     if (allowTailOff) {
+        // Trigger envelope release - voice will stop when envelope completes
         adsr_.noteOff();
+        // Don't set isActive_ to false here - let the envelope complete
     } else {
         // Force immediate stop
         isActive_ = false;
@@ -135,11 +128,6 @@ void BraidsVoice::controllerMoved(int controllerNumber, int newControllerValue) 
 
 void BraidsVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer, int startSample, int numSamples) {
     if (!isActive_ || !braidsEngine_.isInitialized()) {
-        static int warnCount = 0;
-        if (++warnCount < 5) {
-            std::cout << "[DEBUG] BraidsVoice::renderNextBlock - skipping (active=" 
-                      << isActive_ << " initialized=" << braidsEngine_.isInitialized() << ")" << std::endl;
-        }
         return;
     }
     
@@ -211,30 +199,19 @@ void BraidsVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer, int st
         float fmMod = modulationMatrix_->getModulation(braidy::ModulationMatrix::FM_AMOUNT);
         float envTimbreMod = modulationMatrix_->getModulation(braidy::ModulationMatrix::ENV_TIMBRE_AMOUNT);
         
-        // Debug: Log modulation values periodically
-        static int modulationLogCounter = 0;
-        if (++modulationLogCounter % 100 == 0) {  // Log every 100 blocks
-            if (std::abs(fmMod) > 0.001f || std::abs(envTimbreMod) > 0.001f) {
-                std::cout << "[MODULATION] Voice - FM: " << fmMod << ", EnvTimbre: " << envTimbreMod << std::endl;
-            }
-        }
-        
         // Apply FM modulation (affects internal pitch modulation)
         float modulatedFM = juce::jlimit(0.0f, 1.0f, fmAmount_ + fmMod);
-        braidsEngine_.setFMParameter(modulatedFM);  // Use the correct method name
+        // IMPORTANT: When META mode is enabled, the processor drives algorithm switching
+        // based on FM, so avoid calling setFMParameter here to prevent double-switching.
+        if (!metaMode_) {
+            braidsEngine_.setFMParameter(modulatedFM);
+        }
         
-        // Apply ENV_TIMBRE_AMOUNT modulation
-        // This modulates the "Modulation" knob which affects the timbre parameter
+        // TODO: Apply ENV_TIMBRE_AMOUNT modulation when BraidsEngine supports it
+        // For now, we can use it to modulate the timbre parameter further
         if (std::abs(envTimbreMod) > 0.001f) {
             float timbreWithEnv = juce::jlimit(0.0f, 1.0f, modulatedParam1 + envTimbreMod * 0.5f);
             braidsEngine_.setParameters(timbreWithEnv, modulatedParam2);
-            
-            // Log when modulation is applied
-            static int envTimbreLogCounter = 0;
-            if (++envTimbreLogCounter % 50 == 0) {  // Log every 50 blocks when active
-                std::cout << "[MODULATION] Modulation knob updated: " << modulatedParam1 << " -> " << timbreWithEnv 
-                          << " (mod: " << envTimbreMod << ")" << std::endl;
-            }
         }
     } else {
         // No modulation matrix - apply static parameters
@@ -263,42 +240,33 @@ void BraidsVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer, int st
     // This is required by the Braids engine for some algorithms
     braidsEngine_.processAudio(audioData, numSamples, nullptr);
     
-    // Debug: Check if we got any audio
-    static int debugCounter = 0;
-    if (++debugCounter % 100 == 0) {
-        float maxVal = 0;
-        for (int i = 0; i < numSamples; ++i) {
-            maxVal = std::max(maxVal, std::abs(audioData[i]));
-        }
-        std::cout << "[DEBUG] BraidsVoice - max audio: " << maxVal 
-                  << " note: " << currentMidiNote_ << std::endl;
-    }
-    
     // Apply ADSR envelope and add to output buffer
     for (int channel = 0; channel < outputBuffer.getNumChannels(); ++channel) {
         float* channelData = outputBuffer.getWritePointer(channel, startSample);
-        
+
         for (int sample = 0; sample < numSamples; ++sample) {
             float envelopeValue = adsr_.getNextSample();
             float processedSample = audioData[sample] * envelopeValue * currentVelocity_;
             channelData[sample] += processedSample;
         }
     }
+
+    // Check again if envelope has finished after processing
+    // This ensures we stop the voice as soon as the envelope completes
+    if (!adsr_.isActive()) {
+        isActive_ = false;
+        clearCurrentNote();
+    }
 }
 
 void BraidsVoice::setAlgorithm(int algorithm) {
     // Validate algorithm bounds before passing to engine
     if (algorithm < 0 || algorithm > 46) {
-        std::cerr << "[ERROR] BraidsVoice::setAlgorithm - invalid algorithm: " << algorithm << std::endl;
         return;
     }
-    
-    std::cout << "[DEBUG] BraidsVoice::setAlgorithm - setting algorithm to: " << algorithm << std::endl;
-    
+
     // Special handling for PLUK algorithm to prevent crashes
     if (algorithm == 28) { // PLUK algorithm
-        std::cout << "[DEBUG] Setting PLUK algorithm with enhanced safety" << std::endl;
-        
         // If voice is currently active, stop it temporarily to avoid crashes during algorithm change
         bool wasActive = isActive_;
         if (wasActive) {
@@ -308,8 +276,8 @@ void BraidsVoice::setAlgorithm(int algorithm) {
         
         braidsEngine_.setAlgorithm(algorithm);
         
-        // Restart voice if it was active
-        if (wasActive && currentMidiNote_ >= 0) {
+        // Restart voice if it was active (avoid re-trigger in META to reduce stuck tails)
+        if (wasActive && currentMidiNote_ >= 0 && !metaMode_) {
             isActive_ = true;
             adsr_.noteOn();
             braidsEngine_.strike(); // PLUK needs a strike to sound
@@ -319,9 +287,8 @@ void BraidsVoice::setAlgorithm(int algorithm) {
         
         // For percussion algorithms, trigger a strike after algorithm change if note is active
         // Percussion algorithms: BELL(32), DRUM(33), KICK(34), CYMB(35), SNAR(36)
-        if (algorithm >= 32 && algorithm <= 36 && isActive_) {
+        if (algorithm >= 32 && algorithm <= 36 && isActive_ && !metaMode_) {
             braidsEngine_.strike();
-            std::cout << "[DEBUG] Triggering strike after algorithm change to: " << algorithm << std::endl;
         }
     }
 }
@@ -422,7 +389,10 @@ void BraidsVoice::setFMAmount(float amount) {
     // Use instance variable instead of static to avoid cross-voice interference
     if (std::abs(fmAmount_ - lastFMValue_) > 0.005f) {  // Increased threshold for smoother modulation
         lastFMValue_ = fmAmount_;
-        braidsEngine_.setFMParameter(fmAmount_);
+        // In META mode, algorithm switching is handled upstream; avoid engine FM updates here
+        if (!metaMode_) {
+            braidsEngine_.setFMParameter(fmAmount_);
+        }
     }
 }
 
@@ -431,13 +401,11 @@ void BraidsVoice::clearCurrentNote() {
     currentMidiNote_ = -1;
     currentVelocity_ = 0.0f;
     pitchBend_ = 0.0f;
-    
+
     // Reset smoothed values to defaults
     smoothedPitch_.setCurrentAndTargetValue(60.0f);
     smoothedParam1_.setCurrentAndTargetValue(parameter1_);
     smoothedParam2_.setCurrentAndTargetValue(parameter2_);
-    
-    std::cout << "[DEBUG] BraidsVoice::clearCurrentNote - Voice cleared" << std::endl;
 }
 
 } // namespace BraidyAdapter

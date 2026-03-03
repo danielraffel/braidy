@@ -1,5 +1,6 @@
 # CMake
 /build/
+/build-release/
 /CMakeFiles/
 /CMakeCache.txt
 /Makefile
@@ -28,3 +29,25 @@
 
 # Environment variables
 .env
+
+# Logs and captured outputs
+*.log
+/logs/
+
+# Build/test runtime dumps and symbols
+*.dSYM/
+
+# Generated local audio/debug artifacts
+*.wav
+/braidy_wav_gen*
+/debug_*
+/test_algorithms
+/test_particle_noise
+/test_integration_simple
+/test_all_47
+/test_algos
+/test_algos_clean
+/test_csaw
+/test_freq
+/test_osc
+/test_osc_simple

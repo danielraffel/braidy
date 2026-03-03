@@ -12,6 +12,9 @@ BraidsSynthesiser::BraidsSynthesiser(int numVoices)
     : globalAlgorithm_(0)
     , globalParam1_(0.5f)
     , globalParam2_(0.5f)
+    , quantizerEnabled_(false)
+    , quantizerScale_(0)
+    , quantizerRoot_(0)
     , maxPolyphony_(numVoices)
     , voiceStealingMode_(VoiceStealingMode::Oldest)
     , cpuLoadAverage_(0.0f)
@@ -87,6 +90,12 @@ std::pair<float, float> BraidsSynthesiser::getGlobalParameters() const {
     return {globalParam1_.load(), globalParam2_.load()};
 }
 
+void BraidsSynthesiser::setQuantizerSettings(bool enabled, int scale, int root) {
+    quantizerEnabled_.store(enabled);
+    quantizerScale_.store(std::clamp(scale, 0, 12));
+    quantizerRoot_.store(std::clamp(root, 0, 11));
+}
+
 void BraidsSynthesiser::setMaxPolyphony(int numVoices) {
     if (numVoices != maxPolyphony_) {
         maxPolyphony_ = numVoices;
@@ -134,8 +143,6 @@ void BraidsSynthesiser::forceStopAllVoices() {
             }
         }
     }
-    std::cout << "[DEBUG] forceStopAllVoices - All voices force stopped. Active count: " 
-              << getActiveVoiceCount() << std::endl;
 }
 
 void BraidsSynthesiser::setVoiceStealingMode(VoiceStealingMode mode) {

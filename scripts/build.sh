@@ -13,7 +13,8 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Find project root (where .env is)
-PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROOT_DIR="$PROJECT_ROOT"  # Alias for compatibility
 cd "$PROJECT_ROOT"
 
@@ -370,6 +371,7 @@ notarize_plugins() {
 # Function to create installer package
 create_installer() {
     echo -e "${GREEN}Creating installer package...${NC}"
+    export COPYFILE_DISABLE=1
     
     if [[ -z "$INSTALLER_CERT" ]]; then
         echo -e "${RED}Error: INSTALLER_CERT not set in .env${NC}"
@@ -379,45 +381,158 @@ create_installer() {
     # Get version from .env
     VERSION="${VERSION_MAJOR:-1}.${VERSION_MINOR:-0}.${VERSION_PATCH:-0}"
     
-    # Create temporary directory for package
+    # Create temporary directories for component packages and staging
     PKG_ROOT="/tmp/${PROJECT_NAME}_installer"
+    COMPONENTS_DIR="$PKG_ROOT/components"
+    STAGING_DIR="$PKG_ROOT/staging"
     rm -rf "$PKG_ROOT"
-    mkdir -p "$PKG_ROOT"
-    
-    # Copy plugins to package
-    for format in $BUILD_FORMATS; do
-        case "$format" in
-            AU)
-                PLUGIN_PATH="$HOME/Library/Audio/Plug-Ins/Components/${PROJECT_NAME}.component"
-                if [[ -d "$PLUGIN_PATH" ]]; then
-                    mkdir -p "$PKG_ROOT/Library/Audio/Plug-Ins/Components"
-                    cp -R "$PLUGIN_PATH" "$PKG_ROOT/Library/Audio/Plug-Ins/Components/"
-                fi
-                ;;
-            VST3)
-                PLUGIN_PATH="$HOME/Library/Audio/Plug-Ins/VST3/${PROJECT_NAME}.vst3"
-                if [[ -d "$PLUGIN_PATH" ]]; then
-                    mkdir -p "$PKG_ROOT/Library/Audio/Plug-Ins/VST3"
-                    cp -R "$PLUGIN_PATH" "$PKG_ROOT/Library/Audio/Plug-Ins/VST3/"
-                fi
-                ;;
-        esac
-    done
-    
-    # Check if we have standalone app to include
-    STANDALONE_PATH="$BUILD_DIR/${PROJECT_NAME}_artefacts/$CMAKE_BUILD_TYPE/Standalone/${PROJECT_NAME}.app"
-    if [[ -d "$STANDALONE_PATH" ]]; then
-        echo "Including standalone app in installer..."
-        mkdir -p "$PKG_ROOT/Applications"
-        cp -R "$STANDALONE_PATH" "$PKG_ROOT/Applications/"
+    mkdir -p "$COMPONENTS_DIR" "$STAGING_DIR"
+
+    local component_pkgs=()
+    local distribution_xml="$PKG_ROOT/distribution.xml"
+
+    sanitize_tree() {
+        local path="$1"
+        if [[ -d "$path" ]]; then
+            find "$path" \( -name ".DS_Store" -o -name "._*" \) -delete
+        fi
+    }
+
+    create_nonrelocatable_component_plist() {
+        local root_path="$1"
+        local plist_path="$2"
+        pkgbuild --analyze --root "$root_path" "$plist_path" >/dev/null
+
+        plist_set_or_add() {
+            local plist="$1"
+            local key_path="$2"
+            local value_type="$3"
+            local value="$4"
+            if ! /usr/libexec/PlistBuddy -c "Set $key_path $value" "$plist" >/dev/null 2>&1; then
+                /usr/libexec/PlistBuddy -c "Add $key_path $value_type $value" "$plist" >/dev/null
+            fi
+        }
+
+        local idx=0
+        while /usr/libexec/PlistBuddy -c "Print :$idx" "$plist_path" >/dev/null 2>&1; do
+            plist_set_or_add "$plist_path" ":$idx:BundleHasStrictIdentifier" "bool" "false"
+            plist_set_or_add "$plist_path" ":$idx:BundleIsRelocatable" "bool" "false"
+            plist_set_or_add "$plist_path" ":$idx:BundleIsVersionChecked" "bool" "true"
+            plist_set_or_add "$plist_path" ":$idx:BundleOverwriteAction" "string" "upgrade"
+            idx=$((idx + 1))
+        done
+    }
+
+    # Build AU package (root payload to avoid bundle relocation collisions)
+    if [[ "$BUILD_FORMATS" == *"AU"* ]]; then
+        local au_src="$HOME/Library/Audio/Plug-Ins/Components/${PROJECT_NAME}.component"
+        if [[ -d "$au_src" ]]; then
+            local au_stage="$STAGING_DIR/AU"
+            local au_payload="$au_stage/Library/Audio/Plug-Ins/Components"
+            mkdir -p "$au_payload"
+            cp -R "$au_src" "$au_payload/"
+            sanitize_tree "$au_stage"
+            local au_component_plist="$PKG_ROOT/au_component.plist"
+            create_nonrelocatable_component_plist "$au_stage" "$au_component_plist"
+            local au_pkg="$COMPONENTS_DIR/${PROJECT_NAME}_AU.pkg"
+            pkgbuild \
+                --root "$au_stage" \
+                --component-plist "$au_component_plist" \
+                --install-location "/" \
+                --identifier "${PROJECT_BUNDLE_ID}.installer.au" \
+                --version "$VERSION" \
+                --sign "$INSTALLER_CERT" \
+                "$au_pkg"
+            component_pkgs+=("$au_pkg")
+        fi
     fi
-    
-    # Build the package
-    PKG_PATH="$HOME/Desktop/${PROJECT_NAME}_${VERSION}.pkg"
-    
-    pkgbuild --root "$PKG_ROOT" \
-        --identifier "$PROJECT_BUNDLE_ID" \
+
+    # Build VST3 package (root payload to avoid bundle relocation collisions)
+    if [[ "$BUILD_FORMATS" == *"VST3"* ]]; then
+        local vst3_src="$HOME/Library/Audio/Plug-Ins/VST3/${PROJECT_NAME}.vst3"
+        if [[ -d "$vst3_src" ]]; then
+            local vst3_stage="$STAGING_DIR/VST3"
+            local vst3_payload="$vst3_stage/Library/Audio/Plug-Ins/VST3"
+            mkdir -p "$vst3_payload"
+            cp -R "$vst3_src" "$vst3_payload/"
+            sanitize_tree "$vst3_stage"
+            local vst3_component_plist="$PKG_ROOT/vst3_component.plist"
+            create_nonrelocatable_component_plist "$vst3_stage" "$vst3_component_plist"
+            local vst3_pkg="$COMPONENTS_DIR/${PROJECT_NAME}_VST3.pkg"
+            pkgbuild \
+                --root "$vst3_stage" \
+                --component-plist "$vst3_component_plist" \
+                --install-location "/" \
+                --identifier "${PROJECT_BUNDLE_ID}.installer.vst3" \
+                --version "$VERSION" \
+                --sign "$INSTALLER_CERT" \
+                "$vst3_pkg"
+            component_pkgs+=("$vst3_pkg")
+        fi
+    fi
+
+    # Build Standalone package (root payload to avoid bundle relocation collisions)
+    if [[ "$BUILD_FORMATS" == *"Standalone"* ]]; then
+        local app_src="$BUILD_DIR/${PROJECT_NAME}_artefacts/$CMAKE_BUILD_TYPE/Standalone/${PROJECT_NAME}.app"
+        if [[ -d "$app_src" ]]; then
+            echo "Including standalone app in installer..."
+            local app_stage="$STAGING_DIR/Standalone"
+            local app_payload="$app_stage/Applications"
+            mkdir -p "$app_payload"
+            cp -R "$app_src" "$app_payload/"
+            sanitize_tree "$app_stage"
+            local app_component_plist="$PKG_ROOT/standalone_component.plist"
+            create_nonrelocatable_component_plist "$app_stage" "$app_component_plist"
+            local app_pkg="$COMPONENTS_DIR/${PROJECT_NAME}_Standalone.pkg"
+            pkgbuild \
+                --root "$app_stage" \
+                --component-plist "$app_component_plist" \
+                --install-location "/" \
+                --identifier "${PROJECT_BUNDLE_ID}.installer.standalone" \
+                --version "$VERSION" \
+                --sign "$INSTALLER_CERT" \
+                "$app_pkg"
+            component_pkgs+=("$app_pkg")
+        fi
+    fi
+
+    # Build docs package (license/acknowledgements)
+    local docs_root="$STAGING_DIR/DocsRoot"
+    local support_dir="$docs_root/Library/Application Support/${PROJECT_NAME}"
+    mkdir -p "$support_dir"
+    for doc in LICENSE LICENSES.md braidy-licenses.html; do
+        if [[ -f "$PROJECT_ROOT/$doc" ]]; then
+            cp "$PROJECT_ROOT/$doc" "$support_dir/"
+        fi
+    done
+    sanitize_tree "$docs_root"
+    local docs_pkg="$COMPONENTS_DIR/${PROJECT_NAME}_Docs.pkg"
+    pkgbuild \
+        --root "$docs_root" \
+        --install-location "/" \
+        --identifier "${PROJECT_BUNDLE_ID}.installer.docs" \
         --version "$VERSION" \
+        --sign "$INSTALLER_CERT" \
+        "$docs_pkg"
+    component_pkgs+=("$docs_pkg")
+
+    if [[ ${#component_pkgs[@]} -eq 0 ]]; then
+        echo -e "${RED}Error: No installer components were found${NC}"
+        return 1
+    fi
+
+    # Synthesize a distribution to avoid bundle-id relocation conflicts
+    local synth_args=()
+    for pkg in "${component_pkgs[@]}"; do
+        synth_args+=(--package "$pkg")
+    done
+    productbuild --synthesize "${synth_args[@]}" "$distribution_xml"
+
+    # Build final metapackage
+    PKG_PATH="$HOME/Desktop/${PROJECT_NAME}_${VERSION}.pkg"
+    productbuild \
+        --distribution "$distribution_xml" \
+        --package-path "$COMPONENTS_DIR" \
         --sign "$INSTALLER_CERT" \
         "$PKG_PATH"
     
@@ -439,6 +554,11 @@ create_installer() {
     rm -rf "$DMG_ROOT"
     mkdir -p "$DMG_ROOT"
     cp "$PKG_PATH" "$DMG_ROOT/"
+    for doc in LICENSE LICENSES.md braidy-licenses.html; do
+        if [[ -f "$PROJECT_ROOT/$doc" ]]; then
+            cp "$PROJECT_ROOT/$doc" "$DMG_ROOT/"
+        fi
+    done
     
     hdiutil create -volname "${PROJECT_NAME} ${VERSION}" \
         -srcfolder "$DMG_ROOT" \
@@ -523,7 +643,8 @@ create_github_release() {
         return 1
     fi
     
-    if ! gh auth status &>/dev/null; then
+    # Ignore placeholder tokens from .env and prefer the authenticated gh keychain session
+    if ! env -u GITHUB_TOKEN -u GH_TOKEN gh auth status &>/dev/null; then
         echo -e "${RED}Error: GitHub CLI not authenticated${NC}"
         echo "Run: gh auth login"
         return 1
@@ -537,26 +658,44 @@ create_github_release() {
     local artifacts=()
     local desktop="$HOME/Desktop"
     
-    # Look for PKG file
-    local pkg_file=$(find "$desktop" -name "${PROJECT_NAME}*.pkg" -not -name "*component*" -not -name "*vst3*" -not -name "*standalone*" -not -name "*resources*" | head -1)
+    # Look for package files for this exact version first, then fallback
+    local pkg_file="$desktop/${PROJECT_NAME}_${VERSION}.pkg"
+    if [[ ! -f "$pkg_file" ]]; then
+        pkg_file=$(find "$desktop" -name "${PROJECT_NAME}*.pkg" -not -name "*component*" -not -name "*vst3*" -not -name "*standalone*" -not -name "*resources*" | head -1)
+    fi
     if [[ -n "$pkg_file" ]] && [[ -f "$pkg_file" ]]; then
         artifacts+=("$pkg_file")
         echo "Found PKG: $(basename "$pkg_file")"
     fi
     
     # Look for DMG file
-    local dmg_file=$(find "$desktop" -name "${PROJECT_NAME}*.dmg" | head -1)
+    local dmg_file="$desktop/${PROJECT_NAME}_${VERSION}.dmg"
+    if [[ ! -f "$dmg_file" ]]; then
+        dmg_file=$(find "$desktop" -name "${PROJECT_NAME}*.dmg" | head -1)
+    fi
     if [[ -n "$dmg_file" ]] && [[ -f "$dmg_file" ]]; then
         artifacts+=("$dmg_file")
         echo "Found DMG: $(basename "$dmg_file")"
     fi
     
     # Look for ZIP file
-    local zip_file=$(find "$desktop" -name "${PROJECT_NAME}*.zip" | head -1)
+    local zip_file="$desktop/${PROJECT_NAME}_${VERSION}.zip"
+    if [[ ! -f "$zip_file" ]]; then
+        zip_file=$(find "$desktop" -name "${PROJECT_NAME}*.zip" | head -1)
+    fi
     if [[ -n "$zip_file" ]] && [[ -f "$zip_file" ]]; then
         artifacts+=("$zip_file")
         echo "Found ZIP: $(basename "$zip_file")"
     fi
+
+    # Include license and acknowledgement files directly from project root
+    for doc in LICENSE LICENSES.md braidy-licenses.html; do
+        local doc_file="$PROJECT_ROOT/$doc"
+        if [[ -f "$doc_file" ]]; then
+            artifacts+=("$doc_file")
+            echo "Found doc: $(basename "$doc_file")"
+        fi
+    done
     
     if [[ ${#artifacts[@]} -eq 0 ]]; then
         echo -e "${YELLOW}Warning: No artifacts found on Desktop${NC}"
@@ -566,7 +705,7 @@ create_github_release() {
     
     # Create the release
     echo "Creating release $release_tag..."
-    gh release create "$release_tag" \
+    env -u GITHUB_TOKEN -u GH_TOKEN gh release create "$release_tag" \
         --repo "${GITHUB_USER:-owner}/${GITHUB_REPO}" \
         --title "$release_title" \
         --notes "$release_notes" \
@@ -586,6 +725,14 @@ create_github_release() {
 main() {
     # Always bump version (even for local builds to ensure proper versioning)
     bump_version
+
+    # Reload .env so VERSION_* reflects the newly bumped values
+    if [[ -f ".env" ]]; then
+        set -a
+        source .env
+        set +a
+    fi
+    VERSION="${VERSION_MAJOR:-0}.${VERSION_MINOR:-0}.${VERSION_PATCH:-1}"
     
     # Configure and build
     configure_cmake
@@ -637,5 +784,7 @@ main() {
     done
 }
 
-# Run main function
-main
+# Run main function only when executed directly
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main
+fi

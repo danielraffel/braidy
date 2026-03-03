@@ -77,25 +77,28 @@ private:
     std::unique_ptr<BraidsEncoder> editEncoder_;
     
     // Control knobs (smaller, Braids-style)
-    class BraidsKnob : public juce::Component {  // Removed Timer inheritance - was causing conflicts
+    class BraidsKnob : public juce::Component {
     public:
         BraidsKnob(bool isBipolar = false, uint32_t indicatorColor = 0);
         void paint(juce::Graphics& g) override;
         void mouseDown(const juce::MouseEvent& e) override;
         void mouseDrag(const juce::MouseEvent& e) override;
         void mouseDoubleClick(const juce::MouseEvent& e) override;
-        
+
         void setValue(float value);  // For programmatic updates (no callback)
         void setValueAndNotify(float value);  // For user interaction (triggers callback)
         float getValue() const { return value_; }
         void resetToDefault();
-        
+
         // Mouse interaction tracking for modulation system
         void mouseUp(const juce::MouseEvent& e) override;
-        bool isBeingManipulated() const { return isPressed_; }  // Only block during actual dragging
-        
+        bool isBeingManipulated() const { return isPressed_; }
+
+        // Set the parameter this knob controls (for automation gestures)
+        void setParameter(juce::RangedAudioParameter* param) { parameter_ = param; }
+
         std::function<void(float)> onValueChange;
-        
+
     private:
         float value_ = 0.5f;
         float defaultValue_ = 0.5f;
@@ -104,7 +107,7 @@ private:
         float dragStartY_ = 0;
         float dragStartValue_ = 0;
         bool isPressed_ = false;
-        // Removed timer-related members - no longer needed
+        juce::RangedAudioParameter* parameter_ = nullptr;  // For automation gestures
     };
     
     // Pitch controls

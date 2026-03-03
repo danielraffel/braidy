@@ -3,6 +3,16 @@
 #include "adapters/BraidsEngine.h"
 #include <cmath>
 
+#ifndef BRAIDY_AUDIO_THREAD_LOGGING
+#define BRAIDY_AUDIO_THREAD_LOGGING 0
+#endif
+
+#if BRAIDY_AUDIO_THREAD_LOGGING
+#define BRAIDY_RT_LOG(msg) DBG(msg)
+#else
+#define BRAIDY_RT_LOG(msg) do {} while (false)
+#endif
+
 BraidyAudioProcessor::BraidyAudioProcessor()
      : AudioProcessor(BusesProperties()
                       .withOutput("Output", juce::AudioChannelSet::stereo(), true))
@@ -10,55 +20,9 @@ BraidyAudioProcessor::BraidyAudioProcessor()
 {
     // Create synthesiser with 8 voices
     synthesiser_ = std::make_unique<BraidyAdapter::BraidsSynthesiser>(8);
-
-    // Initialize parameters to their default values
-    // Using Griddy's approach - no separate base value tracking needed
-
-    // Debug: Test debug logging system at startup
-    DBG("[STARTUP DEBUG] BraidyAudioProcessor constructed, testing debug output...");
-
-    // Set up parameter listener for algorithm changes
-    algorithmListener_ = std::make_unique<AlgorithmParameterListener>(*this);
-    if (auto* algorithmParam = apvts_.getParameter("algorithm")) {
-        algorithmParam->addListener(algorithmListener_.get());
-        DBG("[STARTUP] Added listener to algorithm parameter");
-    }
-
-    // Start timer for thread-safe parameter updates (50Hz)
-    startTimer(20);
 }
 
-BraidyAudioProcessor::~BraidyAudioProcessor()
-{
-    // Stop timer first to prevent any more callbacks
-    stopTimer();
-
-    // Remove parameter listener
-    if (algorithmListener_ && apvts_.getParameter("algorithm")) {
-        apvts_.getParameter("algorithm")->removeListener(algorithmListener_.get());
-    }
-
-    // Add small delay to ensure timer callback completes
-    juce::Thread::sleep(10);
-
-    // Stop all active notes before clearing
-    if (synthesiser_) {
-        synthesiser_->allNotesOff(0, true);  // Force immediate note off
-
-        // Wait briefly for notes to stop
-        juce::Thread::sleep(5);
-
-        // Clear all voices to prevent any audio processing during shutdown
-        synthesiser_->clearSounds();
-        synthesiser_->clearVoices();
-    }
-
-    // Clear modulation matrix
-    modulationMatrix_.clearAllRoutings();
-
-    // Ensure debug output is flushed
-    DBG("[SHUTDOWN] BraidyAudioProcessor destroyed");
-}
+BraidyAudioProcessor::~BraidyAudioProcessor() = default;
 
 juce::AudioProcessorValueTreeState::ParameterLayout BraidyAudioProcessor::createParameterLayout()
 {
@@ -135,7 +99,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout BraidyAudioProcessor::create
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"metaMode", 1},
         "Meta Mode",
-        true  // Default to ON to match Braids hardware behavior
+        false  // Default to off
     ));
     
     // Envelope to Timbre amount - In Braids, this is |\TIM setting
@@ -152,7 +116,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout BraidyAudioProcessor::create
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"lfo1Enable", 1},
         "LFO 1 Enable",
-        true  // Default to ON for immediate modulation
+        false
     ));
     
     layout.add(std::make_unique<juce::AudioParameterChoice>(
@@ -179,7 +143,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout BraidyAudioProcessor::create
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"lfo1TempoSync", 1},
         "LFO 1 Tempo Sync",
-        true  // Default to tempo sync ON
+        false
     ));
     
     layout.add(std::make_unique<juce::AudioParameterChoice>(
@@ -199,51 +163,74 @@ juce::AudioProcessorValueTreeState::ParameterLayout BraidyAudioProcessor::create
         "LFO 2 Enable",
         false
     ));
-    
+
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"lfo2Shape", 1},
         "LFO 2 Shape",
         juce::StringArray{"Sine", "Triangle", "Square", "Saw", "Random", "Sample & Hold"},
         0  // Default to Sine
     ));
-    
+
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"lfo2Rate", 1},
         "LFO 2 Rate",
         juce::NormalisableRange<float>(0.01f, 20.0f, 0.01f, 0.5f),  // Logarithmic skew
         1.0f  // 1 Hz default
     ));
-    
+
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"lfo2Depth", 1},
         "LFO 2 Depth",
         juce::NormalisableRange<float>(0.0f, 1.0f),
         0.5f
     ));
-    
+
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"lfo2TempoSync", 1},
         "LFO 2 Tempo Sync",
         false
     ));
-    
+
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"lfo2Dest", 1},
         "LFO 2 Destination",
         juce::StringArray{"None", "META", "Timbre", "Color", "FM", "Modulation",
                          "Coarse (Pitch)", "Fine (Detune)", "Coarse (Octave)", "Env Attack", "Env Decay", "Env Sustain", "Env Release",
-                         "Env FM", "Env Timbre", "Env Color", "Bit Depth", 
-                         "Sample Rate", "Volume", "Pan", "Quantize Scale", "Quantize Root", 
+                         "Env FM", "Env Timbre", "Env Color", "Bit Depth",
+                         "Sample Rate", "Volume", "Pan", "Quantize Scale", "Quantize Root",
                          "Vibrato Amount", "Vibrato Rate"},
         0  // Default to None
     ));
-    
+
+    // Quantizer Parameters
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"quantizerEnable", 1},
+        "Quantizer Enable",
+        false  // Default to off
+    ));
+
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"quantizerScale", 1},
+        "Quantizer Scale",
+        juce::StringArray{"Off", "Semitones", "Ionian (Major)", "Dorian", "Phrygian",
+                         "Lydian", "Mixolydian", "Aeolian (Minor)", "Locrian",
+                         "Blues Major", "Blues Minor", "Pentatonic Major", "Pentatonic Minor"},
+        0  // Default to Off
+    ));
+
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"quantizerRoot", 1},
+        "Quantizer Root",
+        juce::StringArray{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"},
+        0  // Default to C
+    ));
+
     return layout;
 }
 
 void BraidyAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    DBG("[DEBUG] prepareToPlay: sampleRate=" + juce::String(sampleRate) +
+    BRAIDY_RT_LOG("[DEBUG] prepareToPlay: sampleRate=" + juce::String(sampleRate) +
         " samplesPerBlock=" + juce::String(samplesPerBlock));
     synthesiser_->setCurrentPlaybackSampleRate(sampleRate);
     
@@ -271,20 +258,7 @@ bool BraidyAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) co
 void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
-
-    // Debug: Log algorithm parameter value periodically to check if encoder is working
-    static int algorithmDebugCounter = 0;
-    if (++algorithmDebugCounter % 100 == 0) {  // Every ~2 seconds at 48kHz/512 buffer
-        if (auto* algorithmParam = apvts_.getRawParameterValue("algorithm")) {
-            float rawValue = algorithmParam->load();
-            int algorithmIndex = static_cast<int>(std::round(rawValue));
-            DBG("[PROCESSBLOCK DEBUG] Algorithm parameter: raw=" + juce::String(rawValue) +
-                " index=" + juce::String(algorithmIndex) + " current=" + juce::String(currentAlgorithm_));
-        }
-    }
-
-    // No manual adjustment flags needed with Griddy's simpler approach
-
+    
     // Collect MIDI from the UI keyboard
     juce::MidiBuffer collectedMidi;
     midiCollector_.removeNextBlockOfMessages(collectedMidi, buffer.getNumSamples());
@@ -293,16 +267,25 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     for (const auto metadata : collectedMidi) {
         midiMessages.addEvent(metadata.getMessage(), metadata.samplePosition);
     }
-    
+
+    // Apply quantization to MIDI messages if enabled
+    applyQuantizationToMidiMessages(midiMessages);
+
     // Debug MIDI messages
     if (!midiMessages.isEmpty()) {
         for (const auto metadata : midiMessages) {
             auto msg = metadata.getMessage();
             if (msg.isNoteOn()) {
-                DBG("[DEBUG] ProcessBlock MIDI NoteOn: note=" + juce::String(msg.getNoteNumber()) +
+                BRAIDY_RT_LOG("[DEBUG] ProcessBlock MIDI NoteOn: note=" + juce::String(msg.getNoteNumber()) +
                     " vel=" + juce::String(msg.getVelocity()));
+                // Track active held notes for stuck-note protection
+                heldNotes_++;
+                samplesSinceLastNoteEvent_ = 0;
             } else if (msg.isNoteOff()) {
-                DBG("[DEBUG] ProcessBlock MIDI NoteOff: note=" + juce::String(msg.getNoteNumber()));
+                BRAIDY_RT_LOG("[DEBUG] ProcessBlock MIDI NoteOff: note=" + juce::String(msg.getNoteNumber()));
+                // Track releases
+                heldNotes_ = std::max(0, heldNotes_.load() - 1);
+                samplesSinceLastNoteEvent_ = 0;
             }
         }
     }
@@ -310,14 +293,9 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     // Clear any input audio
     for (auto i = getTotalNumInputChannels(); i < getTotalNumOutputChannels(); ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
-    
-    // Update parameters if changed
-    updateSynthesiserFromParameters();
-    
-    // Update modulation matrix from APVTS parameters
-    updateModulationFromParameters();
-    
-    // Process modulation LFOs (Item #2: Connect LFO processing to audio thread)
+
+    // CRITICAL FIX: Process modulation LFOs BEFORE applying parameters
+    // This ensures META mode uses fresh LFO values, not stale ones from previous block
     double bpm = 120.0; // Default BPM
     if (auto* playHead = getPlayHead()) {
         if (auto positionInfo = playHead->getPosition()) {
@@ -331,7 +309,28 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
         }
     }
     modulationMatrix_.processBlock(getSampleRate(), buffer.getNumSamples(), bpm);
-    
+
+    // Only update modulation configuration if LFO parameters changed
+    // This is lightweight and needed for real-time modulation routing
+    static int modUpdateCounter = 0;
+    if (++modUpdateCounter >= 32) {  // Update every 32 blocks to reduce CPU load
+        modUpdateCounter = 0;
+        updateModulationFromParameters();
+    }
+
+    // Update synthesizer parameters - this includes real-time modulation
+    // The recursion guard prevents issues if this is called from parameter listeners
+    // NOTE: This must happen AFTER LFOs are processed to use current values
+    updateSynthesiserFromParameters();
+
+    // Update modulation tracking for automation gestures
+    // This must happen after LFO processing to capture current modulation values
+    static int automationTrackingCounter = 0;
+    if (++automationTrackingCounter >= (MODULATION_UPDATE_INTERVAL_SAMPLES / buffer.getNumSamples())) {
+        automationTrackingCounter = 0;
+        updateModulationTracking();
+    }
+
     // Process MIDI and generate audio using JUCE's built-in synthesiser renderNextBlock
     synthesiser_->renderNextBlock(buffer, midiMessages, 0, buffer.getNumSamples());
     
@@ -361,19 +360,48 @@ void BraidyAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     
     static int debugCounter = 0;
     if (++debugCounter % 100 == 0) {  // Print every 100 blocks
-        DBG("[DEBUG] Audio max sample: " + juce::String(maxSample) +
+        BRAIDY_RT_LOG("[DEBUG] Audio max sample: " + juce::String(maxSample) +
             " Active voices: " + juce::String(synthesiser_->getActiveVoiceCount()));
     }
     
     // Apply volume
     float volume = currentVolume_.load();
     buffer.applyGain(volume);
+
+    // Stuck-note watchdog: If META is enabled and FM is being modulated,
+    // and there are no held notes but voices are still active for a while,
+    // force an all-notes-off to clear any lingering voices.
+    // This specifically addresses rare edge-cases during rapid META switching.
+    samplesSinceLastNoteEvent_ += buffer.getNumSamples();
+    const double sr = getSampleRate();
+    const int thresholdSamples = static_cast<int>(0.25 * sr); // 250ms without note activity
+    const bool metaOn = isMetaModeEnabled();
+    const bool fmModulated = modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT) ||
+                             modulationMatrix_.isModulated(braidy::ModulationMatrix::ALGORITHM_SELECTION);
+    if (metaOn && fmModulated && heldNotes_.load() == 0 && samplesSinceLastNoteEvent_.load() > thresholdSamples) {
+        const int active = synthesiser_->getActiveVoiceCount();
+        if (active > 0) {
+            BRAIDY_RT_LOG("[WATCHDOG] No held notes, but " + juce::String(active) +
+                " voices active in META+FM. Forcing allNotesOff.");
+            // Immediate cutoff to ensure no hangs
+            synthesiser_->allNotesOff(0, false /* allowTailOff */);
+        }
+    }
 }
 
 void BraidyAudioProcessor::updateSynthesiserFromParameters()
 {
-    // No recursion guard needed with Griddy's simpler architecture
-    // Parameters are read directly, modulation is applied separately
+    // Prevent recursive calls - this is critical to avoid freezes
+    bool expected = false;
+    if (!isUpdatingParameters_.compare_exchange_strong(expected, true)) {
+        return; // Already updating, skip to prevent recursion
+    }
+    
+    // RAII guard to ensure flag is reset even if exception occurs
+    struct UpdateGuard {
+        std::atomic<bool>& flag;
+        ~UpdateGuard() { flag = false; }
+    } guard{isUpdatingParameters_};
     
     // Get parameter values
     auto* algorithmParam = apvts_.getRawParameterValue(ALGORITHM_ID);
@@ -383,6 +411,11 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
     auto* fineTuneParam = apvts_.getRawParameterValue("fineTune");
     auto* coarseTuneParam = apvts_.getRawParameterValue("coarseTune");
     auto* fmAmountParam = apvts_.getRawParameterValue("fmAmount");
+
+    // Get quantizer parameters
+    auto* quantizerEnableParam = apvts_.getRawParameterValue("quantizerEnable");
+    auto* quantizerScaleParam = apvts_.getRawParameterValue("quantizerScale");
+    auto* quantizerRootParam = apvts_.getRawParameterValue("quantizerRoot");
     
     if (algorithmParam && param1 && param2 && volumeParam) {
         // For AudioParameterChoice, the raw value is already the index (0-46)
@@ -390,12 +423,11 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
         float algorithmIndex = algorithmParam->load();
         int newAlgorithm = static_cast<int>(std::round(algorithmIndex));
         
-        // Debug output - increased frequency for debugging
+        // Debug output
         static int debugCount = 0;
-        if (++debugCount % 10 == 0) {  // Log more frequently to catch algorithm changes
-            DBG("[PROCESSBLOCK] Algorithm index: raw=" + juce::String(algorithmIndex) +
-                " -> rounded=" + juce::String(newAlgorithm) +
-                " (current=" + juce::String(currentAlgorithm_) + ")");
+        if (++debugCount % 50 == 0) {  // Log every 50th call to avoid flooding
+            BRAIDY_RT_LOG("[DEBUG] Algorithm index: raw=" + juce::String(algorithmIndex) +
+                " -> rounded=" + juce::String(newAlgorithm));
         }
         
         float newParam1 = param1->load();
@@ -422,7 +454,7 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
         // META mode algorithm modulation will be handled in FM section to avoid duplication
         
         if (newParam1 != currentParam1_ || newParam2 != currentParam2_) {
-            DBG("[DEBUG] PluginProcessor: Parameters changed - param1: " +
+            BRAIDY_RT_LOG("[DEBUG] PluginProcessor: Parameters changed - param1: " +
                 juce::String(currentParam1_) + " -> " + juce::String(newParam1) +
                 ", param2: " + juce::String(currentParam2_) + " -> " + juce::String(newParam2));
             currentParam1_ = newParam1;
@@ -466,215 +498,228 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
         
         // Apply FM amount and META mode algorithm modulation
         if (fmAmountParam) {
-            // Use Griddy's approach: always get base value from APVTS
             float fmAmount = fmAmountParam->load();
-            
-            // CRITICAL: Check if FM is an LFO destination BEFORE applying modulation
-            // This prevents race conditions in META mode
-            bool fmIsLfoDestination = false;
-            if (auto* lfo1Dest = apvts_.getRawParameterValue("lfo1Dest")) {
-                fmIsLfoDestination = (static_cast<int>(lfo1Dest->load()) == 4); // 4 = FM
-            }
-            if (!fmIsLfoDestination) {
-                if (auto* lfo2Dest = apvts_.getRawParameterValue("lfo2Dest")) {
-                    fmIsLfoDestination = (static_cast<int>(lfo2Dest->load()) == 4); // 4 = FM
-                }
-            }
             
             // Check META mode first
             auto* metaModeParam = apvts_.getRawParameterValue("metaMode");
             bool metaMode = metaModeParam ? (metaModeParam->load() > 0.5f) : false;
+
+            // Store the original FM value before any modulation
+            float originalFmAmount = fmAmount;
+
+            // CRITICAL FIX: Only apply FM modulation when META mode is OFF
+            // When META mode is ON, FM controls algorithm selection and shouldn't be modulated
+            if (!metaMode && modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT)) {
+                fmAmount = modulationMatrix_.applyModulation(
+                    braidy::ModulationMatrix::FM_AMOUNT, fmAmount, 0.0f, 1.0f);
+
+                BRAIDY_RT_LOG("[FM MODULATION] Applied LFO modulation - FM: " + juce::String(fmAmount));
+            } else if (metaMode && modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT)) {
+                BRAIDY_RT_LOG("[META MODE] FM modulation blocked - META mode controls FM for algorithm selection");
+            }
             
-            // SIMPLIFIED META MODE IMPLEMENTATION (matching original Braids):
-            // - META is just an on/off setting (not an LFO destination)
-            // - When META=ON: FM input controls algorithm selection
-            // - When META=OFF: FM input works as normal frequency modulation
-            // - FM knob position determines algorithm range in META mode
+            // Debug META mode state
+            static int metaDebugCounter = 0;
+            if (++metaDebugCounter % 100 == 0) {  // Log every 100 blocks
+                if (metaMode) {
+                    BRAIDY_RT_LOG("[META MODE] Enabled - FM: " + juce::String(fmAmount) +
+                        ", FM modulated: " + juce::String(modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT) ? "true" : "false"));
+                }
+            }
             
-            if (metaMode) {
-                // META MODE ACTIVE - FM controls algorithm selection instead of frequency modulation
-                int baseAlgorithm = newAlgorithm;
-                int targetAlgorithm = baseAlgorithm;
+            // META mode algorithm selection - RE-ENABLED with crash-safe approach
+            if (metaMode && metaModeParam && metaModeParam->load() > 0.5f) {
+                int targetAlgorithm = newAlgorithm; // Start with current algorithm selection
+                bool shouldModulateAlgorithm = false;
                 
-                // Check if FM is being modulated by LFO (this becomes algorithm modulation in META mode)
-                bool fmModulated = fmIsLfoDestination || modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT);
-                
-                if (fmModulated) {
-                    // Get the current FM value (base or modulated)
-                    float currentFm = fmAmount;
+                // Priority 1: Check for LFO modulation to Algorithm destination
+                if (modulationMatrix_.isModulated(braidy::ModulationMatrix::ALGORITHM_SELECTION)) {
+                    // LFO directly modulates algorithm selection
+                    targetAlgorithm = modulationMatrix_.applyModulationInt(
+                        braidy::ModulationMatrix::ALGORITHM_SELECTION, newAlgorithm, 0, 46);
+                    shouldModulateAlgorithm = true;
                     
-                    // Apply FM modulation from LFO if routed
-                    if (fmIsLfoDestination || modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT)) {
-                        currentFm = modulationMatrix_.applyModulation(
-                            braidy::ModulationMatrix::FM_AMOUNT, fmAmount, 0.0f, 1.0f);
+                    BRAIDY_RT_LOG("[META MODULATION] LFO modulating algorithm to index " + juce::String(targetAlgorithm));
+                }
+                // Priority 2: Use FM to control algorithm when META is enabled
+                // In META mode, FM parameter ALWAYS controls algorithm selection (even at 0)
+                else {
+                    // For META mode algorithm selection, calculate what the modulated FM would be
+                    // This ensures the LED display cycles even when FM modulation is blocked
+                    float metaFmValue = originalFmAmount;
+                    if (modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT)) {
+                        // Calculate modulated FM value for display purposes
+                        metaFmValue = modulationMatrix_.applyModulation(
+                            braidy::ModulationMatrix::FM_AMOUNT, originalFmAmount, 0.0f, 1.0f);
                     }
-                    
-                    // FM knob sets the algorithm range
-                    // When FM knob is 0, use a default range to allow some cycling
-                    // As FM knob increases, the range increases up to all 46 algorithms
-                    int algorithmRange;
-                    if (fmAmount < 0.01f) {
-                        // FM knob at minimum - use a moderate default range
-                        algorithmRange = 8;  // Cycle through 8 algorithms by default
-                    } else {
-                        // FM knob turned up - use it to control range (1-46)
-                        algorithmRange = std::max(1, static_cast<int>(fmAmount * 46.0f));
+
+                    // Traditional META mode: FM parameter controls algorithm
+                    // FM value of 0.0 = algorithm 0, FM value of 1.0 = algorithm 46
+                    // ENHANCED BOUNDS CHECKING: Validate FM value before conversion
+                    if (!std::isfinite(metaFmValue)) {
+                        metaFmValue = 0.0f;  // Default to CSAW on invalid values
                     }
+                    metaFmValue = juce::jlimit(0.0f, 1.0f, metaFmValue);  // Pre-clamp for safety
+                    targetAlgorithm = static_cast<int>(metaFmValue * 46.0f);
+                    targetAlgorithm = juce::jlimit(0, 46, targetAlgorithm);  // Double-check bounds
+                    shouldModulateAlgorithm = true;
                     
-                    // The LFO modulation (difference from base) drives algorithm selection
-                    float modulationAmount = currentFm - fmAmount; // How much LFO is adding/subtracting
-                    int algorithmOffset = static_cast<int>(modulationAmount * algorithmRange);
-                    targetAlgorithm = baseAlgorithm + algorithmOffset;
-                    
-                    // Debug logging - increased frequency for better visibility
+                    // Always log when META mode is active to help debug
                     static int metaLogCounter = 0;
-                    if (++metaLogCounter % 10 == 0) {  // Log more frequently
-                        DBG("[META MODE FM] Active! Base: " + juce::String(baseAlgorithm) +
-                            ", FM Knob: " + juce::String(fmAmount) +
-                            ", Current FM: " + juce::String(currentFm) +
-                            ", FmIsLfoDest: " + juce::String(fmIsLfoDestination ? "true" : "false") +
-                            ", Range: " + juce::String(algorithmRange) +
-                            ", Modulation: " + juce::String(modulationAmount) +
-                            ", Offset: " + juce::String(algorithmOffset) +
-                            ", Target: " + juce::String(targetAlgorithm));
-                    }
-                } else {
-                    // No FM modulation - use FM knob directly for algorithm selection
-                    // Map FM knob (0.0-1.0) to algorithm range centered around baseAlgorithm
-                    int algorithmRange = static_cast<int>(fmAmount * 23.0f) + 1; // 1-24 algorithms
-                    int halfRange = algorithmRange / 2;
-                    int algorithmOffset = static_cast<int>((fmAmount - 0.5f) * algorithmRange);
-                    targetAlgorithm = baseAlgorithm + algorithmOffset;
-                    
-                    // Ensure we stay within bounds by wrapping around if needed
-                    if (targetAlgorithm < 0) {
-                        targetAlgorithm = (targetAlgorithm % 46 + 46) % 46;
-                    } else if (targetAlgorithm >= 46) {
-                        targetAlgorithm = targetAlgorithm % 46;
+                    if (++metaLogCounter % 50 == 0) {  // Log every 50 blocks
+                        BRAIDY_RT_LOG("[META MODULATION] FM controlling algorithm to index " + juce::String(targetAlgorithm) +
+                            " (original FM=" + juce::String(originalFmAmount) +
+                            ", meta FM=" + juce::String(metaFmValue) +
+                            ", modulated=" + juce::String(modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT) ? "true" : "false") + ")");
                     }
                 }
+                // Priority 3: No modulation active - stay on current algorithm, don't cycle
                 
-                // Clamp algorithm to valid range (0-45, which is 46 total algorithms)
-                targetAlgorithm = std::max(0, std::min(45, targetAlgorithm));
-                
-                // Always update metaModeAlgorithm_ for display purposes
-                metaModeAlgorithm_.store(targetAlgorithm);
-                
-                // Apply algorithm change
-                if (targetAlgorithm != currentAlgorithm_) {
-                    int activeVoices = synthesiser_->getActiveVoiceCount();
+                // Apply algorithm change only if we should modulate and target changed
+                if (shouldModulateAlgorithm) {
+                    // Store the modulated algorithm for display purposes
+                    metaModeAlgorithm_.store(targetAlgorithm);
                     
-                    // IMPROVED STRATEGY: Allow algorithm changes with safety measures
-                    if (activeVoices == 0) {
-                        // Safe to change immediately when no voices active
-                        currentAlgorithm_ = targetAlgorithm;
-                        synthesiser_->setAlgorithm(targetAlgorithm);
-                        pendingAlgorithmUpdate_.store(targetAlgorithm);
+                    // Only actually change the synthesis algorithm if it's significantly different
+                    // This prevents rapid switching that causes crashes
+                    if (targetAlgorithm != currentAlgorithm_) {
+                        // Add hysteresis: only switch if we've moved by more than 1 algorithm
+                        // or if enough time has passed since last switch
+                        static int lastSwitchCounter = 0;
+                        static int lastAlgorithm = -1;
                         
-                        DBG("[META SAFE CHANGE] Algorithm " + juce::String(currentAlgorithm_) +
-                            " -> " + juce::String(targetAlgorithm) + " (no active voices)");
-                    } else {
-                        // When voices are active, use graceful transition:
-                        // 1. Force stop all voices immediately (no tail-off)
-                        // 2. Apply algorithm change  
-                        // 3. Allow new notes to start with new algorithm
-                        DBG("[META FORCED CHANGE] Force stopping " + juce::String(activeVoices) +
-                            " voices for algorithm " + juce::String(currentAlgorithm_) + " -> " + juce::String(targetAlgorithm));
+                        // Increment counter every process block
+                        lastSwitchCounter++;
                         
-                        // Use forceStopAllVoices instead of allNotesOff for immediate clearing
-                        synthesiser_->forceStopAllVoices();
-                        
-                        // Verify voices are actually cleared
-                        int remainingVoices = synthesiser_->getActiveVoiceCount();
-                        if (remainingVoices > 0) {
-                            DBG("[META WARNING] " + juce::String(remainingVoices) + " voices still active after force stop");
+                        // MUSICAL META MODE: Enhanced rate limiting for stable, responsive algorithm switching
+                        // Balance between "hyper" character and crash prevention
+                        bool isTempoSynced = false;
+                        bool isModulated = modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT);
+                        if (auto* lfo1TempoSync = apvts_.getRawParameterValue("lfo1TempoSync")) {
+                            isTempoSynced = lfo1TempoSync->load() > 0.5f;
+                        }
+                        // ENHANCED RATE LIMITING: Increase limits when modulated to prevent crashes
+                        const int MIN_BLOCKS_BETWEEN_SWITCHES = isModulated ?
+                            (isTempoSynced ? 4 : 3) :  // More conservative when modulated
+                            (isTempoSynced ? 2 : 1);    // Original values for manual control
+
+                        bool shouldSwitch = false;
+
+                        // Allow immediate switch for any algorithm change (more musical)
+                        if (targetAlgorithm != currentAlgorithm_) {
+                            shouldSwitch = true;
+                        }
+                        // Still respect minimal rate limiting to prevent audio thread issues
+                        if (lastSwitchCounter < MIN_BLOCKS_BETWEEN_SWITCHES) {
+                            shouldSwitch = false;
                         }
                         
-                        currentAlgorithm_ = targetAlgorithm;
-                        synthesiser_->setAlgorithm(targetAlgorithm);
-                        pendingAlgorithmUpdate_.store(targetAlgorithm);
+                        if (shouldSwitch) {
+                            // META MODE: Allow algorithm switching even with active voices
+                            // This ensures real-time response and smooth transitions
+                            if (synthesiser_ && targetAlgorithm >= 0 && targetAlgorithm <= 46) {
+                                // Update algorithm immediately for real-time response
+                                currentAlgorithm_ = targetAlgorithm;
+                                newAlgorithm = targetAlgorithm;
+
+                                try {
+                                    // Extra safety: Check if we're switching too rapidly
+                                    static auto lastSafeSwitch = std::chrono::steady_clock::now();
+                                    auto now = std::chrono::steady_clock::now();
+                                    auto timeSinceLastSwitch = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastSafeSwitch);
+
+                                    // ENHANCED PROTECTION: Increase time threshold for modulated scenarios
+                                    // This prevents crashes while maintaining musicality
+                                    int minSwitchDelayMs = 5;  // Default for manual changes
+                                    if (modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT)) {
+                                        // Increase protection for modulated scenarios
+                                        minSwitchDelayMs = isTempoSynced ? 20 : 15;  // Much safer threshold
+                                    }
+
+                                    if (timeSinceLastSwitch.count() < minSwitchDelayMs) {
+                                        // Skip this switch to prevent crash - but don't exit entire function
+                                        // Just skip the algorithm change and continue processing
+                                        lastSwitchCounter = 0;  // Reset counter to try again soon
+                                        lastAlgorithm = currentAlgorithm_;  // Keep current algorithm
+                                    } else {
+
+                                        synthesiser_->setAlgorithm(targetAlgorithm);
+
+                                        // CRITICAL: Set parameters for the new algorithm
+                                        synthesiser_->setParameters(newParam1, newParam2);
+
+                                        lastSafeSwitch = now;
+                                    }
+
+                                    // Log the change with voice count for debugging
+                                    int activeVoices = synthesiser_->getActiveVoiceCount();
+                                    BRAIDY_RT_LOG("[META MODE] Switched to algorithm " + juce::String(targetAlgorithm) +
+                                        " (voices: " + juce::String(activeVoices) +
+                                        ") with params (" + juce::String(newParam1) +
+                                        ", " + juce::String(newParam2) + ")");
+                                } catch (const std::exception& e) {
+                                    BRAIDY_RT_LOG("[ERROR] Failed to set algorithm " + juce::String(targetAlgorithm) +
+                                        " - Exception: " + juce::String(e.what()));
+                                    // Revert to safe state
+                                    currentAlgorithm_ = 0;  // CSAW
+                                    try {
+                                        synthesiser_->setAlgorithm(0);
+                                    } catch (...) {}
+                                } catch (...) {
+                                    BRAIDY_RT_LOG("[ERROR] Unknown exception setting algorithm " + juce::String(targetAlgorithm));
+                                    // Revert to safe state
+                                    currentAlgorithm_ = 0;  // CSAW
+                                    try {
+                                        synthesiser_->setAlgorithm(0);
+                                    } catch (...) {}
+                                }
+
+                                lastAlgorithm = targetAlgorithm;
+                                lastSwitchCounter = 0;
+                            }
+                        }
                     }
-                } else {
-                    // Always update the meta mode display algorithm even if audio algorithm doesn't change
-                    metaModeAlgorithm_.store(targetAlgorithm);
                 }
             }
             else {
-                // NORMAL MODE - Standard FM modulation
-                // Apply FM modulation from LFO if routed
-                if (fmIsLfoDestination && modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT)) {
-                    float originalFm = fmAmount;
-                    fmAmount = modulationMatrix_.applyModulation(
-                        braidy::ModulationMatrix::FM_AMOUNT, fmAmount, 0.0f, 1.0f);
-                    
-                    // Debug logging for normal FM modulation
-                    static int fmModLogCounter = 0;
-                    if (++fmModLogCounter % 50 == 0) {
-                        DBG("[FM MODULATION] Original: " + juce::String(originalFm) +
-                            ", Modulated: " + juce::String(fmAmount));
-                    }
-                }
-                
-                // Algorithm from parameter only in normal mode
+                // Not in META mode, ensure we're using the selected algorithm
                 if (newAlgorithm != currentAlgorithm_) {
-                    DBG("[ALGORITHM CHANGE] Switching from " + juce::String(currentAlgorithm_) +
-                        " to " + juce::String(newAlgorithm));
+                    BRAIDY_RT_LOG("[ALGORITHM CHANGE] Switching from " + juce::String(currentAlgorithm_) +
+                        " to " + juce::String(newAlgorithm) + " (normal mode)");
 
-                    synthesiser_->allNotesOff(0, true);
+                    // REMOVED allNotesOff() - allow smooth transition with active voices
+                    // This ensures continuous sound when changing algorithms
                     currentAlgorithm_ = newAlgorithm;
                     synthesiser_->setAlgorithm(newAlgorithm);
 
-                    // Ensure parameters are set to reasonable defaults for the new algorithm
-                    // Most algorithms work well with center position (0.5, 0.5)
-                    synthesiser_->setParameters(0.5f, 0.5f);
-                    DBG("[ALGORITHM CHANGE] Set default parameters (0.5, 0.5) for algorithm " +
-                        juce::String(currentAlgorithm_));
+                    // CRITICAL FIX: Use NEW parameters (newParam1, newParam2) not old ones!
+                    // This ensures the new algorithm gets the correct parameters immediately
+                    synthesiser_->setParameters(newParam1, newParam2);
 
-                    DBG("[NORMAL] Algorithm changed to " + juce::String(currentAlgorithm_));
+                    // DON'T update currentParam1_ and currentParam2_ here!
+                    // Let the normal parameter update logic handle it below
+                    // This prevents the parameter check from being skipped
+
+                    BRAIDY_RT_LOG("[ALGORITHM CHANGE] Parameters set to (" +
+                        juce::String(newParam1) + ", " + juce::String(newParam2) + ")");
                 }
             }
             
-            // Apply modulation to timbre and color parameters
-            float timbre = param1->load();
-            float color = param2->load();
-            
-            // Apply LFO modulation if active
-            if (modulationMatrix_.isModulated(braidy::ModulationMatrix::TIMBRE)) {
-                float originalTimbre = timbre;
-                timbre = modulationMatrix_.applyModulation(
-                    braidy::ModulationMatrix::TIMBRE, timbre, 0.0f, 1.0f);
-                
-                // Debug logging for timbre modulation
-                static int timbreModLogCounter = 0;
-                if (++timbreModLogCounter % 50 == 0 && std::abs(originalTimbre - timbre) > 0.001f) {
-                    DBG("[TIMBRE MODULATION] Original: " + juce::String(originalTimbre) +
-                        ", Modulated: " + juce::String(timbre));
-                }
+            // Apply quantizer settings to synthesizer
+            if (quantizerEnableParam && quantizerScaleParam && quantizerRootParam) {
+                bool quantizerEnabled = quantizerEnableParam->load() > 0.5f;
+                int quantizerScale = static_cast<int>(std::round(quantizerScaleParam->load() * 12.0f));
+                int quantizerRoot = static_cast<int>(std::round(quantizerRootParam->load() * 11.0f));
+
+                // Apply quantizer settings to synthesizer
+                synthesiser_->setQuantizerSettings(quantizerEnabled, quantizerScale, quantizerRoot);
             }
-            
-            if (modulationMatrix_.isModulated(braidy::ModulationMatrix::COLOR)) {
-                float originalColor = color;
-                color = modulationMatrix_.applyModulation(
-                    braidy::ModulationMatrix::COLOR, color, 0.0f, 1.0f);
-                
-                // Debug logging for color modulation
-                static int colorModLogCounter = 0;
-                if (++colorModLogCounter % 50 == 0 && std::abs(originalColor - color) > 0.001f) {
-                    DBG("[COLOR MODULATION] Original: " + juce::String(originalColor) +
-                        ", Modulated: " + juce::String(color));
-                }
-            }
-            
+
             // Pass values to voices
-            // Allow META mode when FM is LFO destination - this enables algorithm cycling via FM modulation
-            bool effectiveMetaMode = metaMode;
-            
             for (int i = 0; i < synthesiser_->getNumVoices(); ++i) {
                 if (auto* voice = dynamic_cast<BraidyAdapter::BraidsVoice*>(synthesiser_->getVoice(i))) {
-                    voice->setMetaMode(effectiveMetaMode);
+                    voice->setMetaMode(metaMode);
                     voice->setFMAmount(fmAmount);
-                    voice->setTimbre(timbre);
-                    voice->setColor(color);
                 }
             }
         }
@@ -683,34 +728,6 @@ void BraidyAudioProcessor::updateSynthesiserFromParameters()
 
 void BraidyAudioProcessor::updateModulationFromParameters()
 {
-    // No guards needed - use Griddy's simpler approach
-    // This function just updates LFO settings and routings from APVTS parameters
-
-    // Debug: Log when this function is called and check META mode state
-    auto* metaModeParam = apvts_.getRawParameterValue("metaMode");
-    bool metaMode = metaModeParam ? (metaModeParam->load() > 0.5f) : false;
-
-    // Debug output will be handled by DBG() macro
-
-    static int updateCounter = 0;
-    ++updateCounter;
-
-    // Log more frequently during startup and testing
-    if (updateCounter <= 5 || updateCounter % 50 == 0) {  // First 5 calls, then every 50th
-        DBG("[UPDATE MODULATION] Called (count: " + juce::String(updateCounter) +
-            "), META mode: " + juce::String(metaMode ? "ON" : "OFF"));
-    }
-
-    // Track previous destinations to avoid unnecessary clearing of routings
-    // This prevents race conditions where manual adjustments can cause routing to be cleared
-    static int previousLfo1Dest = -999;  // Initialize to impossible value
-    static float previousLfo1Depth = -1.0f;
-    static bool previousLfo1Enable = false;
-
-    static int previousLfo2Dest = -999;  // Initialize to impossible value
-    static float previousLfo2Depth = -1.0f;
-    static bool previousLfo2Enable = false;
-
     // Update LFO 1 settings from APVTS
     if (auto* lfo1Enable = apvts_.getRawParameterValue("lfo1Enable")) {
         bool enabled = lfo1Enable->load() > 0.5f;
@@ -744,47 +761,24 @@ void BraidyAudioProcessor::updateModulationFromParameters()
                 
                 // Set routing
                 int destIndex = static_cast<int>(lfo1Dest->load());
-
-                // Check if destination or depth actually changed
-                bool destinationChanged = (destIndex != previousLfo1Dest);
-                bool depthChanged = std::abs(depth - previousLfo1Depth) > 0.001f;
-                bool enableChanged = (enabled != previousLfo1Enable);
-
-                // Only update routings if something actually changed
-                if (destinationChanged || depthChanged || enableChanged) {
-                    previousLfo1Dest = destIndex;
-                    previousLfo1Depth = depth;
-                    previousLfo1Enable = enabled;
-
-                    DBG("[MODULATION] LFO1 config changed - Dest: " + juce::String(destIndex) +
-                        ", Depth: " + juce::String(depth) + ", Enabled: " + juce::String(enabled ? "true" : "false"));
-                }
-
                 // Map APVTS dropdown index to ModulationMatrix::Destination enum
                 // This must match the mapping in ModulationSettingsOverlay.h
-                if (destIndex > 0 && destinationChanged) {
+                if (destIndex > 0) {
                     braidy::ModulationMatrix::Destination dest;
                     bool validDest = true;
-                    
-                    // Debug log the destination
-                    juce::String destStr = "[MODULATION UPDATE] LFO1 dest index: " + juce::String(destIndex);
                     
                     switch (destIndex) {
                         case 1:  // "META" -> ALGORITHM_SELECTION (enum 0)
                             dest = braidy::ModulationMatrix::ALGORITHM_SELECTION;
-                            DBG(destStr + " -> ALGORITHM_SELECTION");
                             break;
                         case 2:  // "Timbre" -> TIMBRE (enum 1)
                             dest = braidy::ModulationMatrix::TIMBRE;
-                            DBG(destStr + " -> TIMBRE");
                             break;
                         case 3:  // "Color" -> COLOR (enum 2)
                             dest = braidy::ModulationMatrix::COLOR;
-                            DBG(destStr + " -> COLOR");
                             break;
                         case 4:  // "FM" -> FM_AMOUNT (enum 3)
                             dest = braidy::ModulationMatrix::FM_AMOUNT;
-                            DBG(destStr + " -> FM_AMOUNT (META mode will use this for algorithm cycling)");
                             break;
                         case 5:  // "Modulation" -> ENV_TIMBRE_AMOUNT (enum 12)
                             dest = braidy::ModulationMatrix::ENV_TIMBRE_AMOUNT;
@@ -812,10 +806,10 @@ void BraidyAudioProcessor::updateModulationFromParameters()
                             break;
                         default:
                             validDest = false;
-                            DBG("[MODULATION] ERROR: No mapping defined for LFO1 APVTS index " + juce::String(destIndex));
+                            BRAIDY_RT_LOG("[MODULATION] ERROR: No mapping defined for APVTS index " + juce::String(destIndex));
                             break;
                     }
-
+                    
                     if (validDest) {
                         // Clear all routings for LFO 1 first
                         for (int i = 0; i < static_cast<int>(braidy::ModulationMatrix::NUM_DESTINATIONS); ++i) {
@@ -827,71 +821,13 @@ void BraidyAudioProcessor::updateModulationFromParameters()
                         
                         // Set new routing
                         modulationMatrix_.setRouting(0, dest, depth);
-
-                        // Initialize base value tracking for the newly modulated parameter
-                        // Log routing changes
-                        if (dest == braidy::ModulationMatrix::TIMBRE) {
-                            DBG("[MODULATION] LFO1 routed to TIMBRE");
-                        }
-                        else if (dest == braidy::ModulationMatrix::COLOR) {
-                            DBG("[MODULATION] LFO1 routed to COLOR");
-                        }
-                        else if (dest == braidy::ModulationMatrix::FM_AMOUNT) {
-                            DBG("[MODULATION] LFO1 routed to FM_AMOUNT");
-                        }
-                        else if (dest == braidy::ModulationMatrix::DETUNE) {
-                            DBG("[MODULATION] LFO1 routed to DETUNE");
-                        }
-                        else if (dest == braidy::ModulationMatrix::OCTAVE) {
-                            DBG("[MODULATION] LFO1 routed to OCTAVE");
-                        }
                     }
-                } else if (destIndex == 0 && destinationChanged) {
-                    // destIndex == 0 means "None" selected - only clear if this is a change
-                    DBG("[MODULATION UPDATE] LFO1 dest index: " + juce::String(destIndex) + " -> NONE (clearing all routings)");
-
-                    // Clear base value tracking flags for any parameters that were modulated by LFO1
-                    // No need to reset manual adjustment flags with Griddy's approach
-
-                    // If META mode is enabled, automatically route to META for algorithm cycling
-                    auto* metaModeParam = apvts_.getRawParameterValue("metaMode");
-                    bool metaMode = metaModeParam ? (metaModeParam->load() > 0.5f) : false;
-
-                    // Debug: Always log when we hit the "None" destination case
-                    DBG("[LFO1 NONE DEST] LFO1 destination set to None. META mode: " +
-                        juce::String(metaMode ? "ON" : "OFF") + ", depth: " + juce::String(depth));
-
-                    // Clear all routings for LFO 1 first
+                } else {
+                    // destIndex == 0 means "None" selected - clear all routings for LFO 1
                     for (int i = 0; i < static_cast<int>(braidy::ModulationMatrix::NUM_DESTINATIONS); ++i) {
                         auto currentDest = static_cast<braidy::ModulationMatrix::Destination>(i);
                         if (modulationMatrix_.getRouting(currentDest).sourceId == 0) {
                             modulationMatrix_.clearRouting(currentDest);
-                        }
-                    }
-                    
-                    if (metaMode) {
-                        // Route LFO to META for automatic algorithm cycling
-                        modulationMatrix_.setRouting(0, braidy::ModulationMatrix::ALGORITHM_SELECTION, depth);
-                        DBG("[LFO1 AUTO-ROUTING] None destination + META mode -> routing to ALGORITHM_SELECTION (depth=" +
-                            juce::String(depth) + ")");
-                        
-                        // Debug: Verify that routing was applied correctly
-                        bool metaModulated = modulationMatrix_.isModulated(braidy::ModulationMatrix::ALGORITHM_SELECTION);
-                        float metaModValue = modulationMatrix_.getModulation(braidy::ModulationMatrix::ALGORITHM_SELECTION);
-                        DBG("[ROUTING DEBUG] META modulated: " + juce::String(metaModulated ? "true" : "false") +
-                            ", Current META modulation: " + juce::String(metaModValue));
-                    }
-                } else if (!destinationChanged && depthChanged && destIndex > 0) {
-                    // Just the depth changed - update amount without clearing routing
-                    // Find which destination LFO1 is currently routed to
-                    for (int i = 0; i < static_cast<int>(braidy::ModulationMatrix::NUM_DESTINATIONS); ++i) {
-                        auto currentDest = static_cast<braidy::ModulationMatrix::Destination>(i);
-                        if (modulationMatrix_.getRouting(currentDest).sourceId == 0 &&
-                            modulationMatrix_.getRouting(currentDest).enabled) {
-                            // Update the amount for this existing routing
-                            modulationMatrix_.setRouting(0, currentDest, depth);
-                            DBG("[MODULATION] Updated LFO1 depth for existing routing to " + juce::String(depth));
-                            break;
                         }
                     }
                 }
@@ -899,20 +835,13 @@ void BraidyAudioProcessor::updateModulationFromParameters()
         } else {
             // Disable LFO 1
             lfo1.setEnabled(false);
-
-            // Only clear routings if LFO1 was previously enabled
-            if (previousLfo1Enable) {
-                previousLfo1Enable = false;
-                previousLfo1Dest = -999;  // Reset to impossible value
-
-                // Clear all routings for LFO 1
-                for (int i = 0; i < static_cast<int>(braidy::ModulationMatrix::NUM_DESTINATIONS); ++i) {
-                    auto currentDest = static_cast<braidy::ModulationMatrix::Destination>(i);
-                    if (modulationMatrix_.getRouting(currentDest).sourceId == 0) {
-                        modulationMatrix_.clearRouting(currentDest);
-                    }
+            
+            // Clear all routings for LFO 1
+            for (int i = 0; i < static_cast<int>(braidy::ModulationMatrix::NUM_DESTINATIONS); ++i) {
+                auto currentDest = static_cast<braidy::ModulationMatrix::Destination>(i);
+                if (modulationMatrix_.getRouting(currentDest).sourceId == 0) {
+                    modulationMatrix_.clearRouting(currentDest);
                 }
-                DBG("[MODULATION] LFO1 disabled - cleared all routings");
             }
         }
     }
@@ -950,25 +879,9 @@ void BraidyAudioProcessor::updateModulationFromParameters()
                 
                 // Set routing
                 int destIndex = static_cast<int>(lfo2Dest->load());
-
-                // Check if destination or depth actually changed
-                bool destinationChanged = (destIndex != previousLfo2Dest);
-                bool depthChanged = std::abs(depth - previousLfo2Depth) > 0.001f;
-                bool enableChanged = (enabled != previousLfo2Enable);
-
-                // Only update routings if something actually changed
-                if (destinationChanged || depthChanged || enableChanged) {
-                    previousLfo2Dest = destIndex;
-                    previousLfo2Depth = depth;
-                    previousLfo2Enable = enabled;
-
-                    DBG("[MODULATION] LFO2 config changed - Dest: " + juce::String(destIndex) +
-                        ", Depth: " + juce::String(depth) + ", Enabled: " + juce::String(enabled ? "true" : "false"));
-                }
-
                 // Map APVTS dropdown index to ModulationMatrix::Destination enum
                 // This must match the mapping in ModulationSettingsOverlay.h
-                if (destIndex > 0 && destinationChanged) {
+                if (destIndex > 0) {
                     braidy::ModulationMatrix::Destination dest;
                     bool validDest = true;
                     
@@ -1011,10 +924,10 @@ void BraidyAudioProcessor::updateModulationFromParameters()
                             break;
                         default:
                             validDest = false;
-                            DBG("[MODULATION] ERROR: No mapping defined for LFO2 APVTS index " + juce::String(destIndex));
+                            BRAIDY_RT_LOG("[MODULATION] ERROR: No mapping defined for APVTS index " + juce::String(destIndex));
                             break;
                     }
-
+                    
                     if (validDest) {
                         // Clear all routings for LFO 2 first
                         for (int i = 0; i < static_cast<int>(braidy::ModulationMatrix::NUM_DESTINATIONS); ++i) {
@@ -1026,48 +939,13 @@ void BraidyAudioProcessor::updateModulationFromParameters()
                         
                         // Set new routing
                         modulationMatrix_.setRouting(1, dest, depth);
-
-                        // Log routing changes
-                        if (dest == braidy::ModulationMatrix::TIMBRE) {
-                            DBG("[MODULATION] LFO2 routed to TIMBRE");
-                        }
-                        else if (dest == braidy::ModulationMatrix::COLOR) {
-                            DBG("[MODULATION] LFO2 routed to COLOR");
-                        }
-                        else if (dest == braidy::ModulationMatrix::FM_AMOUNT) {
-                            DBG("[MODULATION] LFO2 routed to FM_AMOUNT");
-                        }
-                        else if (dest == braidy::ModulationMatrix::DETUNE) {
-                            DBG("[MODULATION] LFO2 routed to DETUNE");
-                        }
-                        else if (dest == braidy::ModulationMatrix::OCTAVE) {
-                            DBG("[MODULATION] LFO2 routed to OCTAVE");
-                        }
                     }
-                } else if (destIndex == 0 && destinationChanged) {
-                    // destIndex == 0 means "None" selected - only clear if this is a change
-
-                    // Clear base value tracking flags for any parameters that were modulated by LFO2
-                    // No need to reset manual adjustment flags with Griddy's approach
-
+                } else {
+                    // destIndex == 0 means "None" selected - clear all routings for LFO 2
                     for (int i = 0; i < static_cast<int>(braidy::ModulationMatrix::NUM_DESTINATIONS); ++i) {
                         auto currentDest = static_cast<braidy::ModulationMatrix::Destination>(i);
                         if (modulationMatrix_.getRouting(currentDest).sourceId == 1) {
                             modulationMatrix_.clearRouting(currentDest);
-                        }
-                    }
-                    DBG("[MODULATION] LFO2 destination set to None - cleared routings");
-                } else if (!destinationChanged && depthChanged && destIndex > 0) {
-                    // Just the depth changed - update amount without clearing routing
-                    // Find which destination LFO2 is currently routed to
-                    for (int i = 0; i < static_cast<int>(braidy::ModulationMatrix::NUM_DESTINATIONS); ++i) {
-                        auto currentDest = static_cast<braidy::ModulationMatrix::Destination>(i);
-                        if (modulationMatrix_.getRouting(currentDest).sourceId == 1 &&
-                            modulationMatrix_.getRouting(currentDest).enabled) {
-                            // Update the amount for this existing routing
-                            modulationMatrix_.setRouting(1, currentDest, depth);
-                            DBG("[MODULATION] Updated LFO2 depth for existing routing to " + juce::String(depth));
-                            break;
                         }
                     }
                 }
@@ -1075,20 +953,13 @@ void BraidyAudioProcessor::updateModulationFromParameters()
         } else {
             // Disable LFO 2
             lfo2.setEnabled(false);
-
-            // Only clear routings if LFO2 was previously enabled
-            if (previousLfo2Enable) {
-                previousLfo2Enable = false;
-                previousLfo2Dest = -999;  // Reset to impossible value
-
-                // Clear all routings for LFO 2
-                for (int i = 0; i < static_cast<int>(braidy::ModulationMatrix::NUM_DESTINATIONS); ++i) {
-                    auto currentDest = static_cast<braidy::ModulationMatrix::Destination>(i);
-                    if (modulationMatrix_.getRouting(currentDest).sourceId == 1) {
-                        modulationMatrix_.clearRouting(currentDest);
-                    }
+            
+            // Clear all routings for LFO 2
+            for (int i = 0; i < static_cast<int>(braidy::ModulationMatrix::NUM_DESTINATIONS); ++i) {
+                auto currentDest = static_cast<braidy::ModulationMatrix::Destination>(i);
+                if (modulationMatrix_.getRouting(currentDest).sourceId == 1) {
+                    modulationMatrix_.clearRouting(currentDest);
                 }
-                DBG("[MODULATION] LFO2 disabled - cleared all routings");
             }
         }
     }
@@ -1114,39 +985,44 @@ void BraidyAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 
 // Get modulated parameter values for UI display
 float BraidyAudioProcessor::getModulatedTimbre() const {
-    // Griddy's approach: always get base value from APVTS
     float baseValue = apvts_.getRawParameterValue("param1")->load();
-
-    // Apply modulation if active
-    if (modulationMatrix_.isModulated(braidy::ModulationMatrix::TIMBRE)) {
-        return modulationMatrix_.applyModulation(braidy::ModulationMatrix::TIMBRE, baseValue, 0.0f, 1.0f);
+    float modulatedValue = modulationMatrix_.applyModulation(braidy::ModulationMatrix::TIMBRE, baseValue, 0.0f, 1.0f);
+    
+    if (std::abs(modulatedValue - baseValue) > 0.001f) {
+        BRAIDY_RT_LOG("[MODULATION DEBUG] Timbre - Base: " + juce::String(baseValue) + 
+            ", Modulated: " + juce::String(modulatedValue));
     }
-
-    return baseValue;
+    
+    return modulatedValue;
 }
 
 float BraidyAudioProcessor::getModulatedColor() const {
-    // Griddy's approach: always get base value from APVTS
     float baseValue = apvts_.getRawParameterValue("param2")->load();
     return modulationMatrix_.applyModulation(braidy::ModulationMatrix::COLOR, baseValue, 0.0f, 1.0f);
 }
 
 float BraidyAudioProcessor::getModulatedFM() const {
-    // Griddy's approach: always get base value from APVTS
-    float baseValue = apvts_.getRawParameterValue("fmAmount")->load();
-    return modulationMatrix_.applyModulation(braidy::ModulationMatrix::FM_AMOUNT, baseValue, 0.0f, 1.0f);
+    if (auto* param = apvts_.getParameter("fmAmount")) {
+        float baseValue = param->getValue();
+        return modulationMatrix_.applyModulation(braidy::ModulationMatrix::FM_AMOUNT, baseValue, 0.0f, 1.0f);
+    }
+    return 0.0f;
 }
 
 float BraidyAudioProcessor::getModulatedFine() const {
-    // Griddy's approach: always get base value from APVTS
-    float baseValue = apvts_.getRawParameterValue("fineTune")->load();
-    return modulationMatrix_.applyModulation(braidy::ModulationMatrix::DETUNE, baseValue, 0.0f, 1.0f);
+    if (auto* param = apvts_.getParameter("fineTune")) {
+        float baseValue = param->getValue();
+        return modulationMatrix_.applyModulation(braidy::ModulationMatrix::DETUNE, baseValue, 0.0f, 1.0f);
+    }
+    return 0.5f;
 }
 
 float BraidyAudioProcessor::getModulatedCoarse() const {
-    // Griddy's approach: always get base value from APVTS
-    float baseValue = apvts_.getRawParameterValue("coarseTune")->load();
-    return modulationMatrix_.applyModulation(braidy::ModulationMatrix::OCTAVE, baseValue, 0.0f, 1.0f);
+    if (auto* param = apvts_.getParameter("coarseTune")) {
+        float baseValue = param->getValue();
+        return modulationMatrix_.applyModulation(braidy::ModulationMatrix::OCTAVE, baseValue, 0.0f, 1.0f);
+    }
+    return 0.5f;
 }
 
 float BraidyAudioProcessor::getModulatedTimbreMod() const {
@@ -1185,86 +1061,191 @@ void BraidyAudioProcessor::setStateInformation(const void* data, int sizeInBytes
     }
 }
 
+void BraidyAudioProcessor::applyQuantizationToMidiMessages(juce::MidiBuffer& midiMessages)
+{
+    // Get quantizer parameters
+    auto* quantizerEnableParam = apvts_.getRawParameterValue("quantizerEnable");
+    auto* quantizerScaleParam = apvts_.getRawParameterValue("quantizerScale");
+    auto* quantizerRootParam = apvts_.getRawParameterValue("quantizerRoot");
+
+    // Early exit if quantizer is disabled or parameters are missing
+    if (!quantizerEnableParam || !quantizerScaleParam || !quantizerRootParam ||
+        quantizerEnableParam->load() <= 0.5f) {
+        return;
+    }
+
+    // Get quantizer settings
+    int scale = static_cast<int>(std::round(quantizerScaleParam->load() * 12.0f));
+    int root = static_cast<int>(std::round(quantizerRootParam->load() * 11.0f));
+
+    // Skip if scale is 0 (Off)
+    if (scale <= 0) {
+        return;
+    }
+
+    // Create a new MIDI buffer for quantized messages
+    juce::MidiBuffer quantizedMessages;
+
+    for (const auto metadata : midiMessages) {
+        auto message = metadata.getMessage();
+
+        if (message.isNoteOn() || message.isNoteOff()) {
+            int originalNote = message.getNoteNumber();
+            int quantizedNote = quantizeNote(originalNote, scale, root);
+
+            // Create new message with quantized note
+            juce::MidiMessage newMessage;
+            if (message.isNoteOn()) {
+                newMessage = juce::MidiMessage::noteOn(message.getChannel(), quantizedNote, message.getVelocity());
+            } else {
+                newMessage = juce::MidiMessage::noteOff(message.getChannel(), quantizedNote, message.getVelocity());
+            }
+
+            quantizedMessages.addEvent(newMessage, metadata.samplePosition);
+        } else {
+            // Copy non-note messages unchanged
+            quantizedMessages.addEvent(message, metadata.samplePosition);
+        }
+    }
+
+    // Replace original buffer with quantized messages
+    midiMessages.swapWith(quantizedMessages);
+}
+
+int BraidyAudioProcessor::quantizeNote(int originalNote, int scale, int root)
+{
+    // Define scale patterns (0 = off, 1-12 = different scales)
+    // These match the hardware Braids quantizer scales
+    static const std::vector<std::vector<int>> scalePatterns = {
+        {},                                          // 0: Off (unused)
+        {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11},    // 1: Semitones (chromatic)
+        {0, 2, 4, 5, 7, 9, 11},                     // 2: Ionian (Major)
+        {0, 2, 3, 5, 7, 9, 10},                     // 3: Dorian
+        {0, 1, 3, 5, 7, 8, 10},                     // 4: Phrygian
+        {0, 2, 4, 6, 7, 9, 11},                     // 5: Lydian
+        {0, 2, 4, 5, 7, 9, 10},                     // 6: Mixolydian
+        {0, 2, 3, 5, 7, 8, 10},                     // 7: Aeolian (Minor)
+        {0, 1, 3, 5, 6, 8, 10},                     // 8: Locrian
+        {0, 3, 5, 6, 7, 10},                        // 9: Blues Major
+        {0, 3, 5, 6, 7, 10},                        // 10: Blues Minor
+        {0, 2, 4, 7, 9},                            // 11: Pentatonic Major
+        {0, 3, 5, 7, 10}                            // 12: Pentatonic Minor
+    };
+
+    // Validate scale index
+    if (scale <= 0 || scale >= static_cast<int>(scalePatterns.size())) {
+        return originalNote; // Return unmodified if invalid scale
+    }
+
+    const auto& pattern = scalePatterns[scale];
+    if (pattern.empty()) {
+        return originalNote;
+    }
+
+    // Convert note to octave and semitone within octave
+    int octave = originalNote / 12;
+    int semitone = originalNote % 12;
+
+    // Adjust for root note
+    semitone = (semitone - root + 12) % 12;
+
+    // Find the closest note in the scale
+    int quantizedSemitone = semitone;
+    int minDistance = 12;
+
+    for (int scaleNote : pattern) {
+        int distance = std::abs(semitone - scaleNote);
+        if (distance < minDistance) {
+            minDistance = distance;
+            quantizedSemitone = scaleNote;
+        }
+    }
+
+    // Adjust back for root note and reconstruct MIDI note
+    quantizedSemitone = (quantizedSemitone + root) % 12;
+    int quantizedNote = octave * 12 + quantizedSemitone;
+
+    // Ensure note stays in valid MIDI range
+    return std::clamp(quantizedNote, 0, 127);
+}
+
+void BraidyAudioProcessor::updateModulationTracking()
+{
+    // Check modulation for each tracked parameter
+    checkAndTriggerAutomationGesture(braidy::ModulationMatrix::TIMBRE, "param1", timbreModTracker_);
+    checkAndTriggerAutomationGesture(braidy::ModulationMatrix::COLOR, "param2", colorModTracker_);
+    checkAndTriggerAutomationGesture(braidy::ModulationMatrix::FM_AMOUNT, "fmAmount", fmModTracker_);
+}
+
+void BraidyAudioProcessor::checkAndTriggerAutomationGesture(const braidy::ModulationMatrix::Destination dest,
+                                                          const juce::String& paramId,
+                                                          ModulationTracker& tracker)
+{
+    // Get the current modulation value
+    float currentModulation = modulationMatrix_.getModulation(dest);
+
+    // Calculate absolute change since last check
+    float modulationChange = std::abs(currentModulation - tracker.lastModulationValue);
+
+    // Check if this parameter is actively modulated
+    bool isCurrentlyModulated = modulationMatrix_.isModulated(dest) && modulationChange > 0.001f;
+
+    // Get the parameter reference
+    auto* param = apvts_.getParameter(paramId);
+    if (!param) return;
+
+    // Start gesture if modulation becomes significant and we're not already tracking
+    if (isCurrentlyModulated && !tracker.isGestureActive &&
+        modulationChange > tracker.significantChangeThreshold) {
+
+        param->beginChangeGesture();
+        tracker.isGestureActive = true;
+
+        BRAIDY_RT_LOG("[AUTOMATION] Started automation gesture for " + paramId +
+            " - modulation: " + juce::String(currentModulation, 4));
+    }
+
+    // Update parameter value if gesture is active
+    if (tracker.isGestureActive && isCurrentlyModulated) {
+        // Get the base parameter value
+        float baseValue = param->getValue();
+
+        // Apply modulation based on the destination type
+        float modulatedValue = baseValue;
+
+        if (dest == braidy::ModulationMatrix::TIMBRE) {
+            modulatedValue = modulationMatrix_.applyModulation(dest, baseValue, 0.0f, 1.0f);
+        } else if (dest == braidy::ModulationMatrix::COLOR) {
+            modulatedValue = modulationMatrix_.applyModulation(dest, baseValue, 0.0f, 1.0f);
+        } else if (dest == braidy::ModulationMatrix::FM_AMOUNT) {
+            modulatedValue = modulationMatrix_.applyModulation(dest, baseValue, 0.0f, 1.0f);
+        }
+
+        // Set the parameter value to the modulated value
+        // This will trigger automation recording in the host
+        param->setValueNotifyingHost(modulatedValue);
+
+        BRAIDY_RT_LOG("[AUTOMATION] Updated " + paramId + " from " +
+            juce::String(baseValue, 4) + " to " + juce::String(modulatedValue, 4));
+    }
+
+    // End gesture if modulation stops being significant
+    if (tracker.isGestureActive && (!isCurrentlyModulated ||
+        modulationChange < tracker.significantChangeThreshold * 0.5f)) {
+
+        param->endChangeGesture();
+        tracker.isGestureActive = false;
+
+        BRAIDY_RT_LOG("[AUTOMATION] Ended automation gesture for " + paramId);
+    }
+
+    // Update tracking state
+    tracker.lastModulationValue = currentModulation;
+}
+
 std::vector<std::string> BraidyAudioProcessor::getAlgorithmNames()
 {
     return BraidyAdapter::BraidsEngine::getAllAlgorithmNames();
-}
-
-void BraidyAudioProcessor::timerCallback()
-{
-    // Always update modulation to ensure LFO destination changes are synced
-    updateModulationFromParameters();
-    
-    // Check for pending algorithm updates from META mode
-    int pendingAlgorithm = pendingAlgorithmUpdate_.exchange(-1);
-    if (pendingAlgorithm >= 0 && pendingAlgorithm <= 46) {
-        // SAFETY: Double-check that FM is not an LFO destination before updating
-        bool fmIsLfoDestination = false;
-        if (auto* lfo1Dest = apvts_.getRawParameterValue("lfo1Dest")) {
-            fmIsLfoDestination = (static_cast<int>(lfo1Dest->load()) == 4);
-        }
-        if (!fmIsLfoDestination) {
-            if (auto* lfo2Dest = apvts_.getRawParameterValue("lfo2Dest")) {
-                fmIsLfoDestination = (static_cast<int>(lfo2Dest->load()) == 4);
-            }
-        }
-        
-        // Only update algorithm if FM is not modulated (safety check)
-        if (!fmIsLfoDestination) {
-            // Update the APVTS parameter on the message thread (safe)
-            if (auto* algorithmParam = apvts_.getParameter("algorithm")) {
-                // Only update if the value actually changed to avoid recursion
-                float currentValue = algorithmParam->getValue();
-                float newValue = algorithmParam->convertTo0to1(pendingAlgorithm);
-                if (std::abs(currentValue - newValue) > 0.001f) {
-                    algorithmParam->setValueNotifyingHost(newValue);
-                    DBG("[TIMER] Updated algorithm parameter to " + juce::String(pendingAlgorithm));
-                }
-            }
-        }
-        else {
-            DBG("[TIMER] Skipped algorithm update - FM is LFO destination");
-        }
-    }
-}
-
-// Helper method to check if a parameter is being modulated
-bool BraidyAudioProcessor::isParameterModulated(const juce::String& parameterID) const {
-    // Map parameter IDs to modulation destinations
-    if (parameterID == "fmAmount") {
-        return modulationMatrix_.isModulated(braidy::ModulationMatrix::FM_AMOUNT);
-    } else if (parameterID == "param1") {
-        return modulationMatrix_.isModulated(braidy::ModulationMatrix::TIMBRE);
-    } else if (parameterID == "param2") {
-        return modulationMatrix_.isModulated(braidy::ModulationMatrix::COLOR);
-    } else if (parameterID == "fineTune") {
-        return modulationMatrix_.isModulated(braidy::ModulationMatrix::DETUNE);
-    } else if (parameterID == "coarseTune") {
-        return modulationMatrix_.isModulated(braidy::ModulationMatrix::OCTAVE);
-    } else if (parameterID == "envTimbreAmount") {
-        return modulationMatrix_.isModulated(braidy::ModulationMatrix::ENV_TIMBRE_AMOUNT);
-    }
-    return false;
-}
-
-// Helper method to set the base value for a modulated parameter
-void BraidyAudioProcessor::setModulatedParameterBaseValue(const juce::String& parameterID, float newBaseValue) {
-    // Using Griddy's approach: Just update the APVTS parameter directly
-    // No need for separate base value tracking
-    if (auto* param = apvts_.getParameter(parameterID)) {
-        param->setValueNotifyingHost(newBaseValue);
-    }
-}
-
-void BraidyAudioProcessor::algorithmParameterChanged()
-{
-    // Called when algorithm parameter changes from any source (automation, UI, etc.)
-    DBG("[ALGORITHM LISTENER] Algorithm parameter changed, forcing update");
-
-    // Force immediate update on message thread
-    juce::MessageManager::callAsync([this]() {
-        updateSynthesiserFromParameters();
-    });
 }
 
 // This creates new instances of the plugin

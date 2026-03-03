@@ -8,8 +8,7 @@
 /**
  * BraidyAudioProcessor - JUCE plugin wrapping Mutable Instruments Braids
  */
-class BraidyAudioProcessor : public juce::AudioProcessor,
-                              private juce::Timer
+class BraidyAudioProcessor : public juce::AudioProcessor
 {
 public:
     BraidyAudioProcessor();
@@ -73,16 +72,6 @@ public:
     float getModulatedFine() const;
     float getModulatedCoarse() const;
     float getModulatedTimbreMod() const;
-    
-    // Public method for UI to trigger modulation updates
-    void updateModulationFromParameters();
-    
-    // Helper methods for handling manual adjustment of modulated parameters
-    bool isParameterModulated(const juce::String& parameterID) const;
-    void setModulatedParameterBaseValue(const juce::String& parameterID, float newBaseValue);
-
-    // Parameter update handling (public so it can be called from editor)
-    void updateSynthesiserFromParameters();
 
 private:
     // Braids synthesiser
@@ -106,38 +95,46 @@ private:
     // Parameter layout creation
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     
+    // Parameter update handling
+    void updateSynthesiserFromParameters();
+    void updateModulationFromParameters();
+    void applyQuantizationToMidiMessages(juce::MidiBuffer& midiMessages);
+    int quantizeNote(int originalNote, int scale, int root);
+    
     // Current state
     std::atomic<int> currentAlgorithm_{0};
     std::atomic<float> currentParam1_{0.5f};
     std::atomic<float> currentParam2_{0.5f};
     std::atomic<float> currentVolume_{0.7f};
     std::atomic<int> metaModeAlgorithm_{0};  // For META mode display updates
-    std::atomic<int> pendingAlgorithmUpdate_{-1};  // For thread-safe algorithm parameter updates
     
-    // Using Griddy's simpler approach - no need for these complex tracking variables
+    // Recursion guard for parameter updates
+    std::atomic<bool> isUpdatingParameters_{false};
 
-    // Timer callback for thread-safe parameter updates
-    void timerCallback() override;
+    // Stuck-note protection (META+FM scenarios)
+    std::atomic<int> heldNotes_{0};
+    std::atomic<int> samplesSinceLastNoteEvent_{0};
 
-    // Parameter listener for immediate algorithm updates
-    class AlgorithmParameterListener : public juce::AudioProcessorParameter::Listener
-    {
-    public:
-        AlgorithmParameterListener(BraidyAudioProcessor& p) : processor(p) {}
-
-        void parameterValueChanged(int /*parameterIndex*/, float /*newValue*/) override
-        {
-            processor.algorithmParameterChanged();
-        }
-
-        void parameterGestureChanged(int /*parameterIndex*/, bool /*gestureIsStarting*/) override {}
-
-    private:
-        BraidyAudioProcessor& processor;
+    // LFO modulation tracking for automation gestures
+    struct ModulationTracker {
+        float lastModulationValue = 0.0f;
+        bool isGestureActive = false;
+        int samplesUntilNextUpdate = 0;
+        float significantChangeThreshold = 0.01f; // 1% change threshold
     };
 
-    void algorithmParameterChanged();
-    std::unique_ptr<AlgorithmParameterListener> algorithmListener_;
+    // Track modulation for parameters that need automation gestures
+    ModulationTracker timbreModTracker_;
+    ModulationTracker colorModTracker_;
+    ModulationTracker fmModTracker_;
+
+    // Automation gesture management
+    void updateModulationTracking();
+    void checkAndTriggerAutomationGesture(const braidy::ModulationMatrix::Destination dest,
+                                         const juce::String& paramId,
+                                         ModulationTracker& tracker);
+
+    static constexpr int MODULATION_UPDATE_INTERVAL_SAMPLES = 512; // Update every ~11ms at 44.1kHz
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BraidyAudioProcessor)
 };
