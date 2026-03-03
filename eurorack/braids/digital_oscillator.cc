@@ -1109,7 +1109,14 @@ void DigitalOscillator::RenderPlucked(
     p->phase_increment = phase_increment_;
     int32_t width = parameter_[1];
     width = (3 * width) >> 1;
-    p->initialization_ptr = p->size * (8192 + width) >> 16;
+    // Guard against out-of-range parameter values producing invalid delay-line indices.
+    int64_t initialization = (static_cast<int64_t>(p->size) * (8192 + width)) >> 16;
+    if (initialization < 0) {
+      initialization = 0;
+    } else if (initialization > static_cast<int64_t>(p->size)) {
+      initialization = p->size;
+    }
+    p->initialization_ptr = static_cast<size_t>(initialization);
     strike_ = false;
   }
   

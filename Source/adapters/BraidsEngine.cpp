@@ -82,6 +82,14 @@ static const std::vector<std::pair<std::string, std::string>> kParameterNames = 
 
 class BraidsEngine::Impl {
 public:
+    static int16_t normalizedToBraidsParameter(float value) {
+        if (!std::isfinite(value)) {
+            value = 0.5f;
+        }
+        value = std::clamp(value, 0.0f, 1.0f);
+        return static_cast<int16_t>(std::lround(value * 32767.0f));
+    }
+
     Impl() : initialized_(false), sampleRate_(48000.0), internalSampleRate_(96000.0), algorithm_(0) {
         // Zero-initialize the oscillator structure first
         memset(&oscillator_, 0, sizeof(oscillator_));
@@ -106,10 +114,9 @@ public:
         // Set default algorithm
         oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
         
-        // Initialize oscillator parameters properly
-        // Note: Braids uses signed 16-bit range (-32768 to 32767)
-        // Center position should be 0, not 32768
-        oscillator_.set_parameters(0, 0); // Center position (was incorrectly 32768)
+        // Braids timbre/color parameters are expected in [0, 32767].
+        oscillator_.set_parameters(normalizedToBraidsParameter(0.5f),
+                                   normalizedToBraidsParameter(0.5f));
         oscillator_.set_pitch(60 << 7); // MIDI note 60 (middle C) in Braids format
     }
 
@@ -132,7 +139,8 @@ public:
         // Initialize the oscillator properly (don't use memset on C++ objects!)
         oscillator_.Init();
         oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
-        oscillator_.set_parameters(0, 0);
+        oscillator_.set_parameters(normalizedToBraidsParameter(0.5f),
+                                   normalizedToBraidsParameter(0.5f));
         updatePitch();
         updateParameters();
         
@@ -142,9 +150,6 @@ public:
     }
 
     void setAlgorithm(int algorithm) {
-        // LOCK-FREE: Use atomic operations to prevent audio thread blocking
-        // This is critical for seamless META mode operation
-
         // Clamp algorithm to valid range (0 to MACRO_OSC_SHAPE_LAST_ACCESSIBLE_FROM_META = 46)
         algorithm = std::clamp(algorithm, 0, static_cast<int>(braids::MACRO_OSC_SHAPE_LAST_ACCESSIBLE_FROM_META));
         
@@ -152,11 +157,14 @@ public:
         if (algorithm >= static_cast<int>(kAlgorithmNames.size())) {
             algorithm = 0;
         }
-        
-        // Use atomic compare-and-swap to avoid locks
-        int expectedAlgorithm = algorithm_;
-        if (algorithm != expectedAlgorithm) {
-            // Atomically update algorithm
+
+        // Try-lock to avoid blocking the audio thread, but only mutate shared state while locked.
+        std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
+        if (!lock.owns_lock()) {
+            return;
+        }
+
+        if (algorithm != algorithm_) {
             algorithm_ = algorithm;
 
             // HOT-SWAPPABLE: Use lightweight approach to prevent audio gaps
@@ -173,18 +181,12 @@ public:
             }
 
             try {
-                // LOCK-FREE: Use try_lock to avoid blocking audio thread
-                std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
-                if (!lock.owns_lock()) {
-                    // Audio thread is busy, defer this change to prevent blocking
-                    return;
-                }
-
                 if (needsFullReinit) {
                     // Full reinitialization for problematic algorithms
                     oscillator_.Init();
                     oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm));
-                    oscillator_.set_parameters(0, 0);
+                    oscillator_.set_parameters(normalizedToBraidsParameter(0.5f),
+                                               normalizedToBraidsParameter(0.5f));
 
                     if (isPercussion) {
                         oscillator_.Strike();
@@ -193,7 +195,8 @@ public:
                     // HOT-SWAP: Lightweight shape change preserves audio continuity
                     oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm));
                     // Keep current parameters to maintain musical flow
-                    oscillator_.set_parameters(currentParam1_, currentParam2_);
+                    oscillator_.set_parameters(normalizedToBraidsParameter(currentParam1_),
+                                               normalizedToBraidsParameter(currentParam2_));
                 }
 
                 // Always update parameters after algorithm change
@@ -203,13 +206,15 @@ public:
                 algorithm_ = 0; // CSAW
                 oscillator_.Init();
                 oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(0));
-                oscillator_.set_parameters(0, 0);
+                oscillator_.set_parameters(normalizedToBraidsParameter(0.5f),
+                                           normalizedToBraidsParameter(0.5f));
             } catch (...) {
                 // Fall back to a safe algorithm
                 algorithm_ = 0; // CSAW
                 oscillator_.Init();
                 oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(0));
-                oscillator_.set_parameters(0, 0);
+                oscillator_.set_parameters(normalizedToBraidsParameter(0.5f),
+                                           normalizedToBraidsParameter(0.5f));
             }
         }
     }
@@ -309,7 +314,8 @@ public:
                     // Wrap in additional exception handling for META mode stability
                     try {
                         oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
-                        oscillator_.set_parameters(currentParam1_, currentParam2_);
+                        oscillator_.set_parameters(normalizedToBraidsParameter(currentParam1_),
+                                                   normalizedToBraidsParameter(currentParam2_));
                     } catch (...) {
                         // If shape change fails, mark as uninitialized to prevent crashes
                         initialized_ = false;
@@ -444,7 +450,8 @@ private:
                 try {
                     oscillator_.Init();
                     oscillator_.set_shape(static_cast<braids::MacroOscillatorShape>(algorithm_));
-                    oscillator_.set_parameters(0, 0);
+                    oscillator_.set_parameters(normalizedToBraidsParameter(0.5f),
+                                               normalizedToBraidsParameter(0.5f));
                     updatePitch();
                     updateParameters();
                     initialized_ = true;
@@ -520,15 +527,9 @@ private:
     }
 
     void updateParameters() {
-        // Convert 0.0-1.0 range to int16_t range for Braids
-        // CRITICAL FIX: Use correct conversion formula
-        // 0.0 -> -32768, 0.5 -> 0, 1.0 -> 32767
-        int16_t param1 = static_cast<int16_t>((targetParam1_ - 0.5f) * 65535.0f);
-        int16_t param2 = static_cast<int16_t>((targetParam2_ - 0.5f) * 65535.0f);
-
-        // Clamp to valid int16_t range
-        param1 = std::max<int16_t>(-32768, std::min<int16_t>(32767, param1));
-        param2 = std::max<int16_t>(-32768, std::min<int16_t>(32767, param2));
+        // Braids timbre/color ADC domain is [0, 32767] (not signed bipolar).
+        int16_t param1 = normalizedToBraidsParameter(targetParam1_);
+        int16_t param2 = normalizedToBraidsParameter(targetParam2_);
 
         oscillator_.set_parameters(param1, param2);
 
