@@ -1,0 +1,7 @@
+[submodule "eurorack/stmlib"]
+	path = eurorack/stmlib
+	url = https://github.com/pichenettes/stmlib.git
+
+[submodule "eurorack/braids/eurorack/stmlib"]
+	path = eurorack/braids/eurorack/stmlib
+	url = https://github.com/pichenettes/stmlib.git
